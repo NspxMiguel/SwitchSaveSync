@@ -6,6 +6,41 @@ extern "C" {
 #include "lang.h"
 }
 
+namespace
+{
+
+// Uma Label que aceita foco.
+//
+// A borealis só rola a lista até o item FOCADO — é o ScrollView reagindo ao
+// onChildFocusGained, e não existe jeito público de rolar sem foco: o scrollY
+// dele é privado e não tem setter. E Label não recebe foco: o
+// View::getDefaultFocus() devolve nullptr por padrão, e a Label não
+// sobrescreve.
+//
+// Como toda linha de log é uma Label, o único item focável desta tela era o
+// botão — que fica em cima do log. Resultado: a lista nunca descia, e com
+// conversa privada removida do historico
+// conversa privada removida do historico
+// conversa privada removida do historico
+//
+// É o mesmo bug que já tinha comido a aba Sobre, e lá a saída foi um item
+// focável por seção. Aqui não dava pra usar ListItem por linha: ele tem altura
+// fixa e separador, e cem deles viram uma parede — justamente numa tela que ele
+// já achou bagunçada. Uma Label que aceita foco deixa o texto igualzinho e faz
+// o D-pad andar por ele, com o realce mostrando onde você está.
+class LogLabel : public brls::Label
+{
+  public:
+    LogLabel(brls::LabelStyle style, std::string text, bool multiline)
+        : brls::Label(style, text, multiline)
+    {
+    }
+
+    brls::View* getDefaultFocus() override { return this; }
+};
+
+} // namespace
+
 JobPage::JobPage(Job* job, bool cancellable)
     : brls::AppletFrame(true, true)
     , job(job)
@@ -128,10 +163,11 @@ void JobPage::pump()
 
     for (const JobLine& line : this->job->takeNewLines())
     {
-        brls::Label* label = new brls::Label(brls::LabelStyle::SMALL, line.text, true);
+        LogLabel* label = new LogLabel(brls::LabelStyle::SMALL, line.text, true);
         if (line.error)
             label->setColor(nvgRGB(255, 92, 92));
         this->list->addView(label);
+        this->lastLogLine = label;
     }
 
     if (this->job->isFinished() && !this->finishedHandled)
@@ -167,7 +203,12 @@ void JobPage::pump()
         // dois lados. Antes a mensagem mandava ele sair da tela, achar o jogo
         // e apertar Y — três passos depois de uma decisão que ele já tinha
         // tomado antes de ler a frase até o fim.
-        brls::View* focusOn = this->backItem;
+        // Sem escolha pra fazer, o foco vai pro fim do log em vez do botão: é
+        // onde está o resumo, e daí se lê pra cima. O B continua saindo da tela
+        // de qualquer lugar, então nada fica preso.
+        brls::View* focusOn = this->lastLogLine ? this->lastLogLine : (brls::View*)this->backItem;
+        bool temEscolha = false;
+
         for (const JobChoice& choice : this->job->takeChoices())
         {
             brls::ListItem* item = new brls::ListItem(choice.label, choice.description);
@@ -175,8 +216,11 @@ void JobPage::pump()
             item->getClickEvent()->subscribe([action](brls::View* view) { action(); });
             this->list->addView(item);
 
-            if (focusOn == this->backItem)
-                focusOn = item; // a primeira escolha é quem recebe o foco
+            if (!temEscolha)
+            {
+                temEscolha = true;
+                focusOn    = item; // tendo escolha, é ela que recebe o foco
+            }
         }
 
         this->invalidate();
