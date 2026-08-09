@@ -2816,6 +2816,11 @@ static brls::List* createAboutTab()
 
     list->addView(new brls::ListItem(TR("Privacidade", "Privacy"),
         TR("O app fala direto com a nuvem, sem servidor meu no meio.\n\n"
+           "A credencial do Google que vem embutida é minha — é o que te poupa de "
+           "criar um projeto no Google Cloud só pra usar um homebrew de save. Mas a "
+           "conta é sua, o Drive é seu e os arquivos são seus: eu não tenho acesso a "
+           "nada disso. Quem quiser usar uma credencial própria é só compilar; está "
+           "explicado no README.\n\n"
            "No Google Drive, o acesso pedido é o \"drive.file\": o app só enxerga os "
            "arquivos que ele mesmo criou, não o resto do seu Drive. O login fica só no "
            "cartão, em /switch/SwitchSaveSync/token.txt, e sai de vez com o Sair da conta.\n\n"
@@ -2823,6 +2828,11 @@ static brls::List* createAboutTab()
            "/switch/SwitchSaveSync/webdav.cfg, em texto puro — por isso a tela pede uma "
            "senha de aplicativo, não a sua principal.",
             "The app talks straight to the cloud, with no server of mine in between.\n\n"
+            "The Google credentials it ships with are mine — that's what saves you "
+            "from creating a Google Cloud project just to use a save-sync homebrew. "
+            "But the account is yours, the Drive is yours and the files are yours: I "
+            "have no access to any of it. If you'd rather use your own credentials, "
+            "just build it yourself; the README explains how.\n\n"
             "On Google Drive, the scope it asks for is \"drive.file\": it only sees the "
             "files it created itself, not the rest of your Drive. The login stays on the SD "
             "card only, in /switch/SwitchSaveSync/token.txt, and Sign out removes it for "
