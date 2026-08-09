@@ -900,7 +900,8 @@ size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
 
         // Lê DIRETO do save montado pro arquivo. Sem staging: o container é o
         // único lugar onde esses bytes pousam.
-        bool ok = sssbox_add_dir(box, prefixo, "save:/");
+        size_t antes = sssbox_entry_count(box);
+        bool ok      = sssbox_add_dir(box, prefixo, "save:/");
         savemount_unmount(false);
 
         if (!ok)
@@ -908,6 +909,16 @@ size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
             say(log, TR("Falhou ao guardar o save de %s", "Failed to store %s's save"), t->name);
             sssbox_abort_write(box);
             return 0;
+        }
+
+        // Save montado e vazio existe (jogo instalado que nunca foi aberto).
+        // Contar isso como "guardado" faria o resumo prometer um save que não
+        // está lá dentro.
+        if (sssbox_entry_count(box) == antes)
+        {
+            say(log, TR("%s: o save está vazio — não tem o que guardar",
+                        "%s: the save is empty — there's nothing to store"), t->name);
+            continue;
         }
 
         entraram++;
@@ -931,13 +942,29 @@ size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
 
     // A troca só acontece agora: até aqui, o arquivo de antes continuava
     // inteiro no lugar dele.
-    remove(final);
+    //
+    // O de antes sai de cena por rename, não por remove. Apagar primeiro e
+    // renomear depois abre uma janela em que uma falha deixa ele sem o arquivo
+    // novo E sem o velho — e o velho é o backup de tudo.
+    char guardado[0x320];
+    snprintf(guardado, sizeof(guardado), "%s.anterior", final);
+    remove(guardado);
+    bool tinha_antes = (rename(final, guardado) == 0);
+
     if (rename(temp, final) != 0)
     {
         say(log, TR("Não consegui pôr o arquivo no lugar", "Couldn't move the file into place"));
+        if (tinha_antes)
+        {
+            rename(guardado, final);
+            say(log, TR("O arquivo que já existia continua onde estava",
+                        "The file that was already there is still where it was"));
+        }
         remove(temp);
         return 0;
     }
+
+    remove(guardado);
 
     say(log, TR("%zu jogos, %zu arquivos, tudo em %s", "%zu games, %zu files, all in %s"),
         entraram, arquivos, SYNC_ARCHIVE_NAME);
@@ -1019,13 +1046,23 @@ bool syncjob_archive_download(syncjob_log_cb log)
         return false;
     }
 
-    remove(final);
+    // Mesma dança do archive_titles, pelo mesmo motivo: o arquivo de antes só
+    // some depois que o novo estiver no lugar.
+    char guardado[0x320];
+    snprintf(guardado, sizeof(guardado), "%s.anterior", final);
+    remove(guardado);
+    bool tinha_antes = (rename(final, guardado) == 0);
+
     if (rename(temp, final) != 0)
     {
         say(log, TR("Não consegui pôr o arquivo no lugar", "Couldn't move the file into place"));
+        if (tinha_antes)
+            rename(guardado, final);
         remove(temp);
         return false;
     }
+
+    remove(guardado);
 
     say(log, TR("%s está no cartão", "%s is on the SD card"), SYNC_ARCHIVE_NAME);
     return true;
