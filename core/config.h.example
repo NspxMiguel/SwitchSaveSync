@@ -1,0 +1,32 @@
+// config.h.example — copie pra config.h e preencha com o SEU cliente OAuth.
+//
+// Como criar (é grátis):
+//   1. console.cloud.google.com → criar um projeto novo (qualquer nome).
+//   2. "APIs e serviços" → "Biblioteca" → ativar "Google Drive API".
+//   3. "APIs e serviços" → "Tela de consentimento OAuth" → tipo "Externo",
+//      preenche o básico (nome do app, seu e-mail). Não precisa publicar —
+//      em modo "Teste" já funciona pra você logar com a SUA conta Google
+//      (adicione seu e-mail em "Usuários de teste").
+//   4. "Credenciais" → "Criar credenciais" → "ID do cliente OAuth" →
+//      tipo de aplicativo: "TVs e dispositivos de entrada limitada".
+//   5. Copia o Client ID e o Client Secret gerados pra cá embaixo.
+//
+// Esse client_id/secret é SEU, de um projeto Google Cloud SEU, usado só
+// pelo SEU Switch. Não é segredo de verdade nesse tipo de fluxo (o Google
+// trata como client "público" na prática — é por isso que dá pra embutir no
+// binário sem problema), mas não suba esse arquivo pro GitHub por via das
+// dúvidas: config.h está no .gitignore.
+#pragma once
+
+#define GOOGLE_CLIENT_ID     "COLOQUE_SEU_CLIENT_ID.apps.googleusercontent.com"
+#define GOOGLE_CLIENT_SECRET "COLOQUE_SEU_CLIENT_SECRET"
+
+// drive.file = o app só enxerga/mexe nos arquivos que ELE MESMO criou no
+// seu Drive. Não dá acesso ao resto do seu Drive. Ver ANALISE.md — é a
+// recomendação de segurança de escopo mínimo.
+#define GOOGLE_OAUTH_SCOPE   "https://www.googleapis.com/auth/drive.file"
+
+// Nome da pasta criada dentro do seu Drive pra guardar os backups. Dentro
+// dela vai aparecer uma subpasta por jogo, com o nome de verdade do jogo
+// (lido do NACP), tipo "Nintendo Switch Saves/The Legend of Zelda TOTK/".
+#define DRIVE_APP_FOLDER_NAME "Nintendo Switch Saves"

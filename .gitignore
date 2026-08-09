@@ -1,0 +1,11 @@
+build/
+*.nro
+*.nso
+*.nacp
+*.elf
+core/config.h
+gui/resources/shaders/
+
+# token de refresh do Google, puxado do cartao junto com o resto do backup.
+# Nunca entra em commit.
+token.txt
