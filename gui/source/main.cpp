@@ -2711,6 +2711,40 @@ static brls::List* createAboutTab()
     versionItem->setValue(APP_VERSION_STRING);
     list->addView(versionItem);
 
+    // Vem logo depois da versão, e não no fim, porque é o tipo de aviso que só
+    // serve se for lido antes — não depois que o save já deu problema.
+    list->addView(new brls::ListItem(TR("Antes de mais nada", "Before anything else"),
+        TR("Olha... isso aqui foi feito por uma pessoa só. Uma. Sem equipe de "
+           "testes, sem QA, sem ninguém pra olhar por cima do meu ombro e dizer "
+           "\"tem certeza disso?\". Foi testado no meu console, com os meus "
+           "jogos, do meu jeito.\n\n"
+           "Então sim, pode ter bug. Provavelmente tem, e eu ainda não faço "
+           "ideia de qual — só vou descobrir do pior jeito possível, que é "
+           "alguém me contando que quebrou.\n\n"
+           "Se você achar algum, me conta? Por favor mesmo. Não precisa ser "
+           "bonito nem técnico: um \"travou quando eu fiz tal coisa\" já me "
+           "ajuda mais do que você imagina. É em "
+           "github.com/NspxMiguel/SwitchSaveSync, na aba Issues.\n\n"
+           "Eu conserto. Choro um pouquinho antes, mas conserto.\n\n"
+           "E antes que dê ruim: guarda uma cópia dos saves que você não pode "
+           "perder. Não porque eu ache que vai dar errado — mas porque save é "
+           "save, e eu ia dormir bem melhor sabendo que você tem uma.",
+
+            "Look... this was made by one person. One. No test team, no QA, "
+            "nobody looking over my shoulder going \"you sure about that?\". It "
+            "was tested on my console, with my games, my way.\n\n"
+            "So yes, it can have bugs. It probably does, and I have no idea "
+            "which ones yet — I'll only find out the worst way possible, which "
+            "is someone telling me it broke.\n\n"
+            "If you find one, will you tell me? Please. It doesn't have to be "
+            "pretty or technical: a \"it froze when I did this\" helps more "
+            "than you'd think. It's at github.com/NspxMiguel/SwitchSaveSync, "
+            "under Issues.\n\n"
+            "I'll fix it. I'll cry a little first, but I'll fix it.\n\n"
+            "And before anything goes wrong: keep a copy of the saves you can't "
+            "afford to lose. Not because I think it'll break — but a save is a "
+            "save, and I'd sleep a lot better knowing you have one.")));
+
     list->addView(new brls::ListItem(TR("O que este app faz", "What this app does"),
         TR("Sincroniza os saves dos seus jogos com a nuvem que você escolher, na pasta \""
                DRIVE_APP_FOLDER_NAME "\". Cada jogo vira uma subpasta com o nome dele, e os "
