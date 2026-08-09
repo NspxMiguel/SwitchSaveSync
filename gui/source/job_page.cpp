@@ -2,13 +2,17 @@
 
 #include "qr_view.hpp"
 
+extern "C" {
+#include "lang.h"
+}
+
 JobPage::JobPage(Job* job, bool cancellable)
     : brls::AppletFrame(true, true)
     , job(job)
     , cancellable(cancellable)
 {
     this->setTitle(job->getTitle());
-    this->setFooterText("Trabalhando...");
+    this->setFooterText(TR("Trabalhando...", "Working..."));
 
     this->list = new brls::List();
 
@@ -21,7 +25,7 @@ JobPage::JobPage(Job* job, bool cancellable)
     // folga. De quebra, na sincronização cabe muito mais linha de log por tela.
     this->list->setSpacing(10);
 
-    this->statusLabel = new brls::Label(brls::LabelStyle::DIALOG, "Comecando...", true);
+    this->statusLabel = new brls::Label(brls::LabelStyle::DIALOG, TR("Começando...", "Starting..."), true);
     this->statusLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
     this->list->addView(this->statusLabel);
 
@@ -34,7 +38,7 @@ JobPage::JobPage(Job* job, bool cancellable)
     // e a tela de login é exatamente a mesma armadilha. Com um item focável
     // desde o primeiro quadro o problema deixa de existir por construção,
     // em vez de depender de eu tapar cada buraco um por um.
-    this->backItem = new brls::ListItem(cancellable ? "Cancelar" : "Aguarde...");
+    this->backItem = new brls::ListItem(cancellable ? TR("Cancelar", "Cancel") : TR("Aguarde...", "Please wait..."));
     this->backItem->getClickEvent()->subscribe([this](brls::View* view) {
         this->onBackPressed();
     });
@@ -57,12 +61,13 @@ void JobPage::onBackPressed()
     if (this->cancellable)
     {
         this->job->requestCancel();
-        this->backItem->setLabel("Cancelando...");
-        brls::Application::notify("Cancelando...");
+        this->backItem->setLabel(TR("Cancelando...", "Cancelling..."));
+        brls::Application::notify(TR("Cancelando...", "Cancelling..."));
     }
     else
     {
-        brls::Application::notify("Nao da pra sair no meio dessa operacao");
+        brls::Application::notify(TR("Não dá pra sair no meio dessa operação",
+            "You can't leave in the middle of this"));
     }
 }
 
@@ -96,7 +101,7 @@ void JobPage::pump()
         // conversa privada removida do historico
         // conversa privada removida do historico
         brls::Label* infoLabel = new brls::Label(brls::LabelStyle::DIALOG,
-            url + "   —   codigo: " + code, true);
+            url + TR("   —   código: ", "   —   code: ") + code, true);
         infoLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
         this->list->addView(infoLabel);
         this->loginViews.push_back(infoLabel);
@@ -113,7 +118,9 @@ void JobPage::pump()
         {
             delete qr;
             qrView = new brls::Label(brls::LabelStyle::SMALL,
-                "(nao consegui gerar o QR — use o endereco e o codigo acima)", true);
+                TR("(não consegui gerar o QR — use o endereço e o código acima)",
+                    "(couldn't draw the QR — use the address and code above)"),
+                true);
         }
         this->list->addView(qrView);
         this->loginViews.push_back(qrView);
@@ -132,7 +139,7 @@ void JobPage::pump()
         this->finishedHandled = true;
 
         bool success = this->job->succeeded();
-        this->setFooterText(success ? "Concluido" : "Falhou");
+        this->setFooterText(success ? TR("Concluído", "Done") : TR("Falhou", "Failed"));
 
         // Some com o endereço, o código e o QR. Sem isso, acabar o login não
         // mudava nada de visível — o QR continuava ocupando a tela inteira, e
@@ -153,7 +160,7 @@ void JobPage::pump()
         if (!success)
             this->statusLabel->setColor(nvgRGB(255, 92, 92));
 
-        this->backItem->setLabel("Voltar");
+        this->backItem->setLabel(TR("Voltar", "Back"));
 
         // Conflito de save: o trabalho parou porque só ele pode decidir. As
         // saídas viram linha clicável aqui mesmo, logo abaixo dos números dos
