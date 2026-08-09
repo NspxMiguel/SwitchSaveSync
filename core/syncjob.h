@@ -10,6 +10,7 @@
 #include <switch.h>
 #include <stdbool.h>
 #include "titles.h"
+#include "nxsaves.h"   // só pelo NXSAVES_EXT, que é quem manda na extensão
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,11 +86,11 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 //
 // conversa privada removida do historico
 // conversa privada removida do historico
-// continua sendo uma pasta por jogo no Drive. Ver core/sssbox.h.
+// continua sendo uma pasta por jogo no Drive. Ver core/nxsaves.h.
 // ---------------------------------------------------------------------------
 
 // Nome do arquivo único no Drive e no cartão.
-#define SYNC_ARCHIVE_NAME "SwitchSaveSync.ssaves"
+#define SYNC_ARCHIVE_NAME "SwitchSaveSync." NXSAVES_EXT
 
 // Perguntado entre um jogo e outro: devolver true faz parar. Pode ser NULL.
 // Parar aqui é seguro — nada foi escrito em save nenhum ainda.

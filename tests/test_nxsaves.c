@@ -1,10 +1,10 @@
-// Teste do formato .ssaves rodando no Mac, sem console no meio.
+// Teste do formato .nxsaves rodando no Mac, sem console no meio.
 //
 // É o pedaço do app onde bug significa save perdido: se o pacote sair torto, o
 // erro só aparece na hora de restaurar, que é a pior hora possível. Aqui a
 // gente escreve, lê de volta e compara byte a byte.
 
-#include "sssbox.h"
+#include "nxsaves.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -198,26 +198,26 @@ int main(void)
 
     char origem[2048], caixa[2048], destino[2048];
     snprintf(origem,  sizeof(origem),  "%s/origem", tmp);
-    snprintf(caixa,   sizeof(caixa),   "%s/tudo.ssaves", tmp);
+    snprintf(caixa,   sizeof(caixa),   "%s/tudo.nxsaves", tmp);
     snprintf(destino, sizeof(destino), "%s/destino", tmp);
 
     montar_arvore(origem);
 
     printf("\n== escrever ==\n");
 
-    SssBoxWriter *w = sssbox_open_write(caixa);
+    NxSavesWriter *w = nxsaves_open_write(caixa);
     ok(w != NULL, "abriu o arquivo pra escrita");
     if (!w) return 1;
 
-    ok(sssbox_add_dir(w, "Jogo A/", origem), "guardou a arvore como \"Jogo A/\"");
-    ok(sssbox_add_dir(w, "Jogo B (Player 1)/", origem), "guardou de novo como \"Jogo B (Player 1)/\"");
+    ok(nxsaves_add_dir(w, "Jogo A/", origem), "guardou a arvore como \"Jogo A/\"");
+    ok(nxsaves_add_dir(w, "Jogo B (Player 1)/", origem), "guardou de novo como \"Jogo B (Player 1)/\"");
 
-    size_t entradas = sssbox_entry_count(w);
-    unsigned long long escritos = sssbox_bytes_written(w);
+    size_t entradas = nxsaves_entry_count(w);
+    unsigned long long escritos = nxsaves_bytes_written(w);
     ok(entradas == 12, "contou 12 entradas (6 arquivos x 2 pastas)");
     ok(escritos > 0, "contabilizou bytes escritos");
 
-    ok(sssbox_close_write(w), "fechou o arquivo");
+    ok(nxsaves_close_write(w), "fechou o arquivo");
     ok(tamanho(caixa) > 0, "o arquivo existe e nao esta vazio");
 
     printf("     %ld bytes no arquivo, %llu bytes de save la dentro\n",
@@ -225,13 +225,13 @@ int main(void)
 
     printf("\n== e nosso, e nao e zip ==\n");
 
-    ok(sssbox_is_box(caixa), "sssbox_is_box reconhece o proprio arquivo");
+    ok(nxsaves_is_box(caixa), "nxsaves_is_box reconhece o proprio arquivo");
 
     {
         char naoehcaixa[2048];
         snprintf(naoehcaixa, sizeof(naoehcaixa), "%s/qualquer.bin", tmp);
         escrever(naoehcaixa, "PK\x03\x04 isto aqui e um zip de mentira", 34);
-        ok(!sssbox_is_box(naoehcaixa), "sssbox_is_box recusa arquivo de fora");
+        ok(!nxsaves_is_box(naoehcaixa), "nxsaves_is_box recusa arquivo de fora");
     }
 
     {
@@ -277,7 +277,7 @@ int main(void)
 
     {
         Conta c = {0};
-        ok(sssbox_list(caixa, conta_cb, &c), "sssbox_list leu o indice");
+        ok(nxsaves_list(caixa, conta_cb, &c), "nxsaves_list leu o indice");
         ok(c.n == 12, "listou as 12 entradas");
         printf("     primeiro nome: %s\n", c.primeiro);
 
@@ -290,14 +290,14 @@ int main(void)
 
     {
         Conta c = {0};
-        ok(sssbox_list_folders(caixa, conta_cb, &c), "sssbox_list_folders leu o indice");
+        ok(nxsaves_list_folders(caixa, conta_cb, &c), "nxsaves_list_folders leu o indice");
         ok(c.n == 2, "achou as 2 pastas de primeiro nivel");
     }
 
     printf("\n== tirar de volta ==\n");
 
     mkdir(destino, 0777);
-    ok(sssbox_extract(caixa, "Jogo A/", destino), "extraiu so o \"Jogo A/\"");
+    ok(nxsaves_extract(caixa, "Jogo A/", destino), "extraiu so o \"Jogo A/\"");
 
     {
         int n = comparar_arvore(origem, destino);
@@ -309,7 +309,7 @@ int main(void)
         char tudo[2048];
         snprintf(tudo, sizeof(tudo), "%s/tudo", tmp);
         mkdir(tudo, 0777);
-        ok(sssbox_extract(caixa, "", tudo), "extraiu tudo com prefixo vazio");
+        ok(nxsaves_extract(caixa, "", tudo), "extraiu tudo com prefixo vazio");
 
         char a[2048], b[2048];
         snprintf(a, sizeof(a), "%s/Jogo A", tudo);
@@ -323,7 +323,7 @@ int main(void)
         snprintf(vazio, sizeof(vazio), "%s/naoexiste", tmp);
         mkdir(vazio, 0777);
         // Prefixo que nao casa com nada: nao pode explodir nem inventar arquivo.
-        sssbox_extract(caixa, "Jogo Z/", vazio);
+        nxsaves_extract(caixa, "Jogo Z/", vazio);
         DIR *d = opendir(vazio);
         int n = 0;
         struct dirent *e;
@@ -336,36 +336,36 @@ int main(void)
 
     {
         char meio[2048];
-        snprintf(meio, sizeof(meio), "%s/abortado.ssaves", tmp);
+        snprintf(meio, sizeof(meio), "%s/abortado.nxsaves", tmp);
 
-        SssBoxWriter *w2 = sssbox_open_write(meio);
+        NxSavesWriter *w2 = nxsaves_open_write(meio);
         ok(w2 != NULL, "abriu um segundo arquivo");
-        sssbox_add_dir(w2, "Jogo C/", origem);
+        nxsaves_add_dir(w2, "Jogo C/", origem);
         ok(tamanho(meio) > 0, "tinha bytes gravados antes de desistir");
-        sssbox_abort_write(w2);
+        nxsaves_abort_write(w2);
         ok(tamanho(meio) < 0, "o abort apagou o arquivo (meio backup nao fica no cartao)");
     }
 
     {
         // Fechar sem ter posto nada dentro. O codigo recusa de proposito: um
-        // .ssaves com zero save dentro parece backup e nao e. Entao o close
+        // .nxsaves com zero save dentro parece backup e nao e. Entao o close
         // tem que dizer que nao deu E apagar o arquivo.
         char zerado[2048];
-        snprintf(zerado, sizeof(zerado), "%s/vazio.ssaves", tmp);
+        snprintf(zerado, sizeof(zerado), "%s/vazio.nxsaves", tmp);
 
-        SssBoxWriter *w3 = sssbox_open_write(zerado);
+        NxSavesWriter *w3 = nxsaves_open_write(zerado);
         ok(w3 != NULL, "abriu um arquivo pra deixar vazio");
-        ok(!sssbox_close_write(w3), "recusa fechar sem nenhuma entrada dentro");
+        ok(!nxsaves_close_write(w3), "recusa fechar sem nenhuma entrada dentro");
         ok(tamanho(zerado) < 0, "e apaga o arquivo vazio em vez de deixar no cartao");
     }
 
     printf("\n== arquivo estragado ==\n");
 
     {
-        // Um .ssaves truncado no meio: tem que responder que nao deu, e nao
+        // Um .nxsaves truncado no meio: tem que responder que nao deu, e nao
         // sair escrevendo lixo em cima de save.
         char torto[2048];
-        snprintf(torto, sizeof(torto), "%s/torto.ssaves", tmp);
+        snprintf(torto, sizeof(torto), "%s/torto.nxsaves", tmp);
 
         long n = tamanho(caixa);
         FILE *fi = fopen(caixa, "rb");
@@ -384,8 +384,8 @@ int main(void)
         snprintf(dest2, sizeof(dest2), "%s/dotorto", tmp);
         mkdir(dest2, 0777);
 
-        ok(!sssbox_list(torto, conta_cb, &(Conta){0}), "recusa listar arquivo cortado pela metade");
-        ok(!sssbox_extract(torto, "", dest2), "recusa extrair arquivo cortado pela metade");
+        ok(!nxsaves_list(torto, conta_cb, &(Conta){0}), "recusa listar arquivo cortado pela metade");
+        ok(!nxsaves_extract(torto, "", dest2), "recusa extrair arquivo cortado pela metade");
     }
 
     printf("\n=========================================\n");

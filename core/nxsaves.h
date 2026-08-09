@@ -1,4 +1,4 @@
-// sssbox.h — "tudo num arquivo só", num formato que é nosso.
+// nxsaves.h — "tudo num arquivo só", num formato que é nosso.
 //
 // conversa privada removida do historico
 // conversa privada removida do historico
@@ -6,7 +6,7 @@
 // abrir com dois cliques no Mac. Não é o que ele quer: ele quer um arquivo que
 // não seja igual ao de todo mundo.
 //
-// Então: container próprio, extensão `.ssaves`, com o índice no fim e os bytes
+// Então: container próprio, extensão `.nxsaves`, com o índice no fim e os bytes
 // embaralhados. **Isso é disfarce, não cofre** — o código está público no
 // conversa privada removida do historico
 // o arquivo não é um zip, não abre com duplo clique, e não entrega o save de
@@ -35,16 +35,19 @@
 extern "C" {
 #endif
 
-#define SSSBOX_EXT "sss"
+// A extensão, num lugar só. Quem monta nome de arquivo usa daqui — era pra ser
+// assim desde o começo, mas por um tempo isto aqui ficou desencontrado do que o
+// syncjob.c escrevia de verdade.
+#define NXSAVES_EXT "nxsaves"
 
 // ---------------------------------------------------------------------------
 // escrita
 // ---------------------------------------------------------------------------
 
-typedef struct SssBoxWriter SssBoxWriter;
+typedef struct NxSavesWriter NxSavesWriter;
 
 // Cria (ou trunca) o arquivo. NULL se não deu pra abrir pra escrita.
-SssBoxWriter *sssbox_open_write(const char *path);
+NxSavesWriter *nxsaves_open_write(const char *path);
 
 // Enfia a árvore de local_dir dentro do arquivo, com os nomes começando por
 // prefix (ex.: "Zelda/"). local_dir pode ser um save montado — "save:/" — e
@@ -52,41 +55,41 @@ SssBoxWriter *sssbox_open_write(const char *path);
 //
 // Devolve false na primeira falha; o writer fica marcado como estragado e o
 // close vai apagar o arquivo.
-bool sssbox_add_dir(SssBoxWriter *b, const char *prefix, const char *local_dir);
+bool nxsaves_add_dir(NxSavesWriter *b, const char *prefix, const char *local_dir);
 
 // Fecha: escreve o índice, o cabeçalho definitivo, e confere que o fclose deu
 // certo (é onde cartão cheio aparece). Em qualquer erro apaga o arquivo — meio
 // arquivo é pior que arquivo nenhum, porque parece backup.
 // Libera o writer nos dois casos.
-bool sssbox_close_write(SssBoxWriter *b);
+bool nxsaves_close_write(NxSavesWriter *b);
 
 // Desiste: fecha, apaga o arquivo e libera. Serve pro cancelamento.
-void sssbox_abort_write(SssBoxWriter *b);
+void nxsaves_abort_write(NxSavesWriter *b);
 
-size_t sssbox_entry_count(const SssBoxWriter *b);
-uint64_t sssbox_bytes_written(const SssBoxWriter *b);
+size_t nxsaves_entry_count(const NxSavesWriter *b);
+uint64_t nxsaves_bytes_written(const NxSavesWriter *b);
 
 // ---------------------------------------------------------------------------
 // leitura
 // ---------------------------------------------------------------------------
 
 // É um arquivo nosso? (só confere o cabeçalho, não lê o resto)
-bool sssbox_is_box(const char *path);
+bool nxsaves_is_box(const char *path);
 
-typedef void (*sssbox_list_cb)(const char *name, uint64_t size, void *userdata);
+typedef void (*nxsaves_list_cb)(const char *name, uint64_t size, void *userdata);
 
 // Chama cb pra cada arquivo lá dentro, com o tamanho original.
-bool sssbox_list(const char *path, sssbox_list_cb cb, void *userdata);
+bool nxsaves_list(const char *path, nxsaves_list_cb cb, void *userdata);
 
 // Chama cb uma vez por PASTA de primeiro nível (o "Zelda/" de cima), com a
 // soma dos tamanhos. É o que a tela usa pra dizer o que tem dentro do arquivo
 // antes de escrever em save nenhum.
-bool sssbox_list_folders(const char *path, sssbox_list_cb cb, void *userdata);
+bool nxsaves_list_folders(const char *path, nxsaves_list_cb cb, void *userdata);
 
 // Tira de dentro tudo que começa com prefix, recriando as subpastas em
 // dest_dir. prefix "" tira tudo. Nome com "..", com barra no começo ou com
 // ":" é recusado — o destino aqui vira save de jogo.
-bool sssbox_extract(const char *path, const char *prefix, const char *dest_dir);
+bool nxsaves_extract(const char *path, const char *prefix, const char *dest_dir);
 
 #ifdef __cplusplus
 }

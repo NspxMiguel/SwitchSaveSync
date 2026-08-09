@@ -12,7 +12,7 @@
 #include "cloud.h"
 #include "lang.h"
 #include "savemount.h"
-#include "sssbox.h"
+#include "nxsaves.h"
 #include "syncstate.h"
 
 #define MAX_TITLES 128
@@ -828,7 +828,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 // Tudo num arquivo só
 //
 // conversa privada removida do historico
-// O formato está em sssbox.c. Aqui é só a costura: montar save, empurrar pro
+// O formato está em nxsaves.c. Aqui é só a costura: montar save, empurrar pro
 // arquivo, e a volta.
 // ---------------------------------------------------------------------------
 
@@ -841,7 +841,7 @@ bool syncjob_has_archive(void)
 {
     char path[0x300];
     syncjob_archive_path(path, sizeof(path));
-    return sssbox_is_box(path);
+    return nxsaves_is_box(path);
 }
 
 void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
@@ -850,7 +850,7 @@ void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
     // pôr o apelido de uma delas no nome seria mentir sobre o conteúdo.
     char limpo[0x201];
     syncstate_sanitize_name(title->name, limpo, sizeof(limpo));
-    snprintf(out, outsz, "%s/%s.ssaves", SYNC_APP_DIR, limpo);
+    snprintf(out, outsz, "%s/%s." NXSAVES_EXT, SYNC_APP_DIR, limpo);
 }
 
 size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
@@ -870,7 +870,7 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
     snprintf(final, sizeof(final), "%s", path);
     snprintf(temp, sizeof(temp), "%s.parcial", final);
 
-    SssBoxWriter *box = sssbox_open_write(temp);
+    NxSavesWriter *box = nxsaves_open_write(temp);
     if (!box)
     {
         say(log, TR("Não consegui criar o arquivo no cartão", "Couldn't create the file on the SD card"));
@@ -886,7 +886,7 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
         if (stop && stop())
         {
             say(log, TR("Parado a pedido — o arquivo não foi gravado", "Stopped on request — the file wasn't written"));
-            sssbox_abort_write(box);
+            nxsaves_abort_write(box);
             return 0;
         }
 
@@ -929,21 +929,21 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
 
         // Lê DIRETO do save montado pro arquivo. Sem staging: o container é o
         // único lugar onde esses bytes pousam.
-        size_t antes = sssbox_entry_count(box);
-        bool ok      = sssbox_add_dir(box, prefixo, "save:/");
+        size_t antes = nxsaves_entry_count(box);
+        bool ok      = nxsaves_add_dir(box, prefixo, "save:/");
         savemount_unmount(false);
 
         if (!ok)
         {
             say(log, TR("Falhou ao guardar o save de %s", "Failed to store %s's save"), t->name);
-            sssbox_abort_write(box);
+            nxsaves_abort_write(box);
             return 0;
         }
 
         // Save montado e vazio existe (jogo instalado que nunca foi aberto).
         // Contar isso como "guardado" faria o resumo prometer um save que não
         // está lá dentro.
-        if (sssbox_entry_count(box) == antes)
+        if (nxsaves_entry_count(box) == antes)
         {
             say(log, TR("%s: o save está vazio — não tem o que guardar",
                         "%s: the save is empty — there's nothing to store"), t->name);
@@ -957,13 +957,13 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
     if (entraram == 0)
     {
         say(log, TR("Nenhum save entrou — nada foi gravado", "No save made it in — nothing was written"));
-        sssbox_abort_write(box);
+        nxsaves_abort_write(box);
         return 0;
     }
 
-    size_t arquivos = sssbox_entry_count(box);
+    size_t arquivos = nxsaves_entry_count(box);
 
-    if (!sssbox_close_write(box))
+    if (!nxsaves_close_write(box))
     {
         say(log, TR("Não consegui fechar o arquivo (cartão cheio?)", "Couldn't close the file (SD card full?)"));
         return 0;
@@ -1014,7 +1014,7 @@ bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log)
     const char *nome_remoto = strrchr(path, '/');
     nome_remoto = nome_remoto ? nome_remoto + 1 : path;
 
-    if (!sssbox_is_box(path))
+    if (!nxsaves_is_box(path))
     {
         say(log, TR("Não tem arquivo único no cartão pra subir", "There's no single file on the SD card to upload"));
         return false;
@@ -1077,7 +1077,7 @@ bool syncjob_archive_download(syncjob_log_cb log)
 
     // Baixou não quer dizer prestável. Conferir antes de trocar evita que um
     // download pela metade apague o arquivo bom que estava no cartão.
-    if (!sssbox_is_box(temp))
+    if (!nxsaves_is_box(temp))
     {
         say(log, TR("O que veio da nuvem não é um arquivo nosso", "What came from the cloud isn't one of our files"));
         remove(temp);
@@ -1128,7 +1128,7 @@ bool syncjob_archive_list(syncjob_archive_cb cb, void *userdata)
 bool syncjob_archive_list_path(const char *path, syncjob_archive_cb cb, void *userdata)
 {
     ArquivoCtx c = { cb, userdata };
-    return sssbox_list_folders(path, um_jogo_do_arquivo, &c);
+    return nxsaves_list_folders(path, um_jogo_do_arquivo, &c);
 }
 
 bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
@@ -1145,7 +1145,7 @@ bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
 bool syncjob_archive_restore_folder(const char *path, const char *folder,
                                      const TitleEntry *dest, syncjob_log_cb log)
 {
-    if (!sssbox_is_box(path))
+    if (!nxsaves_is_box(path))
     {
         say(log, TR("Não tem arquivo único no cartão", "There's no single file on the SD card"));
         return false;
@@ -1170,7 +1170,7 @@ bool syncjob_archive_restore_folder(const char *path, const char *folder,
     clear_dir(staging);
 
     say(log, TR("Tirando %s de dentro do arquivo...", "Pulling %s out of the file..."), pasta);
-    if (!sssbox_extract(path, prefixo, staging))
+    if (!nxsaves_extract(path, prefixo, staging))
     {
         say(log, TR("Esse save não está dentro do arquivo (ou o arquivo está corrompido)", "That save isn't inside the file (or the file is corrupted)"));
         return false;

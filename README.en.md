@@ -77,7 +77,7 @@ safety net for when the cloud isn't an option.
 - **Sync everything at once** — one row at the top of the list walks every save, deciding
   which way each one goes. When both sides changed it does **not** choose: that game is
   left alone and shows up in a list at the end, for you to sort out one by one.
-- **Everything in one file** — optional: packs every save into a `.ssaves`, a format of ours
+- **Everything in one file** — optional: packs every save into a `.nxsaves`, a format of ours
   that isn't a zip and that only this app reads. Handy for taking everything at once. *It's
   a disguise, not a lock* — the code is open, so anyone determined enough can read it.
   That's why the normal mode (one folder per game on Drive) is still the recommended one: a
