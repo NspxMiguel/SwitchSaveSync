@@ -83,6 +83,38 @@ void syncstate_log(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 // caminho no SD e no Drive). Escreve em out, sempre null-terminated.
 void syncstate_sanitize_name(const char *in, char *out, size_t outsz);
 
+// --- em que pasta da nuvem esse save mora --------------------------------
+//
+// Existe por causa de um problema que ele achou: *"mudei d nome e foi nao"*.
+//
+// Quando um jogo tem save de mais de uma conta, o nome da pasta na nuvem leva
+// o apelido junto — "Mario Kart 8 Deluxe (Player 1)". O apelido é o nome de
+// exibição da conta, e o console deixa trocar quando quiser. Trocou, o app
+// passa a procurar uma pasta que não existe, faz uma nova, e o backup antigo
+// fica órfão: não some, mas some da vista, e o app trata como primeira sync.
+//
+// O conserto é não depender do nome pra achar de novo. A conta tem um uid, que
+// NÃO muda quando o apelido muda — então o que identifica de verdade é
+// (application_id + uid). Aqui fica o de-para: esse par aponta pro nome de
+// pasta que foi realmente usado na nuvem.
+//
+// O nome continua sendo o bonito, com o apelido dentro, porque quem abre o
+// Drive no navegador tem que entender o que está vendo. O que muda é que o
+// nome virou etiqueta, e não mais a identidade.
+#define SYNC_FOLDERS_PATH SYNC_APP_DIR "/pastas.txt"
+
+// Guarda "o save desse jogo, dessa conta, mora nesta pasta". Chamar depois de
+// um backup que deu certo. Regravar com nome diferente substitui a linha.
+// Em device save, passe um uid zerado — é como o resto do código já trata.
+void syncstate_remember_folder(u64 application_id, AccountUid uid, const char *folder);
+
+// O contrário: qual pasta foi usada da última vez. false se nunca gravou —
+// e aí quem chamou usa o nome calculado, que é o que sempre fez.
+bool syncstate_recall_folder(u64 application_id, AccountUid uid, char *out, size_t outsz);
+
+// Esquece o registro desse save (o backup dele saiu da nuvem, por exemplo).
+void syncstate_forget_folder(u64 application_id, AccountUid uid);
+
 #ifdef __cplusplus
 }
 #endif

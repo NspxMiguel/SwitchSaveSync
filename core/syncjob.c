@@ -101,6 +101,33 @@ void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz)
     save_folder_name(title, out, outsz);
 }
 
+// O nome da pasta NA NUVEM — que nem sempre é o nome calculado acima.
+//
+// Ver o syncstate.h: o apelido da conta entra no nome, e o console deixa trocar
+// o apelido quando quiser. Se já existe registro de qual pasta este save usou,
+// é ela que vale. Sem isso, trocar o apelido faz o app procurar uma pasta que
+// não existe, tratar como primeira sync, e o backup antigo fica órfão na nuvem
+// — que é exatamente o "mudei d nome e foi nao" que ele relatou.
+//
+// O staging e o backup do cartão continuam com o nome calculado, de propósito:
+// são pastas nossas e descartáveis, e renomear elas não perde nada.
+static void cloud_folder_name(const TitleEntry *title, char *out, size_t outsz)
+{
+    if (syncstate_recall_folder(title->application_id, title->uid, out, outsz)
+        && out[0] != '\0')
+        return;
+
+    save_folder_name(title, out, outsz);
+}
+
+// Gravar só depois que a pasta existe de verdade na nuvem. Guardar antes
+// deixaria registro apontando pra pasta que nunca nasceu, e aí o app procuraria
+// eternamente por ela em vez de criar a certa.
+static void lembra_pasta(const TitleEntry *title, const char *pasta)
+{
+    syncstate_remember_folder(title->application_id, title->uid, pasta);
+}
+
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 {
     char safe[0x201];
@@ -151,12 +178,16 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
         return false;
     }
 
+    char pasta_nuvem[0x201];
+    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
+
     char game_id[CLOUD_ID_MAX];
-    if (!cloud_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    if (!cloud_ensure_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id)))
     {
         say(log, TR("Não criei a pasta do jogo em %s", "Couldn't create the game's folder on %s"), nuvem());
         return false;
     }
+    lembra_pasta(title, pasta_nuvem);
 
     say(log, TR("Subindo pro %s...", "Uploading to %s..."), nuvem());
     if (!cloud_upload_tree(token, game_id, staging))
@@ -588,8 +619,19 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     // find, e não ensure: "ensure" CRIA a pasta quando não acha, e foi assim
     // que um jogo sem backup na nuvem virou "restore de pasta vazia" que ainda
     // assim montava o save e commitava. Quem lê da nuvem nunca cria nada.
+    //
+    // Duas tentativas: a pasta registrada e a calculada. Aqui pode ser
+    // generoso porque ninguém cria nada — o pior caso é não achar. E cobre os
+    // dois lados: quem renomeou a conta depois do backup (vale a registrada) e
+    // quem apagou o pastas.txt ou trouxe o cartão de outro console (vale a
+    // calculada, que é o que sempre valeu).
     char game_id[CLOUD_ID_MAX];
-    if (!cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    char pasta_nuvem[0x201];
+    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
+
+    if (!cloud_find_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id))
+        && (strcmp(pasta_nuvem, safe) == 0
+            || !cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id))))
     {
         say(log, TR("Esse jogo não tem backup em %s", "This game has no backup on %s"), nuvem());
         return false;
@@ -705,8 +747,27 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     }
 
     // find, não ensure: procurar não pode criar pasta. Ver syncjob_restore_title.
+    //
+    // Aqui é o lugar mais caro de errar o nome da pasta: não achar leva direto
+    // pro ramo "primeira sync desse jogo", que sobe o save de agora numa pasta
+    // nova e deixa o backup antigo órfão. Por isso as duas tentativas, igual ao
+    // restore — a pasta registrada e a calculada.
     char game_id[CLOUD_ID_MAX];
-    bool tem_na_nuvem = cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id));
+    char pasta_nuvem[0x201];
+    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
+
+    bool tem_na_nuvem = cloud_find_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id));
+    if (!tem_na_nuvem && strcmp(pasta_nuvem, safe) != 0
+        && cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    {
+        // A registrada sumiu e a calculada existe: o registro envelheceu (ele
+        // apagou a pasta na nuvem pelo navegador, por exemplo). Vale a que
+        // existe, e o registro se acerta logo abaixo.
+        snprintf(pasta_nuvem, sizeof(pasta_nuvem), "%s", safe);
+        tem_na_nuvem = true;
+    }
+    if (tem_na_nuvem)
+        lembra_pasta(title, pasta_nuvem);
 
     u64 cloud_fp = 0;
     bool cloud_vazio = true;
@@ -735,12 +796,13 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     if (cloud_vazio)
     {
         say(log, TR("Primeira sync desse jogo — subindo o save do console", "First sync for this game — uploading the console's save"));
-        if (!cloud_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)) ||
+        if (!cloud_ensure_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id)) ||
             !cloud_upload_tree(token, game_id, console_dir))
         {
             say(log, TR("Upload falhou", "Upload failed"));
             return SYNCJOB_SYNC_FAILED;
         }
+        lembra_pasta(title, pasta_nuvem);
         cloud_prune_extras(token, game_id, console_dir);
         syncjob_mark_synced(title, local_fp);
         say(log, TR("Save de %s guardado na nuvem", "%s's save stored in the cloud"), title->name);

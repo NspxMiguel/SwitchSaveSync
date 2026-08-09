@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <stdlib.h>
 
 // ----------------------------------------------------------------- o que falta
 
@@ -313,6 +314,137 @@ static void teste_folder_name(void)
     }
 }
 
+// ------------------------------------- o registro de qual pasta foi usada
+//
+// É o conserto do "mudei d nome e foi nao". O de cima prova o problema (o
+// apelido entra no nome da pasta); este prova a saída: o par
+// (application_id + uid) aponta pro nome que foi realmente usado, e o uid não
+// muda quando o apelido muda.
+
+static AccountUid conta(u64 a, u64 b)
+{
+    AccountUid u;
+    u.uid[0] = a;
+    u.uid[1] = b;
+    return u;
+}
+
+static void teste_registro_de_pasta(void)
+{
+    printf("\n== em que pasta da nuvem esse save mora ==\n");
+
+    remove(SYNC_FOLDERS_PATH);
+
+    const u64 MK8   = 0x0100152000022000ull;
+    const u64 ZELDA = 0x01007EF00011E000ull;
+
+    AccountUid miguel = conta(0x1111111111111111ull, 0x2222222222222222ull);
+    AccountUid Convidado  = conta(0x3333333333333333ull, 0x4444444444444444ull);
+    AccountUid console = conta(0, 0);   // device save
+
+    char out[0x201];
+
+    ok(!syncstate_recall_folder(MK8, miguel, out, sizeof(out)),
+        "sem arquivo nenhum, nao inventa pasta");
+
+    syncstate_remember_folder(MK8, miguel, "Mario Kart 8 Deluxe (Player 1)");
+    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out)), "gravou e achou de volta");
+    ok(strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0, "e veio o nome certo");
+
+    // O CORACAO DO CONSERTO: o apelido mudou no console, o uid nao. O registro
+    // continua apontando pra pasta antiga, entao o app acha o backup de volta
+    // em vez de criar pasta nova e orfanar a velha.
+    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
+        "!! trocar o apelido nao mexe no registro — e o uid que manda");
+
+    // Outra conta do mesmo jogo tem que ser outra linha.
+    ok(!syncstate_recall_folder(MK8, Convidado, out, sizeof(out)),
+        "a outra conta do mesmo jogo nao herda a pasta");
+    syncstate_remember_folder(MK8, Convidado, "Mario Kart 8 Deluxe (Convidado)");
+    ok(syncstate_recall_folder(MK8, Convidado, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Convidado)") == 0, "e a dela e a dela");
+    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
+        "gravar a dela nao estragou a dele");
+
+    // Device save: uid zerado e uma chave legitima, separada das contas.
+    syncstate_remember_folder(MK8, console, "Mario Kart 8 Deluxe (console)");
+    ok(syncstate_recall_folder(MK8, console, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (console)") == 0,
+        "o save do console e uma chave propria (uid zerado)");
+    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
+        "e nao atropelou o da conta");
+
+    // Mesma conta, jogo diferente.
+    syncstate_remember_folder(ZELDA, miguel, "The Legend of Zelda_ Breath of the Wild");
+    ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out))
+        && strcmp(out, "The Legend of Zelda_ Breath of the Wild") == 0,
+        "outro jogo da mesma conta e outra linha");
+
+    // Regravar a mesma chave SUBSTITUI, nao duplica — senao o arquivo cresceria
+    // pra sempre e o recall pegaria a linha velha.
+    syncstate_remember_folder(MK8, miguel, "Mario Kart 8 Deluxe (Miguelzinho)");
+    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Miguelzinho)") == 0,
+        "regravar a mesma chave troca o nome");
+    {
+        int linhas = 0;
+        char l[0x280];
+        FILE *f = fopen(SYNC_FOLDERS_PATH, "r");
+        while (f && fgets(l, sizeof(l), f))
+            if (l[0] != '#' && l[0] != '\n')
+                linhas++;
+        if (f) fclose(f);
+        ok(linhas == 4, "e nao duplicou a linha (4 registros, nao 5)");
+    }
+
+    // Nome com acento e parentese tem que voltar byte a byte: e o caso normal,
+    // nao a excecao ("Pokemon_ Let's Go, Pikachu! (Player 1)").
+    syncstate_remember_folder(0xAAull, miguel, "Pokémon_ Let's Go, Pikachu! (Player 1)");
+    ok(syncstate_recall_folder(0xAAull, miguel, out, sizeof(out))
+        && strcmp(out, "Pokémon_ Let's Go, Pikachu! (Player 1)") == 0,
+        "nome com acento, espaco, virgula e parentese volta igual");
+
+    // Esquecer tira so o pedido.
+    syncstate_forget_folder(MK8, miguel);
+    ok(!syncstate_recall_folder(MK8, miguel, out, sizeof(out)), "esqueceu o pedido");
+    ok(syncstate_recall_folder(MK8, Convidado, out, sizeof(out)), "e nao levou os vizinhos junto");
+    ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out)), "nem o outro jogo");
+
+    // O arquivo e texto, pra dar pra entender com o cartao no PC.
+    {
+        char l[0x280] = { 0 };
+        FILE *f = fopen(SYNC_FOLDERS_PATH, "r");
+        if (f) { if (!fgets(l, sizeof(l), f)) l[0] = '\0'; fclose(f); }
+        ok(l[0] == '#', "o arquivo comeca explicando o que e");
+    }
+
+    // Linha estragada no meio nao pode derrubar o resto — cartao corrompido e
+    // edicao na mao acontecem.
+    {
+        FILE *f = fopen(SYNC_FOLDERS_PATH, "a");
+        if (f)
+        {
+            fprintf(f, "isso nao e hexadecimal nenhum\n");
+            fprintf(f, "00000000000000AA\n");            // faltando os uids
+            fprintf(f, "00000000000000BB 1 2\n");        // sem o nome
+            fprintf(f, "\n");
+            fclose(f);
+        }
+        ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out))
+            && strcmp(out, "The Legend of Zelda_ Breath of the Wild") == 0,
+            "linha estragada no arquivo nao derruba a leitura");
+        ok(!syncstate_recall_folder(0xBBull, conta(1, 2), out, sizeof(out)),
+            "e a linha sem nome nao vira registro vazio");
+    }
+
+    remove(SYNC_FOLDERS_PATH);
+    ok(!syncstate_recall_folder(ZELDA, miguel, out, sizeof(out)),
+        "apagar o pastas.txt volta ao estado de antes (nao quebra nada)");
+}
+
 // --------------------------------------------------------------------- main
 
 int main(void)
@@ -326,6 +458,7 @@ int main(void)
     teste_json();
     teste_sanitize();
     teste_folder_name();
+    teste_registro_de_pasta();
 
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);

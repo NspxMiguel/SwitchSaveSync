@@ -278,3 +278,159 @@ void syncstate_sanitize_name(const char *in, char *out, size_t outsz)
     if (out[0] == '\0')
         snprintf(out, outsz, "sem-nome");
 }
+
+// ------------------------------------------------- de-para das pastas
+//
+// Uma linha por save:
+//
+//   <application_id> <uid alto> <uid baixo> <nome da pasta>
+//
+// Os três primeiros em hex de 16 dígitos, o nome é o resto da linha — pode ter
+// espaço e parêntese dentro, que é justamente o caso ("Mario Kart 8 (Player 1)").
+//
+// Arquivo de texto, e não binário, pelo mesmo motivo do resto do syncstate: dá
+// pra abrir com o cartão no PC e entender o que está escrito quando algo der
+// errado.
+
+#define FOLDERS_MAX 256
+
+typedef struct
+{
+    u64 app;
+    u64 uid0, uid1;
+    char folder[0x201];
+} Folder;
+
+static size_t folders_read(Folder *out, size_t max)
+{
+    FILE *f = fopen(SYNC_FOLDERS_PATH, "r");
+    if (!f)
+        return 0;
+
+    size_t n = 0;
+    char linha[0x280];
+    while (n < max && fgets(linha, sizeof(linha), f))
+    {
+        linha[strcspn(linha, "\r\n")] = '\0';
+        if (linha[0] == '#' || linha[0] == '\0')
+            continue;
+
+        // Os temporários existem porque u64 é "unsigned long" no Switch e
+        // "unsigned long long" no Mac; passar &e.app direto pro %llX daria
+        // ponteiro de tipo errado num dos dois.
+        unsigned long long app = 0, u0 = 0, u1 = 0;
+        int fim = 0;
+        // O %n devolve onde a leitura dos três números parou; o nome é dali
+        // em diante, tirando o espaço separador. Não dá pra usar %s no nome:
+        // ele pararia no primeiro espaço.
+        if (sscanf(linha, "%16llX %16llX %16llX%n", &app, &u0, &u1, &fim) != 3)
+            continue;
+        if (linha[fim] != ' ' || linha[fim + 1] == '\0')
+            continue;
+
+        Folder e;
+        e.app  = (u64)app;
+        e.uid0 = (u64)u0;
+        e.uid1 = (u64)u1;
+        snprintf(e.folder, sizeof(e.folder), "%s", linha + fim + 1);
+        out[n++] = e;
+    }
+
+    fclose(f);
+    return n;
+}
+
+static void folders_write(const Folder *list, size_t n)
+{
+    syncstate_ensure_dirs();
+    FILE *f = fopen(SYNC_FOLDERS_PATH, "w");
+    if (!f)
+        return;
+
+    fprintf(f, "# Em que pasta da nuvem mora o save de cada jogo.\n"
+               "# <application_id> <uid alto> <uid baixo> <nome da pasta>\n"
+               "# Existe porque o apelido da conta entra no nome da pasta e o\n"
+               "# console deixa trocar o apelido; o uid nao muda, o nome muda.\n"
+               "# Apagar este arquivo nao perde save nenhum: o app volta a usar\n"
+               "# o nome calculado, e backup com nome antigo fica orfao na nuvem.\n");
+    for (size_t i = 0; i < n; i++)
+        fprintf(f, "%016llX %016llX %016llX %s\n",
+                (unsigned long long)list[i].app,
+                (unsigned long long)list[i].uid0,
+                (unsigned long long)list[i].uid1,
+                list[i].folder);
+
+    fclose(f);
+}
+
+static bool mesma_chave(const Folder *e, u64 app, AccountUid uid)
+{
+    return e->app == app && e->uid0 == uid.uid[0] && e->uid1 == uid.uid[1];
+}
+
+void syncstate_remember_folder(u64 application_id, AccountUid uid, const char *folder)
+{
+    if (!folder || folder[0] == '\0')
+        return;
+
+    static Folder list[FOLDERS_MAX];
+    size_t n = folders_read(list, FOLDERS_MAX);
+
+    for (size_t i = 0; i < n; i++)
+        if (mesma_chave(&list[i], application_id, uid))
+        {
+            if (strcmp(list[i].folder, folder) == 0)
+                return; // já está gravado assim, não mexe no cartão à toa
+            snprintf(list[i].folder, sizeof(list[i].folder), "%s", folder);
+            folders_write(list, n);
+            return;
+        }
+
+    if (n >= FOLDERS_MAX)
+    {
+        // Teto batido. Some com o mais antigo em vez de ignorar o pedido: o
+        // registro novo é o que está em uso agora.
+        memmove(&list[0], &list[1], (FOLDERS_MAX - 1) * sizeof(Folder));
+        n = FOLDERS_MAX - 1;
+    }
+
+    list[n].app  = application_id;
+    list[n].uid0 = uid.uid[0];
+    list[n].uid1 = uid.uid[1];
+    snprintf(list[n].folder, sizeof(list[n].folder), "%s", folder);
+    folders_write(list, n + 1);
+}
+
+bool syncstate_recall_folder(u64 application_id, AccountUid uid, char *out, size_t outsz)
+{
+    if (!out || outsz == 0)
+        return false;
+
+    static Folder list[FOLDERS_MAX];
+    size_t n = folders_read(list, FOLDERS_MAX);
+
+    for (size_t i = 0; i < n; i++)
+        if (mesma_chave(&list[i], application_id, uid))
+        {
+            snprintf(out, outsz, "%s", list[i].folder);
+            return true;
+        }
+
+    return false;
+}
+
+void syncstate_forget_folder(u64 application_id, AccountUid uid)
+{
+    static Folder list[FOLDERS_MAX];
+    size_t n = folders_read(list, FOLDERS_MAX);
+
+    size_t saiu = 0;
+    for (size_t i = 0; i < n; i++)
+        if (mesma_chave(&list[i], application_id, uid))
+            saiu++;
+        else if (saiu)
+            list[i - saiu] = list[i];
+
+    if (saiu)
+        folders_write(list, n - saiu);
+}
