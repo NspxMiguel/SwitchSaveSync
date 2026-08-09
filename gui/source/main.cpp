@@ -48,8 +48,6 @@ static u8 g_icon_buffer[0x20000];
 
 static brls::TabFrame* g_root         = nullptr;
 static brls::ListItem* g_account_item = nullptr;
-static brls::ListItem* g_login_item   = nullptr;
-static brls::ListItem* g_logout_item  = nullptr;
 static brls::ListItem* g_pin_item     = nullptr;
 static brls::ListItem* g_webdav_item  = nullptr;
 
@@ -123,20 +121,6 @@ static void updateAccountViews()
         g_account_item->setValue(logged ? TR("conectada", "connected")
                                         : TR("desconectada", "disconnected"),
             !logged);
-
-    // Com a conta conectada, "Entrar" não faz sentido nenhum na tela — ele
-    // conversa privada removida do historico
-    // conversa privada removida do historico
-    // trocar de conta, mas dizendo o que realmente faz.
-    if (g_login_item)
-    {
-        g_login_item->setLabel(logged ? TR("Trocar de conta", "Switch account")
-                                      : TR("Entrar", "Sign in"));
-        g_login_item->setValue(logged ? TR("já conectado", "already signed in") : "", logged);
-    }
-
-    if (g_logout_item)
-        g_logout_item->setValue(logged ? "" : TR("nada pra sair", "not signed in"), !logged);
 
     // O rodapé diz a nuvem que está valendo, não "Google Drive" na mão: desde
     // que dá pra escolher WebDAV, dizer Drive aqui seria mentira metade das
@@ -1838,6 +1822,146 @@ static void openArchiveContents(std::string caminho, std::string titulo)
     brls::Application::pushView(frame);
 }
 
+// A tela do arquivo com tudo. Todo o assunto ".ssaves" mora aqui dentro.
+//
+// Estava tudo solto na aba "Tudo de uma vez", que ficou com quatro cabeçalhos,
+// sete linhas e um textão numa lista só — "organiza melhor, muito bagunçado.
+// por exemplo o tudo de uma vez, tem umas 30 sessoes totalmente confusas"
+//. Seis daquelas linhas eram sobre este arquivo, que é assunto de
+// quem já decidiu usar arquivo; quem não decidiu não precisa ler nada disso pra
+// achar o "sincronizar tudo".
+static void fillArchivePage(brls::List* list, std::vector<TitleEntry> todos)
+{
+    list->clear(true);
+
+    // Metade das linhas desta tela só faz sentido com o arquivo já no cartão.
+    bool tem = syncjob_has_archive();
+
+    list->addView(new brls::Header(TR("Fazer o arquivo", "Make the file")));
+
+    brls::ListItem* fazerESubir = new brls::ListItem(
+        std::string(TR("Juntar tudo e subir pro ", "Pack everything and upload to ")) + nuvem(),
+        std::string(TR("Junta o save de todos os jogos num arquivo só e manda pro ",
+            "Packs every game's save into a single file and sends it to "))
+            + nuvem() + ".");
+    fazerESubir->getClickEvent()->subscribe([todos](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [todos](Job* job) { return jobArchiveAll(job, todos, true); }),
+            true);
+    });
+    list->addView(fazerESubir);
+
+    brls::ListItem* soFazer = new brls::ListItem(
+        TR("Só juntar, sem subir", "Just pack it, don't upload"),
+        TR("Deixa o arquivo em switch/SwitchSaveSync/ e não encosta na internet.",
+            "Leaves the file in switch/SwitchSaveSync/ and doesn't touch the internet."));
+    soFazer->getClickEvent()->subscribe([todos](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [todos](Job* job) { return jobArchiveAll(job, todos, false); }),
+            true);
+    });
+    list->addView(soFazer);
+
+    if (tem)
+    {
+        brls::ListItem* subir = new brls::ListItem(
+            TR("Subir o que já está no cartão", "Upload what's already on the SD card"),
+            std::string(TR("Manda pro ", "Sends the current file to ")) + nuvem()
+                + TR(" o arquivo de agora, sem refazer.", " without rebuilding it."));
+        subir->getClickEvent()->subscribe([](brls::View* view) {
+            openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
+        });
+        list->addView(subir);
+    }
+
+    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
+
+    brls::ListItem* baixar = new brls::ListItem(
+        std::string(TR("Baixar de ", "Download from ")) + nuvem(),
+        TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
+           "save por save.",
+            "Brings the file to the SD card. Doesn't write to any save — that's your call, "
+            "save by save."));
+    baixar->getClickEvent()->subscribe([](brls::View* view) {
+        openJob(new Job(TR("Baixar o arquivo", "Download the file"), jobArchiveDownload), false,
+            [](bool success) {
+                if (success)
+                    brls::Application::notify(TR("Aperte X pra atualizar esta tela",
+                        "Press X to refresh this screen"));
+            });
+    });
+    list->addView(baixar);
+
+    if (tem)
+    {
+        char caminho[0x300];
+        syncjob_archive_path(caminho, sizeof(caminho));
+        std::string arquivo = caminho;
+
+        brls::ListItem* dentro = new brls::ListItem(
+            TR("Ver e restaurar o que tem dentro", "See and restore what's inside"),
+            TR("Lista os saves guardados no arquivo do cartão. Cada um dá pra pôr de volta.",
+                "Lists the saves stored in the file on the SD card. Each one can be put back."));
+        dentro->getClickEvent()->subscribe([arquivo](brls::View* view) {
+            openArchiveContents(arquivo, TR("Dentro do arquivo", "Inside the file"));
+        });
+        list->addView(dentro);
+    }
+    else
+    {
+        // Sem isto, as duas linhas que faltam pareceriam recurso que não existe.
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Não tem arquivo no cartão agora. Depois de juntar ou de baixar, aperte X: "
+               "aparecem aqui as linhas de subir e de ver o que tem dentro.",
+                "There's no file on the SD card right now. After packing or downloading, "
+                "press X: the upload and inspect lines show up here."),
+            true));
+    }
+
+    list->addView(new brls::Header(TR("Como é esse arquivo", "What this file is")));
+
+    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
+    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("O arquivo é de um formato nosso (.ssaves): não é zip, não abre com dois cliques "
+           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
+           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
+           "de verdade consegue ler.\n\n"
+           "O modo normal — uma pasta por jogo na nuvem — continua sendo o recomendado, e "
+           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
+           "pasta por jogo é o que continua servindo se um dia este app sumir.",
+            "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
+            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
+            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
+            "open, so anyone determined enough can read it.\n\n"
+            "The normal mode — one folder per game in the cloud — is still the recommended one, "
+            "and the two can coexist. A single file is handy for taking everything at once; "
+            "one folder per game is what still works if this app ever disappears."),
+        true));
+}
+
+static void openArchivePage(std::vector<TitleEntry> todos)
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Arquivo com tudo", "The file with everything"));
+    frame->setFooterText(TR("Um pacote só, com o save de todos os jogos",
+        "A single package, with every game's save"));
+
+    brls::List* list = new brls::List();
+    fillArchivePage(list, todos);
+
+    // O X refaz a lista porque duas linhas dependem do arquivo existir: sem
+    // isto, depois de juntar ou de baixar ele teria que sair e voltar pra elas
+    // aparecerem.
+    list->registerAction(TR("Atualizar", "Refresh"), brls::Key::X, [list, todos] {
+        fillArchivePage(list, todos);
+        return true;
+    });
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
 // A aba "Tudo de uma vez": o que age em TODOS os saves de uma vez só.
 //
 // Estava tudo espremido no topo da lista de jogos, empurrando os jogos pra
@@ -1864,7 +1988,7 @@ static void fillBulkList(brls::List* list)
         return;
     }
 
-    list->addView(new brls::Header(TR("Sincronizar", "Sync")));
+    list->addView(new brls::Header(TR("Todos os saves de uma vez", "Every save at once")));
 
     brls::ListItem* syncAllItem = new brls::ListItem(
         TR("Sincronizar todos os saves", "Sync every save"),
@@ -1900,97 +2024,28 @@ static void fillBulkList(brls::List* list)
     });
     list->addView(syncAllItem);
 
-    // conversa privada removida do historico
-    list->addView(new brls::Header(TR("Guardar tudo num arquivo", "Store everything in one file")));
+    // Uma linha só pro arquivo, e o assunto inteiro dele numa tela à parte.
+    // Esta aba tem duas coisas pra fazer, não sete.
+    brls::ListItem* arquivoItem = new brls::ListItem(
+        TR("Guardar tudo num arquivo só", "Store everything in one file"),
+        TR("Junta o save de todos os jogos num pacote só, pra levar tudo de uma vez. Abre a "
+           "tela de juntar, subir, baixar e restaurar.",
+            "Packs every game's save into a single package, to carry everything at once. "
+            "Opens the pack, upload, download and restore screen."));
+    arquivoItem->setValue(syncjob_has_archive()
+            ? TR("tem um no cartão", "one is on the SD card")
+            : TR("ainda não tem", "none yet"));
+    arquivoItem->getClickEvent()->subscribe(
+        [todos](brls::View* view) { openArchivePage(todos); });
+    list->addView(arquivoItem);
 
-    brls::ListItem* fazerESubir = new brls::ListItem(
-        std::string(TR("Juntar tudo e subir pro ", "Pack everything and upload to ")) + nuvem(),
-        std::string(TR("Junta o save de todos os jogos num arquivo só e manda pro ",
-            "Packs every game's save into a single file and sends it to "))
-            + nuvem() + ".");
-    fazerESubir->getClickEvent()->subscribe([todos](brls::View* view) {
-        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
-                    [todos](Job* job) { return jobArchiveAll(job, todos, true); }),
-            true);
-    });
-    list->addView(fazerESubir);
-
-    brls::ListItem* soFazer = new brls::ListItem(
-        TR("Só juntar, sem subir", "Just pack it, don't upload"),
-        TR("Deixa o arquivo em switch/SwitchSaveSync/ e não encosta na internet.",
-            "Leaves the file in switch/SwitchSaveSync/ and doesn't touch the internet."));
-    soFazer->getClickEvent()->subscribe([todos](brls::View* view) {
-        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
-                    [todos](Job* job) { return jobArchiveAll(job, todos, false); }),
-            true);
-    });
-    list->addView(soFazer);
-
-    if (syncjob_has_archive())
-    {
-        brls::ListItem* subir = new brls::ListItem(
-            TR("Subir o arquivo que já está no cartão", "Upload the file already on the SD card"),
-            std::string(TR("Manda pro ", "Sends the current file to ")) + nuvem()
-                + TR(" o arquivo de agora, sem refazer.", " without rebuilding it."));
-        subir->getClickEvent()->subscribe([](brls::View* view) {
-            openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
-        });
-        list->addView(subir);
-    }
-
-    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
-
-    brls::ListItem* baixar = new brls::ListItem(
-        std::string(TR("Baixar o arquivo de ", "Download the file from ")) + nuvem(),
-        TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
-           "save por save.",
-            "Brings the file to the SD card. Doesn't write to any save — that's your call, "
-            "save by save."));
-    baixar->getClickEvent()->subscribe([](brls::View* view) {
-        openJob(new Job(TR("Baixar o arquivo", "Download the file"), jobArchiveDownload), false,
-            [](bool success) {
-                if (success)
-                    brls::Application::notify(TR("Aperte X pra atualizar esta tela",
-                        "Press X to refresh this screen"));
-            });
-    });
-    list->addView(baixar);
-
-    if (syncjob_has_archive())
-    {
-        char caminho[0x300];
-        syncjob_archive_path(caminho, sizeof(caminho));
-        std::string arquivo = caminho;
-
-        brls::ListItem* dentro = new brls::ListItem(
-            TR("Ver e restaurar o que tem dentro", "See and restore what's inside"),
-            TR("Lista os saves guardados no arquivo do cartão. Cada um dá pra pôr de volta.",
-                "Lists the saves stored in the file on the SD card. Each one can be put back."));
-        dentro->getClickEvent()->subscribe([arquivo](brls::View* view) {
-            openArchiveContents(arquivo, TR("Dentro do arquivo", "Inside the file"));
-        });
-        list->addView(dentro);
-    }
-
-    list->addView(new brls::Header(TR("Sobre o arquivo com tudo", "About the file with everything")));
-
-    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
-    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("O arquivo é de um formato nosso (.ssaves): não é zip, não abre com dois cliques "
-           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
-           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
-           "de verdade consegue ler.\n\n"
-           "O modo normal — uma pasta por jogo na nuvem — continua sendo o recomendado, e "
-           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
-           "pasta por jogo é o que continua servindo se um dia este app sumir.",
-            "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
-            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
-            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
-            "open, so anyone determined enough can read it.\n\n"
-            "The normal mode — one folder per game in the cloud — is still the recommended one, "
-            "and the two can coexist. A single file is handy for taking everything at once; "
-            "one folder per game is what still works if this app ever disappears."),
+        TR("Os dois fazem coisas diferentes. Sincronizar mantém uma pasta por jogo na nuvem, "
+           "que é o modo normal e o recomendado. O arquivo é um pacote só, prático pra levar "
+           "tudo de uma vez — e dá pra usar os dois.",
+            "These two do different things. Syncing keeps one folder per game in the cloud, "
+            "which is the normal, recommended mode. The file is a single package, handy for "
+            "carrying everything at once — and you can use both."),
         true));
 }
 
@@ -2150,6 +2205,127 @@ static bool jobWebdavTest(Job* job)
     job->setStatus(TR("Servidor respondeu. Endereço, usuário e senha estão certos.",
         "The server answered. Address, username and password are right."));
     return true;
+}
+
+// A tela da conta do Google Drive.
+//
+// Estava aberta na aba Ajustes: três linhas (conta, entrar, sair) mais um
+// textão sobre OneDrive/Dropbox/iCloud, tudo empilhado antes do idioma. Virou
+// uma linha só que abre isto aqui, igual à do WebDAV — as duas nuvens agora se
+// configuram do mesmo jeito, em vez de uma ser um botão e a outra ser meia
+// tela ("organiza melhor, muito bagunçado",).
+//
+// Nada daqui vai pra variável global de propósito: esta tela morre quando ele
+// aperta B, e ponteiro guardado pra ela viraria ponteiro solto.
+static void openGoogleSetup()
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Conta do Google Drive", "Google Drive account"));
+
+    brls::List* list = new brls::List();
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Pra entrar, o app mostra um código pra você digitar no celular ou no PC. O "
+           "Switch não pede senha em momento nenhum, e não passa senha nenhuma pra frente.",
+            "To sign in, the app shows a code for you to type on your phone or PC. The "
+            "Switch never asks for a password, and never passes one along."),
+        true));
+
+    list->addView(new brls::Header(TR("Conta", "Account"), false));
+
+    brls::ListItem* estado = new brls::ListItem(TR("Situação", "Status"));
+    brls::ListItem* entrar = new brls::ListItem(TR("Entrar", "Sign in"));
+    brls::ListItem* sair   = new brls::ListItem(TR("Sair da conta", "Sign out"),
+        TR("Apaga o token guardado no cartão. Não mexe em nada no Drive.",
+            "Deletes the token kept on the SD card. Nothing on Drive is touched."));
+
+    // Um lambda só pra repintar as três linhas e a aba de trás. Com a conta
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    // dizendo o que realmente faz.
+    auto repinta = [estado, entrar, sair]() {
+        bool logged = oauth_is_logged_in();
+
+        estado->setValue(logged ? TR("conectada", "connected")
+                                : TR("desconectada", "disconnected"),
+            !logged);
+
+        entrar->setLabel(logged ? TR("Trocar de conta", "Switch account")
+                                : TR("Entrar", "Sign in"));
+        entrar->setValue(logged ? TR("já conectado", "already signed in") : "", logged);
+
+        sair->setValue(logged ? "" : TR("nada pra sair", "not signed in"), !logged);
+
+        updateAccountViews();
+    };
+
+    entrar->getClickEvent()->subscribe([repinta](brls::View* view) {
+        openJob(new Job(TR("Entrar na conta Google", "Sign in to Google"), jobLogin), true,
+            [repinta](bool success) { repinta(); });
+    });
+
+    sair->getClickEvent()->subscribe([repinta](brls::View* view) {
+        oauth_logout();
+        repinta();
+        brls::Application::notify(TR("Conta desconectada", "Account disconnected"));
+    });
+
+    list->addView(estado);
+    list->addView(entrar);
+    list->addView(sair);
+    repinta();
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("O acesso pedido é o \"drive.file\": o app enxerga só os arquivos que ele mesmo "
+           "criou, não o resto do seu Drive. O login fica no cartão, em "
+           "/switch/SwitchSaveSync/token.txt, e sai de vez no Sair da conta.",
+            "The scope it asks for is \"drive.file\": the app only sees the files it created "
+            "itself, not the rest of your Drive. The login stays on the SD card, in "
+            "/switch/SwitchSaveSync/token.txt, and Sign out removes it for good."),
+        true));
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
+// conversa privada removida do historico
+//
+// O texto é o mesmo de antes, só que fora do caminho: estava aberto na aba
+// Ajustes, entre o seletor de nuvem e a conta do Google, e é uma resposta que
+// se lê uma vez na vida.
+static void openOutrasNuvens()
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("E as outras nuvens?", "What about the other clouds?"));
+
+    brls::List* list = new brls::List();
+
+    list->addView(new brls::ListItem("OneDrive, Dropbox",
+        TR("Dão pra fazer, mas os dois exigem registrar um aplicativo no portal deles pra "
+           "sair um código de acesso — de graça, só chato. Enquanto não tiver esse código, "
+           "não adianta pôr o botão na tela.",
+            "Both are doable, but each requires registering an app on their portal to get "
+            "an access key — free, just tedious. Until that key exists, putting the button "
+            "on screen would be pointless.")));
+
+    list->addView(new brls::ListItem("iCloud Drive",
+        TR("Não dá. A Apple não tem API pública pra outro programa mexer no iCloud Drive "
+           "de fora, e o caminho que existe (CloudKit Web Services) cobra a assinatura "
+           "anual de desenvolvedor. Fica de fora, e é definitivo.",
+            "Can't be done. Apple has no public API for another program to touch iCloud "
+            "Drive from outside, and the one path that exists (CloudKit Web Services) "
+            "requires the paid yearly developer membership. It's out, and that's final.")));
+
+    list->addView(new brls::ListItem(TR("NAS, Nextcloud, Synology, QNAP, Box",
+                                        "NAS, Nextcloud, Synology, QNAP, Box"),
+        TR("Esses já dão, hoje: todos falam WebDAV, que é a segunda opção do seletor de "
+           "nuvem. É endereço, usuário e senha, e pronto.",
+            "These already work today: they all speak WebDAV, which is the second option "
+            "in the cloud selector. Address, username and password, and that's it.")));
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
 }
 
 // A tela do servidor WebDAV: endereço, usuário, senha e um botão pra conferir.
@@ -2374,6 +2550,14 @@ static brls::List* createSettingsTab()
     });
     list->addView(cloudItem);
 
+    // As duas nuvens configuram do mesmo jeito: uma linha cada, que abre a
+    // tela dela. Antes o WebDAV era uma linha e o Google era meia aba.
+    g_account_item = new brls::ListItem(TR("Conta do Google Drive", "Google Drive account"),
+        TR("Entrar, trocar de conta ou sair. O Switch não pede senha em momento nenhum.",
+            "Sign in, switch account or sign out. The Switch never asks for a password."));
+    g_account_item->getClickEvent()->subscribe([](brls::View* view) { openGoogleSetup(); });
+    list->addView(g_account_item);
+
     g_webdav_item = new brls::ListItem(TR("Servidor WebDAV", "WebDAV server"),
         TR("Endereço, usuário e senha do seu servidor. Vale pra Nextcloud, ownCloud, NAS "
            "da Synology ou da QNAP, Box e qualquer servidor que fale WebDAV.",
@@ -2381,53 +2565,17 @@ static brls::List* createSettingsTab()
             "ownCloud, a Synology or QNAP NAS, Box and any server that speaks WebDAV."));
     g_webdav_item->getClickEvent()->subscribe([](brls::View* view) { openWebdavSetup(); });
     list->addView(g_webdav_item);
+
+    brls::ListItem* outrasItem = new brls::ListItem(
+        TR("E as outras nuvens?", "What about the other clouds?"),
+        TR("A resposta sobre OneDrive, Dropbox e iCloud Drive — o que dá, o que não dá e "
+           "por quê.",
+            "The answer about OneDrive, Dropbox and iCloud Drive — what's possible, what "
+            "isn't, and why."));
+    outrasItem->getClickEvent()->subscribe([](brls::View* view) { openOutrasNuvens(); });
+    list->addView(outrasItem);
+
     updateWebdavItem();
-
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("Sobre as outras que você pediu, sem enrolação:\n\n"
-           "OneDrive e Dropbox dão pra fazer, mas os dois exigem registrar um "
-           "aplicativo no portal deles pra sair um código de acesso — de graça, só "
-           "chato. Enquanto não tiver esse código, não adianta pôr o botão na tela.\n\n"
-           "iCloud Drive não dá. A Apple não tem API pública pra outro programa mexer "
-           "no iCloud Drive de fora, e o caminho que existe (CloudKit Web Services) "
-           "cobra a assinatura anual de desenvolvedor. Fica de fora, e é definitivo.",
-            "About the others you asked for, plainly:\n\n"
-            "OneDrive and Dropbox are doable, but both require registering an app on "
-            "their portal to get an access key — free, just tedious. Until that key "
-            "exists, putting the button on screen would be pointless.\n\n"
-            "iCloud Drive can't be done. Apple has no public API for another program to "
-            "touch iCloud Drive from outside, and the one path that exists (CloudKit Web "
-            "Services) requires the paid yearly developer membership. It's out, and "
-            "that's final."),
-        true));
-
-    list->addView(new brls::Header(TR("Conta do Google Drive", "Google Drive account"), false));
-
-    g_account_item = new brls::ListItem(TR("Conta Google", "Google account"));
-    list->addView(g_account_item);
-
-    brls::ListItem* loginItem = new brls::ListItem(TR("Entrar", "Sign in"),
-        TR("Abre um código pra você digitar no celular ou no PC. O Switch não pede senha "
-           "em momento nenhum.",
-            "Shows a code for you to type on your phone or PC. The Switch never asks for "
-            "a password."));
-    loginItem->getClickEvent()->subscribe([](brls::View* view) {
-        openJob(new Job(TR("Entrar na conta Google", "Sign in to Google"), jobLogin), true,
-            [](bool success) { updateAccountViews(); });
-    });
-    list->addView(loginItem);
-    g_login_item = loginItem;
-
-    brls::ListItem* logoutItem = new brls::ListItem(TR("Sair da conta", "Sign out"),
-        TR("Apaga o token guardado no cartão. Não mexe em nada no Drive.",
-            "Deletes the token kept on the SD card. Nothing on Drive is touched."));
-    logoutItem->getClickEvent()->subscribe([](brls::View* view) {
-        oauth_logout();
-        updateAccountViews();
-        brls::Application::notify(TR("Conta desconectada", "Account disconnected"));
-    });
-    list->addView(logoutItem);
-    g_logout_item = logoutItem;
 
     // ---- idioma ----
     list->addView(new brls::Header(TR("Idioma", "Language"), false));
