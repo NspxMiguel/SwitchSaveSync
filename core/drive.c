@@ -292,7 +292,7 @@ static bool drive_be_root(const char *auth, char *id_out, size_t outsz) {
 static bool drive_be_find_child(const char *auth, const char *parent_id, const char *name,
                                  bool want_folder, char *id_out, size_t outsz) {
     // "qualquer coisa menos pasta" em vez de "sem filtro": um jogo e o
-    // arquivo .ssaves dele podem ter o mesmo nome dentro da mesma pasta, e
+    // arquivo .nxsaves dele podem ter o mesmo nome dentro da mesma pasta, e
     // sem o filtro a busca por arquivo podia devolver a pasta.
     return find_by_name(auth, name, parent_id, DRIVE_FOLDER_MIME, !want_folder,
                         id_out, outsz);

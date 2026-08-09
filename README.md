@@ -76,7 +76,7 @@ nuvem não é uma opção.
 - **Sincronizar tudo de uma vez** — uma linha no topo da lista passa por todos os saves,
   decidindo pra que lado cada um vai. Quando os dois lados mudaram ele **não** escolhe:
   aquele jogo fica de fora e sai listado no fim, pra você resolver um a um.
-- **Tudo num arquivo só** — opcional: junta todos os saves num `.ssaves`, um formato nosso que
+- **Tudo num arquivo só** — opcional: junta todos os saves num `.nxsaves`, um formato nosso que
   não é zip e que só este app lê. Serve pra levar tudo de uma vez. *É disfarce, não
   cadeado* — o código é aberto, então quem quiser de verdade lê. Por isso o modo normal
   (uma pasta por jogo no Drive) continua sendo o recomendado: save preso num formato que só

@@ -12,7 +12,7 @@
 # testa.
 #
 #   ./tests/run.sh          roda tudo
-#   ./tests/run.sh nomes    roda só um (sssbox | webdav | nomes)
+#   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes)
 
 set -e
 cd "$(dirname "$0")"
@@ -35,9 +35,9 @@ roda() {
     (cd "build/$nome" && ./teste) || falhou=1
 }
 
-# ---- 1. o formato .ssaves ----
-if [ "$QUAL" = tudo ] || [ "$QUAL" = sssbox ]; then
-    roda sssbox test_sssbox.c $CORE/sssbox.c
+# ---- 1. o formato .nxsaves ----
+if [ "$QUAL" = tudo ] || [ "$QUAL" = nxsaves ]; then
+    roda nxsaves test_nxsaves.c $CORE/nxsaves.c
 fi
 
 # ---- 3. JSON, nome de pasta e saneamento ----
@@ -46,7 +46,7 @@ fi
 if [ "$QUAL" = tudo ] || [ "$QUAL" = nomes ]; then
     roda nomes test_nomes.c stubs_console.c \
         $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/sssbox.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # ---- 2. WebDAV, contra um servidor de verdade ----

@@ -1,4 +1,4 @@
-#include "sssbox.h"
+#include "nxsaves.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -9,10 +9,10 @@
 
 #include <zlib.h>
 
-// "SSSBOX" + 0x1A + versão. O 0x1A é o EOF do DOS: com ele, um `type` no
-// Windows ou um `cat` distraído para na primeira linha em vez de despejar
-// binário no terminal.
-static const uint8_t MAGIC[8] = { 'S', 'S', 'S', 'B', 'O', 'X', 0x1A, 0x01 };
+// "NXSAVES" + 0x1A. O 0x1A é o EOF do DOS: com ele, um `type` no Windows ou um
+// `cat` distraído para na primeira linha em vez de despejar binário no
+// terminal. A versão não entra aqui — ela tem lugar próprio, em cab+8.
+static const uint8_t MAGIC[8] = { 'N', 'X', 'S', 'A', 'V', 'E', 'S', 0x1A };
 
 #define CABECALHO 40
 #define VERSAO    1
@@ -31,7 +31,7 @@ static const uint8_t MAGIC[8] = { 'S', 'S', 'S', 'B', 'O', 'X', 0x1A, 0x01 };
 // A chave do embaralhamento. Não é segredo — o código é público. Ela existe
 // pra que o arquivo não seja um deflate cru que qualquer ferramenta abre por
 // conversa privada removida do historico
-#define CHAVE 0x5357495443485353ull // "SWITCHSS"
+#define CHAVE 0x5357495443484E58ull // "SWITCHNX"
 
 typedef struct
 {
@@ -43,7 +43,7 @@ typedef struct
     uint8_t metodo;
 } Entrada;
 
-struct SssBoxWriter
+struct NxSavesWriter
 {
     FILE *f;
     char path[512];
@@ -125,9 +125,9 @@ static void embaralha(uint8_t *buf, size_t n, uint64_t pos)
 // escrita
 // ---------------------------------------------------------------------------
 
-SssBoxWriter *sssbox_open_write(const char *path)
+NxSavesWriter *nxsaves_open_write(const char *path)
 {
-    SssBoxWriter *b = calloc(1, sizeof(SssBoxWriter));
+    NxSavesWriter *b = calloc(1, sizeof(NxSavesWriter));
     if (!b)
         return NULL;
 
@@ -155,10 +155,10 @@ SssBoxWriter *sssbox_open_write(const char *path)
     return b;
 }
 
-size_t sssbox_entry_count(const SssBoxWriter *b) { return b ? b->n : 0; }
-uint64_t sssbox_bytes_written(const SssBoxWriter *b) { return b ? b->pos : 0; }
+size_t nxsaves_entry_count(const NxSavesWriter *b) { return b ? b->n : 0; }
+uint64_t nxsaves_bytes_written(const NxSavesWriter *b) { return b ? b->pos : 0; }
 
-static bool guarda_entrada(SssBoxWriter *b, const Entrada *e)
+static bool guarda_entrada(NxSavesWriter *b, const Entrada *e)
 {
     if (b->n == b->cap)
     {
@@ -175,7 +175,7 @@ static bool guarda_entrada(SssBoxWriter *b, const Entrada *e)
 }
 
 // Escreve n bytes já embaralhados a partir da posição atual.
-static bool escreve(SssBoxWriter *b, const uint8_t *dados, size_t n)
+static bool escreve(NxSavesWriter *b, const uint8_t *dados, size_t n)
 {
     uint8_t tmp[PEDACO];
     size_t feito = 0;
@@ -202,7 +202,7 @@ static bool escreve(SssBoxWriter *b, const uint8_t *dados, size_t n)
 //
 // Comprime em fluxo, sem nunca ter o arquivo inteiro na memória: o save do
 // Zelda tem ~1 MB por slot e no sysmodule a heap é apertada.
-static bool poe_arquivo(SssBoxWriter *b, const char *nome, const char *local)
+static bool poe_arquivo(NxSavesWriter *b, const char *nome, const char *local)
 {
     if (strlen(nome) > MAX_NOME)
         return false;
@@ -283,7 +283,7 @@ static bool poe_arquivo(SssBoxWriter *b, const char *nome, const char *local)
     return true;
 }
 
-bool sssbox_add_dir(SssBoxWriter *b, const char *prefix, const char *local_dir)
+bool nxsaves_add_dir(NxSavesWriter *b, const char *prefix, const char *local_dir)
 {
     if (!b || b->estragado)
         return false;
@@ -330,7 +330,7 @@ bool sssbox_add_dir(SssBoxWriter *b, const char *prefix, const char *local_dir)
                 break;
             }
             snprintf(sub, sizeof(sub), "%s/", nome);
-            ok = sssbox_add_dir(b, sub, caminho);
+            ok = nxsaves_add_dir(b, sub, caminho);
         }
         else
         {
@@ -345,7 +345,7 @@ bool sssbox_add_dir(SssBoxWriter *b, const char *prefix, const char *local_dir)
     return ok;
 }
 
-static void solta(SssBoxWriter *b)
+static void solta(NxSavesWriter *b)
 {
     for (size_t i = 0; i < b->n; i++)
         free(b->entradas[i].nome);
@@ -353,7 +353,7 @@ static void solta(SssBoxWriter *b)
     free(b);
 }
 
-void sssbox_abort_write(SssBoxWriter *b)
+void nxsaves_abort_write(NxSavesWriter *b)
 {
     if (!b)
         return;
@@ -364,14 +364,14 @@ void sssbox_abort_write(SssBoxWriter *b)
     solta(b);
 }
 
-bool sssbox_close_write(SssBoxWriter *b)
+bool nxsaves_close_write(NxSavesWriter *b)
 {
     if (!b)
         return false;
 
     if (b->estragado || b->n == 0)
     {
-        sssbox_abort_write(b);
+        nxsaves_abort_write(b);
         return false;
     }
 
@@ -541,7 +541,7 @@ static bool percorre(Leitor *l, cada_cb cb, void *userdata)
     return true;
 }
 
-bool sssbox_is_box(const char *path)
+bool nxsaves_is_box(const char *path)
 {
     FILE *f = fopen(path, "rb");
     if (!f)
@@ -556,7 +556,7 @@ bool sssbox_is_box(const char *path)
 
 typedef struct
 {
-    sssbox_list_cb cb;
+    nxsaves_list_cb cb;
     void *userdata;
 } ListaCtx;
 
@@ -579,7 +579,7 @@ static bool na_lista(const char *nome, size_t tam_nome, uint8_t metodo, uint32_t
     return true;
 }
 
-bool sssbox_list(const char *path, sssbox_list_cb cb, void *userdata)
+bool nxsaves_list(const char *path, nxsaves_list_cb cb, void *userdata)
 {
     Leitor l;
     if (!abre(path, &l))
@@ -636,7 +636,7 @@ static bool na_pasta(const char *nome, size_t tam_nome, uint8_t metodo, uint32_t
     return true;
 }
 
-bool sssbox_list_folders(const char *path, sssbox_list_cb cb, void *userdata)
+bool nxsaves_list_folders(const char *path, nxsaves_list_cb cb, void *userdata)
 {
     Leitor l;
     if (!abre(path, &l))
@@ -848,7 +848,7 @@ static bool na_extracao(const char *nome, size_t tam_nome, uint8_t metodo, uint3
     return true;
 }
 
-bool sssbox_extract(const char *path, const char *prefix, const char *dest_dir)
+bool nxsaves_extract(const char *path, const char *prefix, const char *dest_dir)
 {
     Leitor l;
     if (!abre(path, &l))

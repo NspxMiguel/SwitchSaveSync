@@ -14,7 +14,7 @@ vira crash sem explicação nenhuma na tela.
 
 ## O que cobre
 
-**`test_sssbox.c` — o formato do arquivo `.ssaves` (31 testes).**
+**`test_nxsaves.c` — o formato do arquivo `.nxsaves` (31 testes).**
 Grava uma árvore de 6 arquivos (de 0 byte a 2 MB, com acento no nome, pasta
 dentro de pasta), lê de volta e confere byte a byte. Confere também que o
 arquivo não entrega o conteúdo nem os nomes das pastas em texto puro; que
