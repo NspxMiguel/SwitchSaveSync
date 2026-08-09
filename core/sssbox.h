@@ -6,7 +6,7 @@
 // abrir com dois cliques no Mac. Não é o que ele quer: ele quer um arquivo que
 // não seja igual ao de todo mundo.
 //
-// Então: container próprio, extensão `.sss`, com o índice no fim e os bytes
+// Então: container próprio, extensão `.ssaves`, com o índice no fim e os bytes
 // embaralhados. **Isso é disfarce, não cofre** — o código está público no
 // conversa privada removida do historico
 // o arquivo não é um zip, não abre com duplo clique, e não entrega o save de
