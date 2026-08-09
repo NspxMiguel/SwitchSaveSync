@@ -482,7 +482,15 @@ static bool jobConnectionTest(Job* job)
     job->log(TR("upload OK", "upload OK"));
 
     job->setStatus(TR("Baixando o mesmo arquivo de volta...", "Downloading the same file back..."));
-    if (!cloud_download(token, folder, TEST_REMOTE, TEST_DOWN))
+    bool baixou = cloud_download(token, folder, TEST_REMOTE, TEST_DOWN);
+
+    // O arquivo de teste não tem por que continuar morando na nuvem dele. Apaga
+    // aqui, tendo dado certo ou não: se o download falhou, o upload de cima
+    // funcionou do mesmo jeito e a sobra ficaria lá pra sempre. Cada "testar
+    // conexão" deixava uma.
+    cloud_delete_file(token, folder, TEST_REMOTE);
+
+    if (!baixou)
     {
         job->setStatus(TR("O download falhou.", "The download failed."));
         return false;
@@ -503,6 +511,10 @@ static bool jobConnectionTest(Job* job)
         }
         fclose(f);
     }
+
+    // E os dois do cartão também. Mesma ideia da limpeza lá em cima.
+    ::remove(TEST_LOCAL);
+    ::remove(TEST_DOWN);
 
     job->setStatus(std::string(TR("Rede, TLS e ", "Network, TLS and ")) + nuvem
         + TR(" funcionando.", " all work."));
