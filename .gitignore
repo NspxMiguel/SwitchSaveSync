@@ -18,3 +18,6 @@ token.txt
 PEDIDOS.md
 backups-do-switch/
 cartao/
+
+# copia do ../assets/icon.jpg, feita pelo Makefile
+gui/resources/icon/app.jpg

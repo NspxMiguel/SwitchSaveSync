@@ -1362,20 +1362,187 @@ static std::string contaDaPasta(const std::string& pasta)
     return pasta.substr(abre + 2, pasta.size() - abre - 3);
 }
 
-// A conta dona do save que está no arquivo não existe neste console.
+// Abre a tela de criar usuário do próprio console e, na volta, põe o save na
+// conta que nasceu.
 //
+// A libnx não tem função de criar usuário — o que ela tem é pselShowUserCreator,
+// que abre a MESMA tela de Configurações > Usuários. É o caminho certo de
+// qualquer jeito: a conta nasce de verdade, com foto e nome, em vez de a gente
+// escrever no banco de perfis do sistema na mão.
+static void criarContaERestaurar(std::string caminho, std::string pasta, TitleEntry molde)
+{
+    // Applet mode não abre tela de sistema. Se tentar, a chamada falha e o app
+    // fica esperando uma resposta que não vem.
+    if (g_applet_mode)
+    {
+        brls::Dialog* aviso = new brls::Dialog(
+            TR("Pra criar conta, o app precisa estar aberto como aplicação — segurando R num "
+               "jogo instalado, e não pelo Álbum.\n\n"
+               "Ou crie a conta pelo menu do console (Configurações > Usuários > Adicionar "
+               "usuário) e volte aqui.",
+                "To create an account the app has to be running as an application — hold R on "
+                "an installed game instead of opening it from the Album.\n\n"
+                "Or create the account from the console menu (System Settings > Users > Add "
+                "user) and come back."));
+        aviso->addButton(TR("Entendi", "Got it"), [aviso](brls::View* view) { aviso->close(); });
+        aviso->setCancelable(true);
+        aviso->open();
+        return;
+    }
+
+    // Quem é a conta nova? A que não estava aqui antes. O pselShowUserCreator
+    // não devolve o uid do que foi criado, então a resposta é a diferença entre
+    // as duas listas.
+    std::vector<AccountUid> antes = contasDoConsole();
+
+    if (R_FAILED(pselShowUserCreator()))
+    {
+        brls::Application::notify(
+            TR("Não consegui abrir a tela do console", "Couldn't open the console's screen"));
+        return;
+    }
+
+    AccountUid nova = { { 0, 0 } };
+    for (const AccountUid& uid : contasDoConsole())
+    {
+        bool jaExistia = false;
+        for (const AccountUid& velha : antes)
+            if (mesmaConta(uid, velha))
+            {
+                jaExistia = true;
+                break;
+            }
+
+        if (!jaExistia)
+        {
+            nova = uid;
+            break;
+        }
+    }
+
+    if (!accountUidIsValid(&nova))
+    {
+        brls::Application::notify(
+            TR("Nenhuma conta nova foi criada", "No new account was created"));
+        return;
+    }
+
+    std::string apelido = apelidoDaConta(nova);
+
+    openJob(new Job(std::string(TR("Restaurar — ", "Restore — ")) + molde.name,
+                [caminho, pasta, molde, nova, apelido](Job* job) {
+                    return jobRestoreIntoNewAccount(job, caminho, pasta, molde, nova, apelido);
+                }),
+        false);
+}
+
+// "colocar em outra conta": a terceira opção da pergunta.
+//
+// Lista TODAS as contas do console, não só as que já têm save deste jogo. A
+// conta que nunca abriu o jogo é justamente um destino bom — e criar o save que
+// falta é a mesma coisa que o trabalho já faz pra conta recém-criada.
+static void openOtherAccountPage(std::string caminho, std::string pasta, TitleEntry molde)
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Colocar em outra conta", "Put it on another account"));
+
+    brls::List* list = new brls::List();
+
+    std::vector<AccountUid> contas = contasDoConsole();
+
+    if (contas.empty())
+    {
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Este console não tem nenhuma conta de usuário.",
+                "This console has no user accounts."),
+            true));
+    }
+    else
+    {
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR(std::string("O save guardado vai virar save da conta que você escolher, em \"")
+                    + molde.name + "\". Pergunto de novo antes.",
+                std::string("The stored save becomes the chosen account's save, in \"")
+                    + molde.name + "\". I'll ask again first."),
+            true));
+
+        for (const AccountUid& uid : contas)
+        {
+            std::string apelido = apelidoDaConta(uid);
+            if (apelido.empty())
+                apelido = TR("conta sem nome", "unnamed account");
+
+            // Conta que já tem save deste jogo é conta que vai PERDER o save
+            // dela. Isso tem que estar na linha, não só no aviso de cima.
+            bool temSave = savemount_save_exists(molde.application_id, uid);
+
+            brls::ListItem* item = new brls::ListItem(apelido,
+                temSave ? TR("Já tem save deste jogo — ele será apagado e substituído.",
+                              "Already has a save for this game — it'll be erased and replaced.")
+                        : TR("Ainda não tem save deste jogo. Eu crio o save e ponho o guardado "
+                             "dentro.",
+                              "Doesn't have a save for this game yet. I'll create it and put "
+                              "the stored one inside."));
+
+            item->getClickEvent()->subscribe(
+                [caminho, pasta, molde, uid, apelido, temSave](brls::View* view) {
+                    brls::Dialog* dialog = new brls::Dialog(
+                        temSave
+                            ? TR(std::string("Isso apaga o save de \"") + molde.name
+                                        + "\" da conta \"" + apelido
+                                        + "\" e põe no lugar o que está guardado no arquivo.\n\n"
+                                          "O jogo não pode estar aberto. Continuar?",
+                                  std::string("This erases the \"") + molde.name
+                                        + "\" save of account \"" + apelido
+                                        + "\" and puts what's stored in the file in its place."
+                                          "\n\nThe game must not be running. Continue?")
+                            : TR(std::string("Vou criar o save de \"") + molde.name
+                                        + "\" na conta \"" + apelido
+                                        + "\" e pôr dentro o que está guardado no arquivo.\n\n"
+                                          "O jogo não pode estar aberto. Continuar?",
+                                  std::string("I'll create the \"") + molde.name
+                                        + "\" save on account \"" + apelido
+                                        + "\" and put what's stored in the file inside.\n\n"
+                                          "The game must not be running. Continue?"));
+
+                    dialog->addButton(TR("Cancelar", "Cancel"),
+                        [dialog](brls::View* view) { dialog->close(); });
+                    dialog->addButton(temSave ? TR("Restaurar", "Restore") : TR("Criar", "Create"),
+                        [dialog, caminho, pasta, molde, uid, apelido](brls::View* view) {
+                            dialog->close([caminho, pasta, molde, uid, apelido]() {
+                                openJob(new Job(std::string(TR("Restaurar — ", "Restore — "))
+                                            + molde.name,
+                                            [caminho, pasta, molde, uid, apelido](Job* job) {
+                                                return jobRestoreIntoNewAccount(
+                                                    job, caminho, pasta, molde, uid, apelido);
+                                            }),
+                                    false);
+                            });
+                        });
+
+                    dialog->setCancelable(true);
+                    dialog->open();
+                });
+
+            list->addView(item);
+        }
+    }
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
 // conversa privada removida do historico
 // conversa privada removida do historico
-// perfil dele. A libnx não tem função de criar usuário — o que ela tem é
-// pselShowUserCreator, que abre a MESMA tela do menu do console. É o caminho
-// certo de qualquer jeito: a conta nasce de verdade, com foto e nome, em vez de
-// a gente escrever no banco de perfis do sistema na mão.
-static void openMissingAccountPage(std::string caminho, std::string pasta, u64 appId)
+//
+// Era uma tela separada, com o mesmo conteúdo. Virou pergunta na hora porque é
+// nessa hora que ele quer decidir — e as três respostas cabem em três botões.
+static void perguntarContaQueFalta(std::string caminho, std::string pasta, u64 appId)
 {
     std::vector<TitleEntry> locais = savesOf(appId);
 
-    // Molde do jogo: serve só pro nome e pro application_id. A conta e o tipo
-    // de save quem preenche é o trabalho.
+    // Molde do jogo: serve só pro nome e pro application_id. A conta e o tipo de
+    // save quem preenche é o trabalho.
     TitleEntry molde = locais[0];
     for (const TitleEntry& t : locais)
         if (!t.device_save)
@@ -1385,199 +1552,38 @@ static void openMissingAccountPage(std::string caminho, std::string pasta, u64 a
         }
 
     std::string queria = contaDaPasta(pasta);
+    std::string aConta = queria.empty() ? TR("dona deste save", "that owns this save")
+                                        : std::string("\"") + queria + "\"";
 
-    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
-    frame->setTitle(TR("Conta que não existe aqui", "Account that isn't on this console"));
-
-    brls::List* list = new brls::List();
-
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR(std::string("O jogo é este console conhece: \"") + molde.name
-                + "\". Quem não existe aqui é a conta dona deste save"
-                + (queria.empty() ? std::string(".") : std::string(", \"") + queria + "\".")
-                + "\n\nSave do Switch é preso a uma conta, então ele precisa de uma daqui pra "
-                  "morar. Escolha uma que já existe, ou crie a conta agora.",
+    brls::Dialog* dialog = new brls::Dialog(
+        TR(std::string("O jogo este console conhece: \"") + molde.name
+                + "\". Quem não existe aqui é a conta " + aConta
+                + ", e save do Switch é preso a uma conta.\n\nDeseja criar essa conta?"
+                + (queria.empty()
+                          ? std::string("")
+                          : std::string(" Na tela do console, ponha o nome \"") + queria
+                                + "\" — é o nome que estava no save."),
             std::string("This console knows the game: \"") + molde.name
-                + "\". What it doesn't have is the account this save belongs to"
-                + (queria.empty() ? std::string(".") : std::string(", \"") + queria + "\".")
-                + "\n\nA Switch save is tied to an account, so it needs one here to live in. "
-                  "Pick an account that already exists, or create the account now."),
-        true));
+                + "\". What it doesn't have is the account " + aConta
+                + ", and a Switch save is tied to an account.\n\nDo you want to create that "
+                  "account?"
+                + (queria.empty() ? std::string("")
+                                  : std::string(" On the console's screen, use the name \"")
+                                        + queria + "\" — that's the name the save had.")));
 
-    // Contas deste console que já têm save deste jogo. É o caminho sem
-    // surpresa: o save já existe, só vai ser sobrescrito.
-    bool temConta = false;
-    for (const TitleEntry& t : locais)
-        if (!t.device_save)
-        {
-            temConta = true;
-            break;
-        }
-
-    if (temConta)
-    {
-        list->addView(new brls::Header(TR("Pôr numa conta que já existe aqui",
-            "Put it on an account that's already here")));
-
-        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-            TR("Isto ESCREVE por cima do save da conta que você escolher — o que está lá "
-               "agora se perde. Pergunto de novo antes.",
-                "This OVERWRITES the save of whichever account you pick — what's there now is "
-                "lost. I'll ask again first."),
-            true));
-
-        for (const TitleEntry& t : locais)
-        {
-            if (t.device_save)
-                continue;
-
-            std::string dono = t.account[0] ? t.account : TR("conta sem nome", "unnamed account");
-
-            brls::ListItem* item = new brls::ListItem(dono);
-            item->getClickEvent()->subscribe([caminho, pasta, t, dono](brls::View* view) {
-                brls::Dialog* dialog = new brls::Dialog(
-                    TR(std::string("Isso apaga o save de \"") + t.name + "\" da conta \"" + dono
-                            + "\" e põe no lugar o que está guardado no arquivo.\n\n"
-                              "O jogo não pode estar aberto. Continuar?",
-                        std::string("This erases the \"") + t.name + "\" save of account \""
-                            + dono + "\" and puts what's stored in the file in its place.\n\n"
-                                     "The game must not be running. Continue?"));
-
-                dialog->addButton(TR("Cancelar", "Cancel"),
-                    [dialog](brls::View* view) { dialog->close(); });
-                dialog->addButton(TR("Restaurar", "Restore"),
-                    [dialog, caminho, pasta, t](brls::View* view) {
-                        dialog->close([caminho, pasta, t]() {
-                            openJob(new Job(std::string(TR("Restaurar — ", "Restore — "))
-                                        + titleWithOwner(t),
-                                        [caminho, pasta, t](Job* job) {
-                                            return jobArchiveRestoreFolder(job, caminho, pasta, t);
-                                        }),
-                                false);
-                        });
-                    });
-
-                dialog->setCancelable(true);
-                dialog->open();
+    dialog->addButton(TR("Sim", "Yes"), [dialog, caminho, pasta, molde](brls::View* view) {
+        dialog->close([caminho, pasta, molde]() { criarContaERestaurar(caminho, pasta, molde); });
+    });
+    dialog->addButton(TR("Não", "No"), [dialog](brls::View* view) { dialog->close(); });
+    dialog->addButton(TR("Colocar em outra conta", "Put it on another account"),
+        [dialog, caminho, pasta, molde](brls::View* view) {
+            dialog->close([caminho, pasta, molde]() {
+                openOtherAccountPage(caminho, pasta, molde);
             });
-
-            list->addView(item);
-        }
-    }
-
-    list->addView(new brls::Header(TR("Criar a conta agora", "Create the account now")));
-
-    brls::ListItem* criar = new brls::ListItem(
-        queria.empty() ? TR("Criar uma conta nova", "Create a new account")
-                       : TR(std::string("Criar a conta \"") + queria + "\"",
-                             std::string("Create the \"") + queria + "\" account"));
-
-    criar->getClickEvent()->subscribe(
-        [caminho, pasta, molde, queria](brls::View* view) {
-            // Applet mode não abre tela de sistema. Se tentar, a chamada falha e
-            // o app trava esperando uma resposta que não vem.
-            if (g_applet_mode)
-            {
-                brls::Dialog* aviso = new brls::Dialog(
-                    TR("Pra criar conta, o app precisa estar aberto como aplicação — segurando "
-                       "R num jogo instalado, e não pelo Álbum.\n\n"
-                       "Ou crie a conta pelo menu do console (Configurações > Usuários > Adicionar "
-                       "usuário) e volte aqui: ela vai aparecer na lista de cima.",
-                        "To create an account the app has to be running as an application — hold "
-                        "R on an installed game instead of opening it from the Album.\n\n"
-                        "Or create the account from the console menu (System Settings > Users > "
-                        "Add user) and come back: it'll show up in the list above."));
-                aviso->addButton(TR("Entendi", "Got it"),
-                    [aviso](brls::View* view) { aviso->close(); });
-                aviso->setCancelable(true);
-                aviso->open();
-                return;
-            }
-
-            brls::Dialog* dialog = new brls::Dialog(
-                TR(std::string("Vou abrir a tela de criar usuário do próprio console.")
-                        + (queria.empty()
-                                  ? std::string("")
-                                  : std::string(" Ponha o nome \"") + queria
-                                        + "\" — é o nome que estava no save.")
-                        + "\n\nO nome é só o nome: a conta nova é uma conta nova pro console, "
-                          "então o save vai passar a ser dela. Quando você voltar, eu crio o "
-                          "save deste jogo nela e ponho o que está no arquivo dentro.",
-                    std::string("I'll open the console's own create-user screen.")
-                        + (queria.empty() ? std::string("")
-                                          : std::string(" Use the name \"") + queria
-                                                + "\" — that's the name the save had.")
-                        + "\n\nThe name is just a name: the new account is a new account to the "
-                          "console, so the save becomes its own. When you come back, I'll create "
-                          "this game's save on it and put what's in the file inside."));
-
-            dialog->addButton(TR("Cancelar", "Cancel"),
-                [dialog](brls::View* view) { dialog->close(); });
-            dialog->addButton(TR("Abrir", "Open"), [dialog, caminho, pasta, molde](brls::View* view) {
-                dialog->close([caminho, pasta, molde]() {
-                    // Quem é conta nova? A que não estava aqui antes. O
-                    // pselShowUserCreator não devolve o uid do que foi criado,
-                    // então a resposta é a diferença entre as duas listas.
-                    std::vector<AccountUid> antes = contasDoConsole();
-
-                    if (R_FAILED(pselShowUserCreator()))
-                    {
-                        brls::Application::notify(TR("Não consegui abrir a tela do console",
-                            "Couldn't open the console's screen"));
-                        return;
-                    }
-
-                    AccountUid nova = { { 0, 0 } };
-                    for (const AccountUid& uid : contasDoConsole())
-                    {
-                        bool jaExistia = false;
-                        for (const AccountUid& velha : antes)
-                            if (mesmaConta(uid, velha))
-                            {
-                                jaExistia = true;
-                                break;
-                            }
-
-                        if (!jaExistia)
-                        {
-                            nova = uid;
-                            break;
-                        }
-                    }
-
-                    if (!accountUidIsValid(&nova))
-                    {
-                        brls::Application::notify(
-                            TR("Nenhuma conta nova foi criada", "No new account was created"));
-                        return;
-                    }
-
-                    std::string apelido = apelidoDaConta(nova);
-
-                    openJob(new Job(std::string(TR("Restaurar — ", "Restore — ")) + molde.name,
-                                [caminho, pasta, molde, nova, apelido](Job* job) {
-                                    return jobRestoreIntoNewAccount(
-                                        job, caminho, pasta, molde, nova, apelido);
-                                }),
-                        false);
-                });
-            });
-
-            dialog->setCancelable(true);
-            dialog->open();
         });
 
-    list->addView(criar);
-
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("Criar conta abre a tela do próprio console — a mesma de Configurações > Usuários. "
-           "Este app não mexe no cadastro de usuários por fora dela.",
-            "Creating an account opens the console's own screen — the same one in System "
-            "Settings > Users. This app doesn't touch the user database outside of it."),
-        true));
-
-    frame->setContentView(list);
-    brls::Application::pushView(frame);
+    dialog->setCancelable(true);
+    dialog->open();
 }
 
 // Clicou num save de dentro do arquivo. De quem ele é neste console?
@@ -1636,7 +1642,7 @@ static void openArchiveEntry(std::string caminho, std::string pasta)
             return;
         }
 
-        openMissingAccountPage(caminho, pasta, appId);
+        perguntarContaQueFalta(caminho, pasta, appId);
         return;
     }
 
@@ -2301,7 +2307,7 @@ int main(int argc, char* argv[])
 
     g_root = new brls::TabFrame();
     g_root->setTitle("SwitchSaveSync");
-    g_root->setIcon(BOREALIS_ASSET("icon/borealis.jpg"));
+    g_root->setIcon(BOREALIS_ASSET("icon/app.jpg")); // o mesmo icone do .nro
 
     g_root->addTab(TR("Meus jogos", "My games"), createGamesTab());
     g_root->addTab(TR("Tudo de uma vez", "All at once"), createBulkTab());
