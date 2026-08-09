@@ -551,7 +551,11 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     say(log, "Lendo o save de %s...", title->name);
     if (!savemount_mount(title->application_id, title->uid, true))
     {
-        say(log, "Nao consegui montar o save (o jogo esta aberto?)");
+        // Duas causas bem diferentes caem aqui, e a mensagem antiga só citava
+        // uma: o jogo aberto agora, e o jogo que nunca foi aberto (aí o save
+        // sequer existe pra ser montado).
+        say(log, "Nao consegui abrir o save. O jogo esta rodando agora, ou");
+        say(log, "nunca foi aberto neste console — abra ele uma vez e volte.");
         return SYNCJOB_SYNC_FAILED;
     }
     clear_dir(console_dir);
@@ -627,7 +631,23 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         return SYNCJOB_SYNC_UPLOADED;
     }
 
-    if (!local_vazio && local_fp == cloud_fp)
+    // Espelho do caso de cima: não tem save aqui e tem na nuvem. Baixar é
+    // seguro por definição — não existe progresso no console pra ser apagado.
+    // Sem este ramo, o caso mais comum de todos (jogo reinstalado, save só no
+    // Drive) caía em CONFLITO lá embaixo por falta de marcador, e o app pedia
+    // pra escolher entre um save e o nada.
+    if (local_vazio)
+    {
+        say(log, "Nao tem save aqui e tem na nuvem — trazendo pro console...");
+        if (!write_over_save(title, cloud_dir, log))
+            return SYNCJOB_SYNC_FAILED;
+
+        syncjob_mark_synced(title->application_id, cloud_fp);
+        say(log, "Save de %s veio da nuvem", title->name);
+        return SYNCJOB_SYNC_DOWNLOADED;
+    }
+
+    if (local_fp == cloud_fp)
     {
         // Grava o marcador mesmo sem transferir nada: os dois lados estão
         // iguais AGORA, e é exatamente isso que o marcador significa. Sem
