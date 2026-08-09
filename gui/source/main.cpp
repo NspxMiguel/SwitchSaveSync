@@ -1919,36 +1919,28 @@ static void fillArchivePage(brls::List* list, std::vector<TitleEntry> todos)
         });
         list->addView(dentro);
     }
-    else
-    {
-        // Sem isto, as duas linhas que faltam pareceriam recurso que não existe.
-        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-            TR("Não tem arquivo no cartão agora. Depois de juntar ou de baixar, aperte X: "
-               "aparecem aqui as linhas de subir e de ver o que tem dentro.",
-                "There's no file on the SD card right now. After packing or downloading, "
-                "press X: the upload and inspect lines show up here."),
-            true));
-    }
 
-    list->addView(new brls::Header(TR("Como é esse arquivo", "What this file is")));
-
-    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
-    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
+    // O textão de antes virou três linhas. O que precisava sobreviver era só
+    // isto: o formato é nosso, então o arquivo depende deste app existir — a
+    // diferença entre uma escolha e uma armadilha.
+    //
+    // E o aviso das linhas que ainda não estão na tela vem virado do avesso:
+    // "quando tiver, aparece mais coisa aqui", e não "você não tem". Dito como
+    // falta, ele lia como recusa logo na primeira vez.
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("O arquivo é de um formato nosso (.nxsaves): não é zip, não abre com dois cliques "
-           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
-           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
-           "de verdade consegue ler.\n\n"
-           "O modo normal — uma pasta por jogo na nuvem — continua sendo o recomendado, e "
-           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
-           "pasta por jogo é o que continua servindo se um dia este app sumir.",
-            "The file uses a format of ours (.nxsaves): it isn't a zip, it doesn't open with a "
-            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
-            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
-            "open, so anyone determined enough can read it.\n\n"
-            "The normal mode — one folder per game in the cloud — is still the recommended one, "
-            "and the two can coexist. A single file is handy for taking everything at once; "
-            "one folder per game is what still works if this app ever disappears."),
+        std::string(tem ? "" :
+            TR("Assim que existir um arquivo no cartão, aparecem aqui mais duas linhas: "
+               "subir o que já está pronto e ver o que tem dentro. Aperte X pra atualizar.\n\n",
+                "As soon as a file exists on the SD card, two more lines show up here: "
+                "upload what's already made, and see what's inside. Press X to refresh.\n\n"))
+        + TR(".nxsaves é um formato nosso: não é zip e só este app lê. O modo normal — uma "
+             "pasta por jogo na nuvem — continua sendo o recomendado, e os dois convivem. "
+             "O arquivo é prático pra levar tudo de uma vez; a pasta por jogo é o que "
+             "continua servindo se um dia este app sumir.",
+              ".nxsaves is a format of ours: it isn't a zip, and only this app reads it. The "
+              "normal mode — one folder per game in the cloud — is still the recommended one, "
+              "and the two coexist. The file is handy for carrying everything at once; the "
+              "folder per game is what still works if this app ever disappears."),
         true));
 }
 
@@ -2044,9 +2036,13 @@ static void fillBulkList(brls::List* list)
            "tela de juntar, subir, baixar e restaurar.",
             "Packs every game's save into a single package, to carry everything at once. "
             "Opens the pack, upload, download and restore screen."));
-    arquivoItem->setValue(syncjob_has_archive()
-            ? TR("tem um no cartão", "one is on the SD card")
-            : TR("ainda não tem", "none yet"));
+    // Só diz alguma coisa quando TEM. O "ainda não tem" que ficava aqui era o
+    // primeiro de dois avisos de falta que ele levava antes de fazer nada:
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    // faltando — e porta não precisa avisar que a sala está vazia.
+    if (syncjob_has_archive())
+        arquivoItem->setValue(TR("tem um no cartão", "one is on the SD card"));
     arquivoItem->getClickEvent()->subscribe(
         [todos](brls::View* view) { openArchivePage(todos); });
     list->addView(arquivoItem);
@@ -2590,7 +2586,10 @@ static brls::List* createSettingsTab()
     updateWebdavItem();
 
     // ---- idioma ----
-    list->addView(new brls::Header(TR("Idioma", "Language"), false));
+    // Antes eram dois cabeçalhos, "Idioma" e "Controle parental", com UMA linha
+    // debaixo de cada — mais título que conteúdo. Viraram um grupo só: as duas
+    // são ajuste do app em si, e não de pra onde o save vai.
+    list->addView(new brls::Header(TR("O app", "The app"), false));
 
     // A ordem aqui é a mesma do enum LangChoice (auto, pt, en), então o índice
     // que a borealis devolve já é o valor — sem tabela de conversão pra
@@ -2624,9 +2623,6 @@ static brls::List* createSettingsTab()
     });
     list->addView(langItem);
 
-    // ---- controle parental ----
-    list->addView(new brls::Header(TR("Controle parental", "Parental control"), false));
-
     g_pin_item = new brls::ListItem(TR("Ligar a senha", "Turn the password on"),
         TR("Uma senha de 4 a 8 números, pedida toda vez que o app abre. Pra trocar ou "
            "tirar depois, o app pede a senha atual antes.",
@@ -2636,17 +2632,16 @@ static brls::List* createSettingsTab()
     list->addView(g_pin_item);
     updatePinItem();
 
+    // Seis linhas viraram uma. O que não podia sumir é o "não é cofre": vender
+    // a senha como proteção de verdade seria mentira, e mentira sobre save é
+    // caro.
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("Com a senha ligada, o app pergunta os números toda vez que abre — sem "
-           "acertar, ninguém chega nos botões que mexem em save.\n\n"
-           "Não é cofre: quem pegar o cartão SD no PC apaga o arquivo da senha e entra. "
-           "Serve pra criança não apagar progresso sem querer, e é só pra isso que dá "
-           "pra contar com ela.",
-            "With the password on, the app asks for the digits every time it opens — "
-            "without them, nobody reaches the buttons that touch saves.\n\n"
-            "It is not a vault: anyone who puts the SD card in a PC can delete the "
-            "password file and get in. It's there so a kid doesn't wipe progress by "
-            "accident, and that's all it can be counted on for."),
+        TR("A senha não é cofre: quem levar o cartão pro PC apaga o arquivo dela e entra. "
+           "Serve pra criança não apagar progresso sem querer, e é só pra isso que dá pra "
+           "contar com ela.",
+            "The password is not a vault: anyone who takes the card to a PC can delete its "
+            "file and get in. It's there so a kid doesn't wipe progress by accident, and "
+            "that's all it can be counted on for."),
         true));
 
     // ---- diagnóstico ----
