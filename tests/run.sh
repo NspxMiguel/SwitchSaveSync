@@ -13,6 +13,8 @@
 #
 #   ./tests/run.sh          roda tudo
 #   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes)
+#   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
+#                           precisa de conta e de internet. Ver o bloco 4.
 
 set -e
 cd "$(dirname "$0")"
@@ -112,6 +114,49 @@ EOF
     /usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k stop 2>/dev/null || true
     trap - EXIT INT TERM
     sleep 1   # o -k stop volta na hora, mas o processo leva um instante pra sair
+fi
+
+# ---- 4. o Google Drive de verdade (só sob pedido) ----
+# NÃO entra no "tudo" de propósito: precisa de uma conta e fala com a internet.
+# Rode com  ./tests/run.sh drive
+#
+# Pede login por código na primeira vez (o Google mostra o código, você aprova
+# no seu navegador — senha nenhuma passa por aqui). O token fica FORA do repo,
+# numa pasta temporária, e é reaproveitado nas rodadas seguintes.
+#
+# Ele cria uma pasta "_teste do Mac (pode apagar)" dentro da pasta do app e faz
+# tudo lá dentro, inclusive a limpeza — que é a única operação que apaga da
+# nuvem. Nenhum backup de verdade é tocado. A pasta é apagada no fim.
+if [ "$QUAL" = drive ]; then
+    if [ ! -f "$CORE/config.h" ]; then
+        echo "falta o core/config.h com o client id/secret do Google — esse não vai pro git"
+        exit 1
+    fi
+
+    # O core monta caminho com "sdmc:/..." e "romfs:/...", que no Mac não
+    # começam com barra e portanto valem como caminho relativo. Criando pastas
+    # com esses nomes literais, o código do console roda aqui sem alteração
+    # nenhuma — inclusive a conferência do certificado, que usa o cacert.pem
+    # de verdade do projeto.
+    GUARDA="${TMPDIR:-/tmp}/switchsavesync-drive-teste"
+    mkdir -p "$GUARDA/sdmc:/switch/SwitchSaveSync"
+
+    nome=drive
+    printf '\n########## %s ##########\n' "$nome"
+    rm -rf "build/$nome"
+    mkdir -p "build/$nome/romfs:"
+    cp ../gui/resources/cacert.pem "build/$nome/romfs:/cacert.pem"
+    ln -s "$GUARDA/sdmc:" "build/$nome/sdmc:"
+
+    clang $CFLAGS test_drive.c \
+        $CORE/drive.c $CORE/oauth.c $CORE/http.c $CORE/cloud.c \
+        $CORE/minijson.c $CORE/webdav.c \
+        -lcurl -lz -o "build/$nome/teste"
+    (cd "build/$nome" && ./teste) || falhou=1
+
+    echo
+    echo "o login ficou guardado em $GUARDA — apague quando terminar:"
+    echo "  rm -rf \"$GUARDA\""
 fi
 
 printf '\n'

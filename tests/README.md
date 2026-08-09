@@ -8,6 +8,9 @@
 nada — usa o Apache que já vem no macOS pra levantar um servidor WebDAV de
 mentira por alguns segundos e o derruba no fim.
 
+Tem mais 42 contra o Google Drive de verdade, que ficam de fora deste comando
+porque precisam de conta. Estão logo abaixo.
+
 Tudo compila com **ASan e UBSan** ligados. Eles pegam estouro de buffer e
 leitura de memória não inicializada, que é justamente o erro que no console
 vira crash sem explicação nenhuma na tela.
@@ -38,14 +41,33 @@ parar no primeiro, pasta vazia, buffer curto. O saneamento de nome de pasta.
 E a regra do nome da pasta do save — inclusive a prova de que renomear a conta
 do console só muda a pasta quando o jogo tem save de mais de uma conta.
 
-## O que NÃO cobre, de propósito
+## O Google Drive de verdade — fora do `tudo`
 
-- **O Google Drive de verdade.** Exigiria entrar numa conta. O que dá pra
-  garantir daqui é o pedaço que lê as respostas e o espelhamento, que é código
-  comum às duas nuvens.
-- **A conexão segura.** O servidor de teste é `http` puro, então a parte do
-  `core/http.c` que confere o certificado (`romfs:/cacert.pem`) não passa por
-  aqui. No console ela é obrigatória.
+```sh
+./tests/run.sh drive
+```
+
+42 testes contra o Drive de uma conta de verdade. Está fora do `tudo` porque
+precisa de conta e de internet, e porque fala com a nuvem de alguém.
+
+O login é **por código**: o teste mostra um código, você aprova no seu
+navegador, na página do próprio Google. Senha nenhuma passa pelo teste. O token
+fica numa pasta temporária **fora do repo** e é reaproveitado nas rodadas
+seguintes — a mensagem no fim diz onde, pra você apagar quando terminar.
+
+Tudo acontece dentro de uma pasta chamada `_teste do Mac (pode apagar)`, criada
+na hora e apagada no fim. O `cloud_prune_extras`, que é a **única** operação
+que apaga da nuvem, só roda lá dentro. Nenhum backup de verdade é tocado, e o
+teste imprime a listagem antes e depois pra provar. Precisa do `core/config.h`,
+que tem o client id/secret do Google e não vai pro git.
+
+Este é também o único teste que exercita a **conexão segura**: o servidor
+WebDAV de teste é `http` puro, mas o Drive é `https`, e o `core/http.c` roda
+aqui sem alteração nenhuma, conferindo o certificado contra o `cacert.pem` do
+próprio projeto.
+
+## O que NÃO cobre
+
 - **Montar save de verdade, e a tela.** Precisa do console.
 
 ## Os stubs
