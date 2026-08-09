@@ -11,6 +11,7 @@ Open the app, press A on a game, done — it works out for itself whether to upl
 [![CFW](https://img.shields.io/badge/CFW-Atmosph%C3%A8re-5865f2)](https://github.com/Atmosphere-NX/Atmosphere)
 [![Build](https://img.shields.io/badge/build-devkitPro-1f9c4b)](https://devkitpro.org/)
 [![Languages](https://img.shields.io/badge/languages-PT%20%7C%20EN-blue)](#also-in-here)
+[![License](https://img.shields.io/badge/license-GPLv3-663366)](LICENSE)
 
 [Português](README.md)
 
@@ -164,3 +165,8 @@ everything else, [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere) for 
 The device-save path came from looking at where [JKSV](https://github.com/J-D-K/JKSV) and
 [Checkpoint](https://github.com/FlagBrew/Checkpoint) trip up — both have an open issue
 about it.
+
+## License
+
+[GPLv3](LICENSE) — the same one Atmosphère, JKSV and Checkpoint use. Use it, study it,
+change it, pass it on; anyone distributing a modified version has to open their source too.

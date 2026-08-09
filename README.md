@@ -10,7 +10,8 @@ Abre o app, aperta A no jogo, pronto — ele decide sozinho se sobe ou se desce.
 [![Plataforma](https://img.shields.io/badge/plataforma-Nintendo%20Switch-e60012)](https://switchbrew.org/)
 [![CFW](https://img.shields.io/badge/CFW-Atmosph%C3%A8re-5865f2)](https://github.com/Atmosphere-NX/Atmosphere)
 [![Compilador](https://img.shields.io/badge/build-devkitPro-1f9c4b)](https://devkitpro.org/)
-[![Idiomas](https://img.shields.io/badge/idiomas-PT%20%7C%20EN-blue)](#idioma)
+[![Idiomas](https://img.shields.io/badge/idiomas-PT%20%7C%20EN-blue)](#tamb%C3%A9m-tem)
+[![Licença](https://img.shields.io/badge/licen%C3%A7a-GPLv3-663366)](LICENSE)
 
 [English](README.en.md)
 
@@ -164,3 +165,9 @@ resto, [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere) por existir,
 O caminho de save de console veio de olhar onde o [JKSV](https://github.com/J-D-K/JKSV) e o
 [Checkpoint](https://github.com/FlagBrew/Checkpoint) tropeçam — os dois têm issue aberta
 sobre isso.
+
+## Licença
+
+[GPLv3](LICENSE) — a mesma do Atmosphère, do JKSV e do Checkpoint. Use, estude, modifique e
+distribua à vontade; quem distribuir uma versão modificada tem que abrir o código dela
+também.
