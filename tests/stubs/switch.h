@@ -29,3 +29,6 @@ typedef struct {
 typedef enum { TimeType_UserSystemClock = 0, TimeType_NetworkSystemClock = 1,
                TimeType_LocalSystemClock = 2 } TimeType;
 Result timeGetCurrentTime(TimeType type, u64 *out);
+
+// O oauth.c dorme entre uma pergunta e outra ao Google.
+void svcSleepThread(u64 nanos);
