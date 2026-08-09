@@ -203,7 +203,17 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
 
             for (s64 i = 0; i < total_read && count < max_entries; i++) {
                 FsSaveDataInfo *info = &entries[i];
-                if (info->save_data_type != FsSaveDataType_Account) continue;
+
+                // Dois tipos entram: save de conta e save do console.
+                //
+                // Os que ficam de fora são de propósito: System e SystemBcat
+                // não são de jogo; Bcat é conteúdo que o servidor da Nintendo
+                // empurra (evento, não progresso); Temporary morre sozinho; e
+                // Cache é dado derivado que o jogo remonta quando falta.
+                // Nenhum deles é progresso do jogador, que é o que ele quer
+                // sincronizar.
+                bool device = (info->save_data_type == FsSaveDataType_Device);
+                if (info->save_data_type != FsSaveDataType_Account && !device) continue;
 
                 uint64_t application_id = info->application_id;
                 if (application_id == 0) continue;
@@ -211,16 +221,20 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 // So jogo instalado. Ver is_installed() logo acima.
                 if (!is_installed(application_id)) continue;
 
-                // Duplicata agora é (jogo, CONTA), não jogo.
+                // Duplicata agora é (jogo, TIPO, CONTA), não jogo.
                 //
                 // Antes bastava o application_id bater pra pular, então o save
                 // da segunda conta era descartado aqui: nunca aparecia na
                 // conversa privada removida do historico
                 // conversa privada removida do historico
                 // conversa privada removida do historico
+                // pode ter save de conta E save do console ao mesmo tempo (é o
+                // caso do Pokémon Sword/Shield) — são dois saves de verdade, e
+                // não um repetido.
                 bool dup = false;
                 for (size_t j = 0; j < count; j++) {
                     if (out[j].application_id == application_id &&
+                        out[j].device_save == device &&
                         out[j].uid.uid[0] == info->uid.uid[0] &&
                         out[j].uid.uid[1] == info->uid.uid[1]) { dup = true; break; }
                 }
@@ -229,13 +243,19 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 out[count].application_id = application_id;
                 out[count].save_data_id = info->save_data_id;
                 out[count].uid = info->uid;
+                out[count].device_save = device;
                 out[count].shared_game = false; // decidido no passe de baixo
 
                 if (!resolve_title_name(application_id, out[count].name, sizeof(out[count].name))) {
                     snprintf(out[count].name, sizeof(out[count].name),
                              "Titulo desconhecido (%016lX)", application_id);
                 }
-                resolve_account_name(info->uid, out[count].account, sizeof(out[count].account));
+                // Device save não tem dono: o uid vem zerado, e perguntar o
+                // apelido de um uid zerado só devolveria erro.
+                if (device)
+                    out[count].account[0] = '\0';
+                else
+                    resolve_account_name(info->uid, out[count].account, sizeof(out[count].account));
                 count++;
             }
 
@@ -251,7 +271,8 @@ cleanup:
     if (acc_owned) accountExit();
 
     // Só agora dá pra saber quem divide jogo com quem — depende da lista
-    // inteira, e ela só existe aqui no fim.
+    // inteira, e ela só existe aqui no fim. Vale pra qualquer par: duas contas,
+    // ou uma conta e o console.
     for (size_t i = 0; i < count; i++) {
         for (size_t j = i + 1; j < count; j++) {
             if (out[i].application_id == out[j].application_id) {

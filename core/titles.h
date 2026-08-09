@@ -21,19 +21,30 @@ extern "C" {
 typedef struct {
     u64 application_id;   // title id do jogo
     u64 save_data_id;     // id do save (informativo; o mount é por application_id+uid)
-    AccountUid uid;       // conta dona do save — necessária pra montar
+    AccountUid uid;       // conta dona do save — necessária pra montar (zerado em device save)
     char name[0x201];     // nome do jogo (do NACP) ou "Titulo desconhecido (<id hex>)"
-    char account[0x21];   // apelido da conta dona do save ("" se não deu pra ler)
+    char account[0x21];   // apelido da conta dona do save ("" se não deu pra ler / device save)
 
-    // Esse jogo tem save de MAIS DE UMA conta neste console.
+    // Esse save é do CONSOLE, não de uma conta.
     //
-    // Save no Switch é por conta, e a lista aqui tem uma linha por save, não
-    // por jogo. Sem este marcador, dois perfis com o mesmo jogo viravam duas
-    // linhas idênticas na tela e — pior — a mesma pasta no Drive, uma
-    // sobrescrevendo a outra. Só quando ele é true é que o nome da conta entra
-    // na tela e no nome da pasta: assim jogo de conta única continua com
-    // exatamente o mesmo nome de pasta de sempre, e nada que já está no Drive
-    // fica órfão.
+    // O Switch tem mais de um tipo de save data. O comum é o de conta, mas
+    // existe o "device save": um só por console, compartilhado por todos os
+    // perfis. É onde o Animal Crossing guarda a ilha e onde o Pokémon
+    // Sword/Shield guarda parte das coisas. Enquanto isto não existia, esses
+    // jogos nem apareciam na lista — e no caso do Animal Crossing dava pra
+    // fazer "backup" do save de conta (quase vazio) achando que a ilha tinha
+    // ido junto.
+    bool device_save;
+
+    // Esse jogo tem MAIS DE UM save neste console — seja de contas
+    // diferentes, seja um de conta e um do console.
+    //
+    // A lista aqui tem uma linha por SAVE, não por jogo. Sem este marcador,
+    // dois saves do mesmo jogo viravam duas linhas idênticas na tela e —
+    // pior — a mesma pasta no Drive, uma sobrescrevendo a outra. Só quando ele
+    // é true é que o dono do save (conta ou "console") entra na tela e no nome
+    // da pasta: assim jogo de save único continua com exatamente o nome de
+    // pasta de sempre, e nada que já está no Drive fica órfão.
     bool shared_game;
 } TitleEntry;
 
