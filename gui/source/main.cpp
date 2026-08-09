@@ -28,6 +28,7 @@ extern "C" {
 
 #include "job.hpp"
 #include "job_page.hpp"
+#include "parental.hpp"
 
 #define APP_DIR     "sdmc:/switch/SwitchSaveSync"
 #define STAGING_DIR APP_DIR "/staging"
@@ -44,6 +45,7 @@ static brls::TabFrame* g_root         = nullptr;
 static brls::ListItem* g_account_item = nullptr;
 static brls::ListItem* g_login_item   = nullptr;
 static brls::ListItem* g_logout_item  = nullptr;
+static brls::ListItem* g_pin_item     = nullptr;
 
 // Diagnóstico da inicialização de rede, mostrado na aba Conta.
 static Result g_socket_rc  = 0;
@@ -122,6 +124,85 @@ static void updateAccountViews()
         g_root->setSubtitle(logged ? "Google Drive: conta conectada"
                                    : "Google Drive: nenhuma conta conectada",
             "v" APP_VERSION_STRING);
+}
+
+static void updatePinItem()
+{
+    if (!g_pin_item)
+        return;
+
+    // Só label e valor mudam: a ListItem da borealis não tem setter pra
+    // descrição (ela só entra no construtor), então o texto de baixo é fixo e
+    // quem conta o estado é o valor da direita.
+    bool on = Parental::isSet();
+    g_pin_item->setLabel(on ? "Trocar ou tirar a senha" : "Ligar a senha");
+    g_pin_item->setValue(on ? "ligada" : "desligada", !on);
+}
+
+// Escolher senha nova. Pergunta duas vezes de propósito: senha digitada
+// errada e confirmada errada tranca o app do dono, e destrancar exigiria
+// achar o arquivo no cartão pelo PC. Barato prevenir, caro consertar.
+static void askForNewPin()
+{
+    std::string primeira, segunda;
+
+    if (!Parental::prompt("Senha nova", "Escolha de 4 a 8 numeros", primeira))
+        return; // cancelou
+
+    if (!Parental::prompt("Confirme a senha", "Digite os mesmos numeros de novo", segunda))
+        return;
+
+    if (primeira != segunda)
+    {
+        brls::Application::notify("As duas nao bateram — a senha continua como estava");
+        return;
+    }
+
+    if (!Parental::save(primeira))
+    {
+        brls::Application::notify("Nao consegui gravar no cartao — a senha NAO foi ligada");
+        return;
+    }
+
+    brls::Application::notify("Senha ligada");
+    updatePinItem();
+}
+
+static void onPinItemClicked()
+{
+    if (!Parental::isSet())
+    {
+        askForNewPin();
+        return;
+    }
+
+    // Já tem senha: só passa por aqui quem souber a atual. Sem isso, a
+    // criança que já está dentro do app desligaria a trava em dois cliques.
+    std::string atual;
+    if (!Parental::prompt("Senha atual", "Confirme que e' voce", atual))
+        return;
+
+    if (!Parental::matches(atual))
+    {
+        brls::Application::notify("Senha errada");
+        return;
+    }
+
+    brls::Dialog* dialog = new brls::Dialog("Senha atual conferida. O que voce quer fazer?");
+
+    dialog->addButton("Trocar a senha", [dialog](brls::View* view) {
+        dialog->close([]() { askForNewPin(); });
+    });
+    dialog->addButton("Tirar a senha", [dialog](brls::View* view) {
+        dialog->close([]() {
+            Parental::clear();
+            updatePinItem();
+            brls::Application::notify("Senha removida — o app abre direto agora");
+        });
+    });
+
+    dialog->setCancelable(true);
+    dialog->open();
 }
 
 static void openJob(Job* job, bool cancellable,
@@ -589,6 +670,22 @@ static brls::List* createAccountTab()
     list->addView(logoutItem);
     g_logout_item = logoutItem;
 
+    list->addView(new brls::Header("Controle parental", false));
+
+    g_pin_item = new brls::ListItem("Ligar a senha",
+        "Uma senha de 4 a 8 numeros, pedida toda vez que o app abre. Pra "
+        "trocar ou tirar depois, o app pede a senha atual antes.");
+    g_pin_item->getClickEvent()->subscribe([](brls::View* view) { onPinItemClicked(); });
+    list->addView(g_pin_item);
+    updatePinItem();
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        "Com a senha ligada, o app pergunta os numeros toda vez que abre — sem "
+        "acertar, ninguem chega nos botoes que mexem em save.\n\n"
+        "Nao e cofre: quem pegar o cartao SD no PC apaga o arquivo da senha e "
+        "entra. Serve pra criança nao apagar progresso sem querer, e e' so pra "
+        "isso que da' pra contar com ela.", true));
+
     list->addView(new brls::Header("Diagnostico", false));
 
     brls::ListItem* testItem = new brls::ListItem("Testar conexao",
@@ -686,6 +783,16 @@ static brls::List* createAboutTab()
 
 int main(int argc, char* argv[])
 {
+    // A senha, antes de tudo.
+    //
+    // Aqui em cima de propósito: a borealis ainda não subiu (nada de vídeo,
+    // nada de rede nossa), então o teclado do console aparece sozinho na tela
+    // e sair é só dar return — não tem nada montado pra desmontar. Colocar a
+    // pergunta depois da interface significaria a criança ver a lista de jogos
+    // por trás do teclado, que é justamente o que a trava existe pra evitar.
+    if (!Parental::unlockAtStartup())
+        return EXIT_SUCCESS;
+
     // romfs antes da borealis: ela carrega as fontes de romfs:/ na init.
     // O cacert.pem que o http.c usa tambem mora la.
     // Mesma história da rede: a borealis já chama romfsInit() no userAppInit().
