@@ -66,8 +66,24 @@ void drive_set_abort_cb(drive_abort_cb cb);
 
 // Sobe recursivamente todo o conteúdo de local_dir pra dentro de
 // parent_folder_id, recriando a mesma estrutura de subpastas no Drive.
+//
+// Ele SÓ escreve: arquivo que existe no Drive e não existe mais em local_dir
+// continua lá. Pra espelhar de verdade, chame drive_prune_extras depois.
 bool drive_upload_tree(const char *access_token, const char *parent_folder_id,
                         const char *local_dir);
+
+// Manda pra lixeira do Drive tudo que está dentro de folder_id e não existe
+// mais em local_dir (recursivo). É a outra metade do espelho: sem isso, um
+// arquivo que o jogo apagou do save fica pra sempre na nuvem, e volta pro
+// console na próxima vez que o save for restaurado.
+//
+// Vai pra lixeira, não some: o Drive guarda 30 dias, então engano tem volta.
+bool drive_prune_extras(const char *access_token, const char *folder_id,
+                         const char *local_dir);
+
+// Manda um arquivo/pasta do Drive pra lixeira pelo id (pasta leva o conteúdo
+// junto). Não é o DELETE da API — ver drive.c pro porquê.
+bool drive_trash_by_id(const char *access_token, const char *file_id);
 
 // Baixa recursivamente todo o conteúdo de folder_id pra local_dir,
 // recriando a mesma estrutura de subpastas localmente.

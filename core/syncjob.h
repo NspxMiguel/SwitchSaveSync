@@ -46,16 +46,33 @@ bool syncjob_has_local_backup(const TitleEntry *title);
 // o jogo NÃO está com o save aberto.
 bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log);
 
-// "Impressão digital" do save local: soma dos tamanhos e o mtime mais novo,
-// misturados num u64. Não é hash de conteúdo (ler o save inteiro a cada boot
-// de jogo seria caro demais) — serve só pra responder "mudou desde o último
-// upload?", que é o suficiente pra decidir se pode puxar da nuvem sem
-// atropelar progresso que ainda não subiu.
+// "Impressão digital" do save: nome, tamanho e conteúdo de cada arquivo,
+// misturados num u64. É hash de conteúdo de propósito — o mesmo save tem que
+// dar o mesmo número dos dois lados, e arquivo baixado do Drive nasce com
+// mtime de agora, então qualquer coisa com data na conta diria "diferente"
+// mesmo quando os bytes são idênticos.
 bool syncjob_fingerprint(const TitleEntry *title, u64 *out);
 
 // Grava/lê a impressão digital do último upload bem-sucedido desse jogo.
 void syncjob_mark_synced(u64 application_id, u64 fingerprint);
 bool syncjob_last_synced(u64 application_id, u64 *out);
+
+// O que a sincronização decidiu fazer.
+typedef enum
+{
+    SYNCJOB_SYNC_FAILED = 0,  // erro no meio do caminho; nada foi decidido
+    SYNCJOB_SYNC_NOTHING,     // não tem save nem aqui nem na nuvem
+    SYNCJOB_SYNC_EQUAL,       // já estavam iguais; ninguém escreveu nada
+    SYNCJOB_SYNC_UPLOADED,    // o save do console subiu pro Drive
+    SYNCJOB_SYNC_DOWNLOADED,  // o save do Drive desceu pro console
+    SYNCJOB_SYNC_CONFLICT,    // os dois mudaram: escolher sozinho apagaria progresso
+} SyncjobSyncResult;
+
+// Sincroniza o save desse jogo com o Drive num clique só, decidindo sozinho
+// pra que lado vai. Quando não dá pra decidir com segurança (os dois lados
+// mudaram desde a última sync), devolve CONFLICT e NÃO escreve em lugar
+// nenhum — quem escolhe nessa hora é ele, pelo menu do Y.
+SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log);
 
 #ifdef __cplusplus
 }

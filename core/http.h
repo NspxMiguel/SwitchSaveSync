@@ -37,6 +37,11 @@ HttpResponse http_get(const char *url, const char *bearer);
 // POST com corpo application/json (usado pra criar a pasta no Drive).
 HttpResponse http_post_json(const char *url, const char *bearer, const char *json_body);
 
+// PATCH com corpo application/json. Usado pra mandar arquivo pra lixeira do
+// Drive ({"trashed":true}) — de propósito em vez do DELETE, que na API v3
+// apaga na hora e sem volta.
+HttpResponse http_patch_json(const char *url, const char *bearer, const char *json_body);
+
 // POST/PATCH multipart/related, formato exigido pelo upload multipart da
 // Drive API v3: duas partes, a primeira "application/json" com os metadados
 // (nome do arquivo, pasta pai), a segunda com os bytes do arquivo local.

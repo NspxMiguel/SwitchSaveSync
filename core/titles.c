@@ -15,6 +15,27 @@
 
 #define SCAN_BATCH_SIZE 32
 
+// "Esse jogo esta instalado no console?"
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// ficou na NAND) e o caso comum — o console guarda o save mesmo depois de
+// desinstalar o jogo, entao a lista vinha cheia de coisa que ele nao pode usar.
+//
+// nsIsAnyApplicationEntityInstalled e a pergunta literal, respondida pelo ns.
+// Nao da pra usar o nome como pista: nsGetApplicationControlData com
+// NsApplicationControlSource_Storage responde do CACHE quando o jogo nao esta
+// mais instalado, entao um save orfao ainda devolve o nome bonito do jogo.
+//
+// Em erro, o padrao e EXCLUIR: se eu nao consegui confirmar que esta instalado,
+// mostrar assim mesmo e trazer de volta exatamente a lista que mandaram tirar.
+static bool is_installed(uint64_t application_id) {
+    bool installed = false;
+    Result rc = nsIsAnyApplicationEntityInstalled(application_id, &installed);
+    if (R_FAILED(rc)) return false;
+    return installed;
+}
+
 static bool resolve_title_name(uint64_t application_id, char *out, size_t outsz) {
     // NsApplicationControlData tem um icon[0x20000] embutido — é grande
     // demais pra stack do Switch (crash certo), por isso aqui embaixo tem
@@ -159,6 +180,9 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
 
                 uint64_t application_id = info->application_id;
                 if (application_id == 0) continue;
+
+                // So jogo instalado. Ver is_installed() logo acima.
+                if (!is_installed(application_id)) continue;
 
                 // pula duplicata (mesmo jogo pode ter mais de uma entrada de
                 // save, ex: perfis de usuário diferentes — por ora pegamos só

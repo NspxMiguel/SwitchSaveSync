@@ -133,20 +133,6 @@ static void openJob(Job* job, bool cancellable,
     brls::Application::pushView(page);
 }
 
-// Troca os caracteres que nao podem virar nome de pasta no cartao. O nome de
-// verdade (com ":" e tudo) continua sendo o que vai pro Drive — isso aqui e'
-// so pro staging local.
-static std::string sanitizeForPath(const std::string& in)
-{
-    std::string out;
-    for (char c : in)
-    {
-        bool bad = c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|';
-        out += bad ? '_' : c;
-    }
-    return out;
-}
-
 // Toda operação de rede passa por aqui antes de tocar em socket. Sem isso, a
 // libnx aborta o processo (o "crash ao clicar em Testar conexao").
 static bool ensureNetwork(Job* job)
@@ -273,51 +259,80 @@ static bool jobConnectionTest(Job* job)
     return true;
 }
 
-static bool jobBackup(Job* job, TitleEntry title)
+// Daqui pra baixo, TUDO que encosta em save de jogo passa pelo core/syncjob.
+// As regras que protegem save (montar read-only pra ler, limpar o staging
+// antes de usar, commitar só no fim e só se deu certo) moram lá, numa cópia
+// só. Antes existiam duas implementações — uma aqui e outra no core — e elas
+// já tinham começado a divergir. O app agora cuida do token e da tela.
+static void jobLogLine(const char* m)
+{
+    if (Job::current)
+        Job::current->log(m);
+}
+
+// Só confere que dá pra falar com o Google (e dispara o aviso certo quando
+// não dá). Quem pega o token de verdade é o syncjob, na hora que precisa.
+static bool ensureLogin(Job* job)
 {
     char token[512];
-    if (!ensureToken(job, token, sizeof(token)))
+    return ensureToken(job, token, sizeof(token));
+}
+
+// O clique principal: "clica pra synca o save com a nuvem e PRONTO".
+// Quem decide pra que lado vai é o syncjob_sync_title.
+static bool jobSync(Job* job, TitleEntry title)
+{
+    if (!ensureLogin(job))
         return false;
 
-    std::string staging = std::string(STAGING_DIR) + "/" + sanitizeForPath(title.name);
-    mkdir(APP_DIR, 0777);
-    mkdir(STAGING_DIR, 0777);
-    mkdir(staging.c_str(), 0777);
+    job->setStatus("Comparando o save do console com o do Drive...");
 
-    // read_only=true: um backup nao consegue estragar o save nem por bug.
-    job->setStatus("Abrindo o save do jogo (somente leitura)...");
-    if (!savemount_mount(title.application_id, title.uid, true))
+    switch (syncjob_sync_title(&title, jobLogLine))
     {
-        job->setStatus("Nao consegui abrir o save desse jogo.");
+        case SYNCJOB_SYNC_UPLOADED:
+            job->setStatus("Pronto. O save daqui esta guardado no Drive.");
+            return true;
+
+        case SYNCJOB_SYNC_DOWNLOADED:
+            job->setStatus("Pronto. O save do Drive esta no console.");
+            return true;
+
+        case SYNCJOB_SYNC_EQUAL:
+            job->setStatus("Ja estava sincronizado. Nao mexi em nada.");
+            return true;
+
+        case SYNCJOB_SYNC_NOTHING:
+            job->setStatus("Esse jogo ainda nao tem save nenhum pra sincronizar.");
+            return true;
+
+        case SYNCJOB_SYNC_CONFLICT:
+            job->setStatus("O save mudou dos DOIS lados. Escolher sozinho apagaria "
+                           "progresso de um deles, entao nao mexi em nada.");
+            job->log("Aperte Y no jogo, na lista, pra escolher: enviar o daqui "
+                     "ou baixar o do Drive.", true);
+            return false;
+
+        case SYNCJOB_SYNC_FAILED:
+        default:
+            job->setStatus("Nao consegui sincronizar. O motivo esta nas linhas acima.");
+            return false;
+    }
+}
+
+static bool jobBackup(Job* job, TitleEntry title)
+{
+    if (!ensureLogin(job))
+        return false;
+
+    job->setStatus("Enviando o save pro Drive...");
+    if (!syncjob_backup_title(&title, jobLogLine))
+    {
+        job->setStatus("O backup nao terminou. Nada foi alterado no console.");
         return false;
     }
 
-    job->setStatus("Copiando o save pro cartao...");
-    bool copied = savemount_copy_tree("save:/", staging.c_str());
-    savemount_unmount(false); // so lemos, nao ha o que commitar
-
-    if (!copied)
-    {
-        job->setStatus("Falha ao copiar o save pra area de trabalho.");
-        return false;
-    }
-
-    job->setStatus("Preparando as pastas no Drive...");
-    char appFolder[128], gameFolder[128];
-    if (!drive_ensure_app_folder(token, appFolder, sizeof(appFolder)) || !drive_ensure_subfolder(token, appFolder, title.name, gameFolder, sizeof(gameFolder)))
-    {
-        job->setStatus("Nao consegui criar as pastas no Drive.");
-        return false;
-    }
-
-    job->setStatus("Enviando pro Drive...");
-    if (!drive_upload_tree(token, gameFolder, staging.c_str()))
-    {
-        job->setStatus("O backup terminou com erro em pelo menos um arquivo.");
-        return false;
-    }
-
-    job->setStatus(std::string("Backup concluido. Esta em ") + DRIVE_APP_FOLDER_NAME + "/" + title.name + "/ no seu Drive.");
+    job->setStatus(std::string("Backup concluido. Esta em ") + DRIVE_APP_FOLDER_NAME
+        + "/" + title.name + "/ no seu Drive.");
     return true;
 }
 
@@ -326,10 +341,7 @@ static bool jobBackup(Job* job, TitleEntry title)
 static bool jobBackupLocal(Job* job, TitleEntry title)
 {
     job->setStatus("Copiando o save pro cartao...");
-    if (!syncjob_backup_title_local(&title, [](const char* m) {
-            if (Job::current)
-                Job::current->log(m);
-        }))
+    if (!syncjob_backup_title_local(&title, jobLogLine))
     {
         job->setStatus("Nao consegui copiar o save pro cartao.");
         return false;
@@ -342,10 +354,7 @@ static bool jobBackupLocal(Job* job, TitleEntry title)
 static bool jobRestoreLocal(Job* job, TitleEntry title)
 {
     job->setStatus("Gravando o save do cartao no console...");
-    if (!syncjob_restore_title_local(&title, [](const char* m) {
-            if (Job::current)
-                Job::current->log(m);
-        }))
+    if (!syncjob_restore_title_local(&title, jobLogLine))
     {
         job->setStatus("Nao consegui restaurar do cartao.");
         return false;
@@ -357,95 +366,29 @@ static bool jobRestoreLocal(Job* job, TitleEntry title)
 
 static bool jobRestore(Job* job, TitleEntry title)
 {
-    char token[512];
-    if (!ensureToken(job, token, sizeof(token)))
+    if (!ensureLogin(job))
         return false;
 
-    std::string staging = std::string(STAGING_DIR) + "/" + sanitizeForPath(title.name);
-    mkdir(APP_DIR, 0777);
-    mkdir(STAGING_DIR, 0777);
-
-    job->setStatus("Procurando o save desse jogo no Drive...");
-    char appFolder[128], gameFolder[128];
-    if (!drive_ensure_app_folder(token, appFolder, sizeof(appFolder)) || !drive_ensure_subfolder(token, appFolder, title.name, gameFolder, sizeof(gameFolder)))
+    job->setStatus("Trazendo o save do Drive...");
+    if (!syncjob_restore_title(&title, jobLogLine))
     {
-        job->setStatus("Nao achei a pasta desse jogo no Drive.");
-        job->log("Ja fez backup dele alguma vez?", true);
+        job->setStatus("Nao restaurei nada. Se falhou no meio da gravacao, o save "
+                       "do console continua como estava (nada e commitado sem dar certo).");
         return false;
     }
 
-    job->setStatus("Baixando do Drive...");
-    if (!drive_download_tree(token, gameFolder, staging.c_str()))
-    {
-        job->setStatus("Falha ao baixar. Nada foi escrito no console.");
-        return false;
-    }
-
-    job->setStatus("Abrindo o save do jogo pra escrita...");
-    if (!savemount_mount(title.application_id, title.uid, false))
-    {
-        job->setStatus("Nao consegui abrir o save. Nada foi escrito.");
-        return false;
-    }
-
-    job->setStatus("Gravando no save do console...");
-    bool copied = savemount_copy_tree(staging.c_str(), "save:/");
-    savemount_unmount(copied); // so commita se a copia deu certo
-
-    if (!copied)
-    {
-        job->setStatus("Falha ao gravar — o save NAO foi commitado, "
-                       "continua como estava antes.");
-        return false;
-    }
-
-    job->setStatus("Save restaurado.");
-    return true;
-}
-
-// Apaga o save do console. Existe pro teste do ciclo completo: apaga aqui,
-// entra no jogo, e o save tem que voltar da nuvem. So roda depois de
-// confirmar que o backup do Drive existe — nunca apaga sem rede de seguranca.
-static bool jobWipe(Job* job, TitleEntry title)
-{
-    char token[512];
-    if (!ensureToken(job, token, sizeof(token)))
-        return false;
-
-    job->setStatus("Conferindo se o backup existe no Drive...");
-    char appFolder[128], gameFolder[128];
-    if (!drive_ensure_app_folder(token, appFolder, sizeof(appFolder)) || !drive_ensure_subfolder(token, appFolder, title.name, gameFolder, sizeof(gameFolder)))
-    {
-        job->setStatus("Nao achei backup desse jogo no Drive. Nao apaguei nada.");
-        job->log("Faz o backup primeiro — sem ele nao da pra voltar atras.", true);
-        return false;
-    }
-
-    job->setStatus("Abrindo o save do jogo pra escrita...");
-    if (!savemount_mount(title.application_id, title.uid, false))
-    {
-        job->setStatus("Nao consegui abrir o save. Nada foi apagado.");
-        return false;
-    }
-
-    job->setStatus("Apagando o save do console...");
-    bool wiped = savemount_wipe_contents();
-    savemount_unmount(wiped); // so commita se apagou tudo mesmo
-
-    if (!wiped)
-    {
-        job->setStatus("Nao consegui apagar tudo — nada foi commitado, "
-                       "o save continua como estava.");
-        return false;
-    }
-
-    job->setStatus("Save apagado do console. O do Drive continua la.");
+    job->setStatus("Save restaurado do Drive.");
     return true;
 }
 
 // ============================ telas ============================
 
-// Tela de um jogo: icone grande no cabecalho e as duas acoes.
+// Tela de um jogo: o que fazer quando o clique simples nao serve.
+//
+// Ela NAO e mais o caminho normal — o caminho normal e apertar A na lista e o
+// app resolver sozinho ("clica pra synca o save com a nuvem e PRONTO"). Isso
+// aqui e o Y: mandar pra que lado quando os dois lados mudaram, e as copias no
+// proprio cartao, que nao dependem de internet nem de conta.
 static void openGamePage(const TitleEntry& title)
 {
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
@@ -513,34 +456,10 @@ static void openGamePage(const TitleEntry& title)
         dialog->open();
     });
 
-    brls::ListItem* wipeItem = new brls::ListItem("Apagar o save do console (teste)",
-        "Apaga o save daqui pra testar se ele volta da nuvem. So funciona se "
-        "ja existir backup no Drive.");
-    wipeItem->getClickEvent()->subscribe([title](brls::View* view) {
-        brls::Dialog* dialog = new brls::Dialog(
-            std::string("Apagar o save de \"") + title.name + "\" DO CONSOLE.\n\n"
-            "Depois disso o jogo abre como se nunca tivesse sido jogado, ate "
-            "voce restaurar do Drive. Confiro o backup antes de apagar.\n\n"
-            "Continuar?");
-
-        dialog->addButton("Cancelar", [dialog](brls::View* view) { dialog->close(); });
-        dialog->addButton("Apagar", [dialog, title](brls::View* view) {
-            dialog->close([title]() {
-                openJob(new Job(std::string("Apagar save — ") + title.name,
-                            [title](Job* job) { return jobWipe(job, title); }),
-                    false);
-            });
-        });
-
-        dialog->setCancelable(true);
-        dialog->open();
-    });
-
     list->addView(backupItem);
     list->addView(backupLocalItem);
     list->addView(restoreLocalItem);
     list->addView(restoreItem);
-    list->addView(wipeItem);
 
     char idText[64];
     snprintf(idText, sizeof(idText), "Title ID: %016lX", title.application_id);
@@ -573,8 +492,20 @@ static void fillGamesList(brls::List* list)
         if (titles_get_icon(title.application_id, g_icon_buffer, sizeof(g_icon_buffer), &iconLen))
             item->setThumbnail(g_icon_buffer, iconLen); // a Image copia o buffer
 
+        // A sincroniza direto. O app decide sozinho pra que lado vai; so
+        // para pra perguntar quando os dois lados mudaram.
         item->getClickEvent()->subscribe([title](brls::View* view) {
+            openJob(new Job(std::string("Sincronizando — ") + title.name,
+                        [title](Job* job) { return jobSync(job, title); }),
+                false);
+        });
+
+        // Y abre a tela com as acoes separadas. Fica registrado no item, e nao
+        // na lista, porque e assim que a acao sabe de QUAL jogo ela e: a
+        // borealis procura a acao no item que esta em foco.
+        item->registerAction("Mais opcoes", brls::Key::Y, [title] {
             openGamePage(title);
+            return true;
         });
 
         list->addView(item);
@@ -696,73 +627,22 @@ static brls::List* createAboutTab()
 
 // ============================ main ============================
 
-// Roda em modo aplicação (title takeover)? Se sim, o app se recusa a abrir.
+// A recusa de rodar em modo aplicação saiu daqui.
 //
-// Por quê, com nome e sobrenome: pra ter memória de aplicação, o
-// Sphaira "sequestra" o id de um jogo instalado e roda o homebrew no lugar
-// dele. Quem faz isso não ganha só a RAM do jogo — ganha o savedata do jogo,
-// montado pelo próprio loader como se fosse o save do processo. Aí, se o
-// processo morre no meio (e o nosso morria: os crash reports saíram como
-// "hbloader" com o Program ID do jogo), o save fica com escrita pela metade e
-// o console marca "dados corrompidos". Foi exatamente isso que aconteceu com
-// o Mario 3D World (010028600EBDA000) e o Animal Crossing (01006F8002326000):
-// os dois títulos que o Sphaira sequestrou.
+// Ela existia porque eu tinha concluído que o "dados corrompidos" do Mario 3D
+// World vinha do title takeover: o loader monta o savedata do jogo sequestrado,
+// conversa privada removida do historico
+// conversa privada removida do historico
+// sustenta: quem monta o save do jogo sequestrado é o hbloader, no instante do
+// takeover, independente do que o nosso app faça depois. Recusar não protegia
+// save nenhum; só impedia o app de abrir do jeito que ele quer usar.
 //
-// A resposta certa não é "arrumar o crash e tentar de novo". É não rodar aí.
-// Um app que mexe em save nunca deve rodar em cima do id de outro jogo, nem
-// que rode perfeitamente — porque o dia em que ele travar, o estrago cai no
-// save alheio. Em modo applet o processo é o álbum, e o save que a gente monta
-// é sempre por id explícito.
-static bool running_as_hijacked_title()
-{
-    AppletType t = appletGetAppletType();
-    return t == AppletType_Application || t == AppletType_SystemApplication;
-}
-
-static void refuse_and_explain()
-{
-    consoleInit(NULL);
-
-    padConfigureInput(1, HidNpadStyleSet_NpadStandard);
-    PadState pad;
-    padInitializeDefault(&pad);
-
-    printf("\n  SwitchSaveSync\n");
-    printf("  --------------------------------------------------\n\n");
-    printf("  Este app NAO abre em modo aplicacao.\n\n");
-    printf("  Modo aplicacao = o Sphaira pegou o id de um jogo\n");
-    printf("  instalado emprestado pra dar mais memoria. Junto\n");
-    printf("  vem o save DAQUELE jogo, montado pra escrita.\n");
-    printf("  Se o homebrew fecha mal ali dentro, quem fica com\n");
-    printf("  o save pela metade e o jogo.\n\n");
-    printf("  Foi assim que o Mario 3D World e o Animal Crossing\n");
-    printf("  apareceram como dados corrompidos.\n\n");
-    printf("  Abra pelo album (modo applet). Funciona igual.\n\n");
-    printf("  --------------------------------------------------\n");
-    printf("  + para sair\n");
-
-    while (appletMainLoop())
-    {
-        padUpdate(&pad);
-        if (padGetButtonsDown(&pad) & HidNpadButton_Plus)
-            break;
-        consoleUpdate(NULL);
-    }
-
-    consoleExit(NULL);
-}
+// O que de fato protege continua valendo e não mudou: todo save que a gente
+// monta é por application_id explícito (savemount_mount), nunca "o save do
+// processo atual". Rodar em applet ou em aplicação não muda uma linha disso.
 
 int main(int argc, char* argv[])
 {
-    // Primeira coisa do processo, antes de romfs, rede, borealis e qualquer
-    // fs: se estamos rodando em cima do id de um jogo, saímos agora. Nada
-    // aqui pra baixo chega a executar.
-    if (running_as_hijacked_title())
-    {
-        refuse_and_explain();
-        return EXIT_SUCCESS;
-    }
-
     // romfs antes da borealis: ela carrega as fontes de romfs:/ na init.
     // O cacert.pem que o http.c usa tambem mora la.
     // Mesma história da rede: a borealis já chama romfsInit() no userAppInit().

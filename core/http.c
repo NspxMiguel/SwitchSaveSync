@@ -164,6 +164,49 @@ HttpResponse http_get(const char *url, const char *bearer) {
     return resp;
 }
 
+HttpResponse http_patch_json(const char *url, const char *bearer, const char *json_body) {
+    HttpResponse resp = {0};
+    MemBuf buf = {0};
+
+    CURL *curl = make_easy_handle();
+    if (!curl) {
+        resp.ok = false;
+        snprintf(resp.error, sizeof(resp.error), http_is_ready() ? "curl_easy_init falhou" : "rede nao iniciou nesta sessao");
+        return resp;
+    }
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json; charset=UTF-8");
+    headers = auth_header(bearer, headers);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    // CUSTOMREQUEST depois do POSTFIELDS: o POSTFIELDS sozinho manda POST, e
+    // o CUSTOMREQUEST só troca o verbo, mantendo o corpo.
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_body);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_membuf);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        fill_error(&resp, rc);
+    } else {
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        resp.ok = true;
+        resp.status = status;
+        resp.body = buf.data ? buf.data : strdup("");
+        resp.size = buf.size;
+        buf.data = NULL;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    free(buf.data);
+    return resp;
+}
+
 HttpResponse http_post_json(const char *url, const char *bearer, const char *json_body) {
     HttpResponse resp = {0};
     MemBuf buf = {0};
