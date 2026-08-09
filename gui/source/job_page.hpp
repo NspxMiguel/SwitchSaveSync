@@ -43,6 +43,12 @@ class JobPage : public brls::AppletFrame
     // conversa privada removida do historico
     std::vector<brls::View*> loginViews;
 
+    // A última linha de log escrita. Guardada pra receber o foco quando o
+    // trabalho acaba: numa sincronização de trinta jogos, o que interessa está
+    // no FIM (o resumo do que ficou de fora), e começar o foco no topo obrigaria
+    // a segurar o D-pad por trinta linhas pra chegar lá.
+    brls::View* lastLogLine = nullptr;
+
     std::function<void(bool success)> onFinished;
 
     void pump();
