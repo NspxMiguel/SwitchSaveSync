@@ -124,57 +124,21 @@ transformar isto numa lista de verdade.
 
 ## Instalar
 
-**Antes de tudo:** o console precisa estar com CFW (**Atmosphère**) e com o menu de
-homebrew funcionando. Se isso ainda não está de pé, resolve isso primeiro — é assunto de
-outro tutorial, não deste.
+Precisa de um console com CFW (**Atmosphère**) e o menu de homebrew funcionando. Se isso
+ainda não está de pé, resolve primeiro — é assunto de outro tutorial, não deste.
 
-> ### Não tem um `.nro` pronto pra baixar. Por quê?
->
-> Porque as credenciais do Google ficam **compiladas dentro do binário**. Se eu publicasse
-> o meu build aqui, estaria publicando junto o ID e o segredo da *minha* conta de
-> desenvolvedor — qualquer um poderia usar a minha cota e eu levaria a culpa pelo que
-> fizessem com ela.
->
-> Então o caminho é compilar com as suas. São 10 minutos, uma vez na vida, de graça, e é
-> justamente isso que mantém o app sem custo nenhum e sem servidor meu no meio.
->
-> Se alguém já te passou o `SwitchSaveSync.nro` pronto, pula direto pro **passo 3**.
+### 1. Baixar
 
-### 1. Suas credenciais do Google
+Pega o `SwitchSaveSync.nro` na **[última versão](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)**.
 
-```bash
-cp core/config.h.example core/config.h
-```
+É um arquivo só. Não tem instalador, não tem dependência, não tem conta pra criar aqui.
 
-O `config.h.example` tem o passo a passo com as telas: criar um projeto no
-[console.cloud.google.com](https://console.cloud.google.com), ativar a **Google Drive API**,
-montar a tela de consentimento e gerar um ID de cliente do tipo **"TVs e dispositivos de
-entrada limitada"** (é esse tipo, e não outro — é o que libera o login por código, sem
-teclado).
-
-Cole o ID e o segredo no `config.h`. Ele está no `.gitignore` e nunca vai pra commit
-nenhum.
-
-### 2. Compilar
-
-Precisa do [devkitPro](https://devkitpro.org/wiki/Getting_Started) com o grupo
-`switch-dev`, mais `switch-curl`, `switch-mbedtls` e `switch-zlib`.
-
-```bash
-export DEVKITPRO=/opt/devkitpro
-export DEVKITA64=$DEVKITPRO/devkitA64
-export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
-make -C gui
-```
-
-Sai um `gui/SwitchSaveSync.nro`.
-
-### 3. Copiar pro cartão
+### 2. Copiar pro cartão
 
 Põe o `SwitchSaveSync.nro` em `sdmc:/switch/`. Pode ser tirando o cartão e usando o PC, ou
 por FTP se você já usa um.
 
-### 4. Abrir
+### 3. Abrir
 
 Pelo menu de homebrew — mas **segurando R num jogo, não pelo Álbum**.
 
@@ -183,25 +147,34 @@ Pelo menu de homebrew — mas **segurando R num jogo, não pelo Álbum**.
 > homebrew abre no lugar do jogo e roda como aplicação, com a memória e a rede inteiras. Se
 > tiver dúvida de em qual modo você está, o próprio app diz: aba **Ajustes**, em
 > Diagnóstico.
+>
+> Isso deixa de ser necessário depois do passo 5.
 
-### 5. Entrar na sua conta
+### 4. Entrar na sua conta
 
 Na primeira vez, o app mostra um **código** e um endereço (e um QR Code, se preferir a
-câmera do celular). Você abre esse endereço no celular ou no PC, digita o código e autoriza
-— o console não pede senha nenhuma, quem faz login é você, na página do próprio Google.
+câmera do celular). Você abre esse endereço no celular ou no PC, digita o código e autoriza.
+
+**O console nunca pede a sua senha.** Quem faz login é você, na página do próprio Google.
 
 O acesso pedido é o **`drive.file`**: o app só enxerga os arquivos que ele mesmo criou. O
-resto do seu Drive fica invisível pra ele.
+resto do seu Drive fica invisível pra ele — não é promessa minha, é o Google que não deixa.
 
 O login fica guardado só no cartão, em `/switch/SwitchSaveSync/token.txt`, e sai de vez no
 **Sair da conta**.
 
-> Prefere não usar o Google? Em **Ajustes → Onde salvar** dá pra apontar pra um servidor
-> seu que fale **WebDAV** (Nextcloud, NAS da Synology ou da QNAP). Aí nem precisa do passo
-> 1 — mas as credenciais do Google continuam sendo exigidas pra compilar, então deixa o
-> `config.h` com qualquer coisa dentro.
+> **De quem é a credencial?** É minha — o app vem com ela embutida, pra você não precisar
+> criar projeto no Google Cloud pra usar um homebrew de save. A **conta é sua**, o **Drive
+> é seu** e os **arquivos são seus**: eu não tenho acesso a nada disso, e o `drive.file`
+> impede até o app de olhar o resto do seu Drive. Se ainda assim você preferir usar uma
+> credencial sua, é só [compilar](#compilar-com-a-sua-própria-credencial) — o caminho
+> continua aberto.
 
-### 6. Com cara de jogo, na tela inicial
+### 5. Pronto — e opcionalmente, com cara de jogo
+
+Já dá pra usar: abre, aperta **A** num jogo, e ele resolve o resto.
+
+### Deixar com cara de jogo, na tela inicial
 
 Dá pra ter um ícone do app na tela inicial do console, do lado dos jogos, e abrir dali. O
 [Sphaira](https://github.com/ITotalJustice/sphaira) faz isso sozinho, **no próprio
@@ -235,11 +208,42 @@ Kart 8 Deluxe (Player 1)*. Só o nome: quem identifica de verdade é o par jogo 
 anotado em `/switch/SwitchSaveSync/pastas.txt`. Por isso você pode renomear a conta do
 console à vontade que o app não perde o backup de vista.
 
-## Compilar as outras partes
+## Compilar com a sua própria credencial
 
-O `make -C gui` do passo 2 monta o app, que é o que está em uso. As outras pastas
-compilam do mesmo jeito (`make -C app`, `make -C sysmodule`), mas veja o
-[estado do projeto](#estado-do-projeto) antes — elas estão paradas de propósito.
+Nada disso é necessário pra usar o app — é pra quem prefere não passar pela minha
+credencial, ou pra quem vai mexer no código.
+
+Precisa do [devkitPro](https://devkitpro.org/wiki/Getting_Started) com o grupo
+`switch-dev`, mais `switch-curl`, `switch-mbedtls` e `switch-zlib`.
+
+```bash
+cp core/config.h.example core/config.h
+```
+
+O `config.h.example` tem o passo a passo com as telas: criar um projeto no
+[console.cloud.google.com](https://console.cloud.google.com), ativar a **Google Drive API**,
+montar a tela de consentimento e gerar um ID de cliente do tipo **"TVs e dispositivos de
+entrada limitada"** — é esse tipo, e não outro: é o que libera o login por código, sem
+teclado.
+
+Um detalhe que economiza uma dor de cabeça: na tela de consentimento, deixe o status como
+**"Em produção"**. Em *"Testing"*, o Google expira o login a cada **7 dias**. Como o
+`drive.file` é um escopo não-sensível, publicar é imediato — não passa por verificação
+nenhuma.
+
+Cole o ID e o segredo no `config.h`; ele está no `.gitignore` e nunca entra em commit.
+
+```bash
+export DEVKITPRO=/opt/devkitpro
+export DEVKITA64=$DEVKITPRO/devkitA64
+export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
+make -C gui
+```
+
+Sai um `gui/SwitchSaveSync.nro` — daí é o passo 2 da instalação em diante.
+
+As outras pastas compilam do mesmo jeito (`make -C app`, `make -C sysmodule`), mas veja o
+[estado do projeto](#estado-do-projeto) antes: elas estão paradas de propósito.
 
 ## O que ele não faz
 

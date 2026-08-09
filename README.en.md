@@ -124,55 +124,21 @@ become a real list.
 
 ## Install
 
-**First of all:** the console needs CFW (**Atmosphère**) with the homebrew menu working. If
-that isn't in place yet, sort it out first — that's someone else's tutorial, not this one.
+You need a console on CFW (**Atmosphère**) with the homebrew menu working. If that isn't in
+place yet, sort it out first — that's someone else's tutorial, not this one.
 
-> ### There's no ready-made `.nro` to download. Why?
->
-> Because the Google credentials are **compiled into the binary**. If I published my build
-> here, I'd be publishing the ID and secret of *my* developer account along with it —
-> anyone could burn through my quota and I'd carry the blame for whatever they did with it.
->
-> So the way in is to build it with yours. Ten minutes, once in your life, free of charge —
-> and it's exactly what keeps this app costing nothing, with no server of mine in between.
->
-> If someone already handed you a built `SwitchSaveSync.nro`, skip straight to **step 3**.
+### 1. Download
 
-### 1. Your Google credentials
+Grab `SwitchSaveSync.nro` from the **[latest release](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)**.
 
-```bash
-cp core/config.h.example core/config.h
-```
+One file. No installer, no dependencies, no account to create here.
 
-`config.h.example` walks through it screen by screen: create a project at
-[console.cloud.google.com](https://console.cloud.google.com), enable the **Google Drive
-API**, fill in the consent screen, and generate an OAuth client of the **"TVs and Limited
-Input devices"** type (that type specifically — it's the one that allows the code-based
-login, with no keyboard).
-
-Paste the ID and the secret into `config.h`. It's in `.gitignore` and never reaches a
-commit.
-
-### 2. Build
-
-Needs [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the `switch-dev` group,
-plus `switch-curl`, `switch-mbedtls` and `switch-zlib`.
-
-```bash
-export DEVKITPRO=/opt/devkitpro
-export DEVKITA64=$DEVKITPRO/devkitA64
-export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
-make -C gui
-```
-
-Out comes `gui/SwitchSaveSync.nro`.
-
-### 3. Copy it to the SD card
+### 2. Copy it to the SD card
 
 Put `SwitchSaveSync.nro` in `sdmc:/switch/`. Either pull the card and use a PC, or send it
 over FTP if you already run one.
 
-### 4. Launch it
+### 3. Launch it
 
 From the homebrew menu — but **holding R on a game, not from the Album**.
 
@@ -181,25 +147,34 @@ From the homebrew menu — but **holding R on a game, not from the Album**.
 > installed game makes the homebrew menu take the game's place and run as an application,
 > with full memory and networking. If you're unsure which mode you're in, the app itself
 > tells you: **Settings** tab, under Diagnostics.
+>
+> This stops being necessary after step 5.
 
-### 5. Sign in
+### 4. Sign in
 
 The first time, the app shows a **code** and an address (and a QR code, if you'd rather use
-your phone's camera). You open that address on your phone or PC, type the code and approve
-it — the console never asks for a password; you sign in yourself, on Google's own page.
+your phone's camera). You open that address on your phone or PC, type the code and approve.
+
+**The console never asks for your password.** You sign in yourself, on Google's own page.
 
 The scope requested is **`drive.file`**: the app only ever sees files it created itself. The
-rest of your Drive is invisible to it — that's not a promise from us, it's Google refusing.
+rest of your Drive is invisible to it — that's not a promise from me, it's Google refusing.
 
 The login is stored on the SD card only, in `/switch/SwitchSaveSync/token.txt`, and Sign out
 removes it for good.
 
-> Rather not use Google? Under **Settings → Where to save** you can point it at your own
-> **WebDAV** server (Nextcloud, a Synology or QNAP NAS). Then step 1 doesn't really apply —
-> but the Google credentials are still required to compile, so leave anything in
-> `config.h`.
+> **Whose credentials are these?** Mine — the app ships with them built in, so you don't
+> have to create a Google Cloud project just to use a save-sync homebrew. The **account is
+> yours**, the **Drive is yours** and the **files are yours**: I have no access to any of
+> it, and `drive.file` stops even the app from looking at the rest of your Drive. If you'd
+> still rather use your own, just [build it](#building-with-your-own-credentials) — that
+> road stays open.
 
-### 6. As a game, on the home screen
+### 5. Done — and optionally, like a game
+
+You can use it already: open it, press **A** on a game, and it works the rest out.
+
+### Putting it on the home screen
 
 You can have an icon for the app on the console's home screen, next to your games, and open
 it from there. [Sphaira](https://github.com/ITotalJustice/sphaira) does it by itself, **on
@@ -233,11 +208,42 @@ When a game has saves from more than one account, the nickname goes into the fol
 game + account pair, recorded in `/switch/SwitchSaveSync/pastas.txt`. That's why you can
 rename the console account freely without the app losing sight of the backup.
 
-## Building the other parts
+## Building with your own credentials
 
-The `make -C gui` in step 2 builds the app, which is the part in use. The other folders
-build the same way (`make -C app`, `make -C sysmodule`), but check the
-[project status](#project-status) first — they're parked on purpose.
+None of this is needed to use the app — it's for people who'd rather not go through my
+credentials, or who are going to touch the code.
+
+Needs [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the `switch-dev` group,
+plus `switch-curl`, `switch-mbedtls` and `switch-zlib`.
+
+```bash
+cp core/config.h.example core/config.h
+```
+
+`config.h.example` walks through it screen by screen: create a project at
+[console.cloud.google.com](https://console.cloud.google.com), enable the **Google Drive
+API**, fill in the consent screen, and generate an OAuth client of the **"TVs and Limited
+Input devices"** type — that type specifically: it's the one that allows the code-based
+login, with no keyboard.
+
+One detail that saves you a headache: on the consent screen, set the publishing status to
+**"In production"**. Under *"Testing"*, Google expires the login every **7 days**. Since
+`drive.file` is a non-sensitive scope, publishing is instant — no verification process at
+all.
+
+Paste the ID and the secret into `config.h`; it's in `.gitignore` and never reaches a commit.
+
+```bash
+export DEVKITPRO=/opt/devkitpro
+export DEVKITA64=$DEVKITPRO/devkitA64
+export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
+make -C gui
+```
+
+Out comes `gui/SwitchSaveSync.nro` — from there it's install step 2 onwards.
+
+The other folders build the same way (`make -C app`, `make -C sysmodule`), but check the
+[project status](#project-status) first: they're parked on purpose.
 
 ## What it doesn't do
 
