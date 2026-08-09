@@ -598,29 +598,40 @@ static brls::List* createAboutTab()
 {
     brls::List* list = new brls::List();
 
-    // Precisa ter pelo menos UM item focavel: uma aba só de texto é um beco
-    // sem saída pra navegação — ao ir pra direita não há onde pousar o foco, e
-    // a tela parece travada.
-    brls::ListItem* versionItem = new brls::ListItem("Versao", APP_VERSION_STRING);
+    // Cada seção é um ListItem, e não Header+Label, por causa de navegação: a
+    // borealis só rola a lista até o item FOCADO, e Label não recebe foco. Com
+    // um único item focável no topo, o D-pad não tinha pra onde descer, a lista
+    // nunca rolava, e tudo que passasse da primeira tela virava texto
+    // inalcançável — foi assim que a privacidade, que é a última seção, ficou
+    // conversa privada removida do historico
+    // Um item focável por seção resolve isso por construção, em vez de depender
+    // do texto caber por sorte.
+    brls::ListItem* versionItem = new brls::ListItem("Versao");
     versionItem->setValue(APP_VERSION_STRING);
     list->addView(versionItem);
 
-    list->addView(new brls::Header("SwitchSaveSync " APP_VERSION_STRING, false));
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        "Sincroniza os saves dos seus jogos com o Google Drive, na pasta \"" DRIVE_APP_FOLDER_NAME "\".\n\n"
-        "Cada jogo vira uma subpasta com o nome dele, e os arquivos ficam "
-        "soltos la dentro — da pra baixar pelo site do Drive normalmente.\n\n"
-        "Esta versao e o app avulso, onde o backup e o restore sao na mao. O "
-        "proximo passo do projeto e o sysmodule, que faz isso sozinho ao "
-        "entrar e sair do jogo.",
-        true));
+    list->addView(new brls::ListItem("O que este app faz",
+        "Sincroniza os saves dos seus jogos com o Google Drive, na pasta \""
+        DRIVE_APP_FOLDER_NAME "\". Cada jogo vira uma subpasta com o nome dele, "
+        "e os arquivos ficam soltos la dentro — da pra baixar pelo site do "
+        "Drive normalmente."));
 
-    list->addView(new brls::Header("Privacidade", false));
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        "O app fala direto com o Google, sem servidor no meio. O acesso "
-        "pedido e' o \"drive.file\": o app so enxerga os arquivos que ele "
-        "mesmo criou, nao o resto do seu Drive.",
-        true));
+    list->addView(new brls::ListItem("Como sincronizar",
+        "Na lista de jogos, A sincroniza sozinho: ele compara o save do console "
+        "com o da nuvem e decide o lado. Se os dois mudaram desde a ultima vez, "
+        "ele nao escolhe por voce — para e deixa a escolha no botao Y. So "
+        "aparecem jogos instalados no console."));
+
+    list->addView(new brls::ListItem("Privacidade",
+        "O app fala direto com o Google, sem servidor no meio. O acesso pedido "
+        "e' o \"drive.file\": o app so enxerga os arquivos que ele mesmo criou, "
+        "nao o resto do seu Drive. O login fica so no cartao, em "
+        "/switch/SwitchSaveSync/token.txt, e sai de vez com o Sair da conta."));
+
+    list->addView(new brls::ListItem("Em que pe esta o projeto",
+        "Esta e a versao avulsa, em que voce abre o app e sincroniza na mao. O "
+        "proximo passo e o sysmodule, que faz isso sozinho ao entrar e sair do "
+        "jogo — fora do escopo por enquanto."));
 
     return list;
 }
