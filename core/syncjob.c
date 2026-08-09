@@ -9,9 +9,8 @@
 #include <unistd.h>
 
 #include "config.h"
-#include "drive.h"
+#include "cloud.h"
 #include "lang.h"
-#include "oauth.h"
 #include "savemount.h"
 #include "sssbox.h"
 #include "syncstate.h"
@@ -55,7 +54,14 @@ bool syncjob_find_title(u64 application_id, TitleEntry *out)
     return false;
 }
 
-// O nome da pasta desse save — no Drive, no staging e no backup do cartão.
+// O nome de quem está guardando: "Google Drive", "Servidor WebDAV...".
+// Existe porque as mensagens diziam "Drive" na mão, e agora nem sempre é.
+static const char *nuvem(void)
+{
+    return cloud_name(cloud_current());
+}
+
+// O nome da pasta desse save — na nuvem, no staging e no backup do cartão.
 //
 // O dono do save só entra no nome quando o console TEM mais de um save pra
 // esse jogo (duas contas, ou uma conta e o console). Não é preguiça: incluir
@@ -131,37 +137,38 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 
     // 2) staging -> Drive
     say(log, TR("Pegando token do Google...", "Getting a Google token..."));
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
     {
         say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei/criei a pasta \"%s\" em %s", "Couldn't find/create the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
         return false;
     }
 
-    char game_id[128];
-    if (!drive_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    char game_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
     {
-        say(log, TR("Não criei a pasta do jogo no Drive", "Couldn't create the game's folder on Drive"));
+        say(log, TR("Não criei a pasta do jogo em %s", "Couldn't create the game's folder on %s"), nuvem());
         return false;
     }
 
-    say(log, TR("Subindo pro Drive...", "Uploading to Drive..."));
-    if (!drive_upload_tree(token, game_id, staging))
+    say(log, TR("Subindo pro %s...", "Uploading to %s..."), nuvem());
+    if (!cloud_upload_tree(token, game_id, staging))
     {
         say(log, TR("Upload falhou", "Upload failed"));
         return false;
     }
 
     // Subir só escreve. O que o save não tem mais precisa sair da nuvem, senão
-    // volta no próximo restore. Vai pra lixeira do Drive, não some.
-    drive_prune_extras(token, game_id, staging);
+    // volta no próximo restore. No Drive vai pra lixeira e não some; no
+    // WebDAV depende do servidor ter lixeira — ver o aviso no cloud.h.
+    cloud_prune_extras(token, game_id, staging);
 
     say(log, TR("Backup de %s concluído", "Backup of %s done"), title->name);
     return true;
@@ -564,33 +571,33 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     mkdir(staging, 0777);
 
     say(log, TR("Pegando token do Google...", "Getting a Google token..."));
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
     {
         say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, TR("Não achei a pasta \"%s\" no Drive", "Couldn't find the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei a pasta \"%s\" em %s", "Couldn't find the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
         return false;
     }
 
     // find, e não ensure: "ensure" CRIA a pasta quando não acha, e foi assim
     // que um jogo sem backup na nuvem virou "restore de pasta vazia" que ainda
     // assim montava o save e commitava. Quem lê da nuvem nunca cria nada.
-    char game_id[128];
-    if (!drive_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    char game_id[CLOUD_ID_MAX];
+    if (!cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
     {
-        say(log, TR("Esse jogo não tem backup no Drive", "This game has no backup on Drive"));
+        say(log, TR("Esse jogo não tem backup em %s", "This game has no backup on %s"), nuvem());
         return false;
     }
 
     say(log, TR("Baixando da nuvem...", "Downloading from the cloud..."));
     clear_dir(staging); // ver clear_dir(): sobra de download antigo ia junto
-    if (!drive_download_tree(token, game_id, staging))
+    if (!cloud_download_tree(token, game_id, staging))
     {
         say(log, TR("Download falhou", "Download failed"));
         return false;
@@ -683,23 +690,23 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     // 2) o que tem na nuvem, agora
     say(log, TR("Pegando token do Google...", "Getting a Google token..."));
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
     {
         say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return SYNCJOB_SYNC_FAILED;
     }
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei/criei a pasta \"%s\" em %s", "Couldn't find/create the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
         return SYNCJOB_SYNC_FAILED;
     }
 
     // find, não ensure: procurar não pode criar pasta. Ver syncjob_restore_title.
-    char game_id[128];
-    bool tem_na_nuvem = drive_find_subfolder(token, root_id, safe, game_id, sizeof(game_id));
+    char game_id[CLOUD_ID_MAX];
+    bool tem_na_nuvem = cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id));
 
     u64 cloud_fp = 0;
     bool cloud_vazio = true;
@@ -708,7 +715,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     {
         say(log, TR("Baixando o save da nuvem pra comparar...", "Downloading the cloud save to compare..."));
         clear_dir(cloud_dir);
-        if (!drive_download_tree(token, game_id, cloud_dir))
+        if (!cloud_download_tree(token, game_id, cloud_dir))
         {
             say(log, TR("Download falhou", "Download failed"));
             return SYNCJOB_SYNC_FAILED;
@@ -728,13 +735,13 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     if (cloud_vazio)
     {
         say(log, TR("Primeira sync desse jogo — subindo o save do console", "First sync for this game — uploading the console's save"));
-        if (!drive_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)) ||
-            !drive_upload_tree(token, game_id, console_dir))
+        if (!cloud_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)) ||
+            !cloud_upload_tree(token, game_id, console_dir))
         {
             say(log, TR("Upload falhou", "Upload failed"));
             return SYNCJOB_SYNC_FAILED;
         }
-        drive_prune_extras(token, game_id, console_dir);
+        cloud_prune_extras(token, game_id, console_dir);
         syncjob_mark_synced(title, local_fp);
         say(log, TR("Save de %s guardado na nuvem", "%s's save stored in the cloud"), title->name);
         return SYNCJOB_SYNC_UPLOADED;
@@ -806,12 +813,12 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     // Sobrou: só o console mudou.
     say(log, TR("O save daqui está mais novo — subindo...", "This console's save is newer — uploading..."));
-    if (!drive_upload_tree(token, game_id, console_dir))
+    if (!cloud_upload_tree(token, game_id, console_dir))
     {
         say(log, TR("Upload falhou", "Upload failed"));
         return SYNCJOB_SYNC_FAILED;
     }
-    drive_prune_extras(token, game_id, console_dir);
+    cloud_prune_extras(token, game_id, console_dir);
     syncjob_mark_synced(title, local_fp);
     say(log, TR("Save de %s subiu pra nuvem", "%s's save went up to the cloud"), title->name);
     return SYNCJOB_SYNC_UPLOADED;
@@ -1013,28 +1020,28 @@ bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log)
         return false;
     }
 
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
     {
         say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei/criei a pasta \"%s\" em %s", "Couldn't find/create the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
         return false;
     }
 
-    say(log, TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
-    if (!drive_upload(token, root_id, nome_remoto, path, "application/octet-stream"))
+    say(log, TR("Subindo o arquivo pro %s...", "Uploading the file to %s..."), nuvem());
+    if (!cloud_upload(token, root_id, nome_remoto, path, "application/octet-stream"))
     {
         say(log, TR("Upload falhou", "Upload failed"));
         return false;
     }
 
-    say(log, TR("%s está no seu Drive", "%s is on your Drive"), nome_remoto);
+    say(log, TR("%s está no seu %s", "%s is on your %s"), nome_remoto, nuvem());
     return true;
 }
 
@@ -1046,24 +1053,24 @@ bool syncjob_archive_download(syncjob_log_cb log)
     syncjob_archive_path(final, sizeof(final));
     snprintf(temp, sizeof(temp), "%s.baixando", final);
 
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
     {
         say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, TR("Não achei a pasta \"%s\" no Drive", "Couldn't find the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei a pasta \"%s\" em %s", "Couldn't find the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
         return false;
     }
 
-    say(log, TR("Baixando o arquivo do Drive...", "Downloading the file from Drive..."));
-    if (!drive_download(token, root_id, SYNC_ARCHIVE_NAME, temp))
+    say(log, TR("Baixando o arquivo do %s...", "Downloading the file from %s..."), nuvem());
+    if (!cloud_download(token, root_id, SYNC_ARCHIVE_NAME, temp))
     {
-        say(log, TR("Não tem %s no seu Drive", "There's no %s on your Drive"), SYNC_ARCHIVE_NAME);
+        say(log, TR("Não tem %s no seu %s", "There's no %s on your %s"), SYNC_ARCHIVE_NAME, nuvem());
         remove(temp);
         return false;
     }
@@ -1072,7 +1079,7 @@ bool syncjob_archive_download(syncjob_log_cb log)
     // download pela metade apague o arquivo bom que estava no cartão.
     if (!sssbox_is_box(temp))
     {
-        say(log, TR("O que veio do Drive não é um arquivo nosso", "What came from Drive isn't one of our files"));
+        say(log, TR("O que veio da nuvem não é um arquivo nosso", "What came from the cloud isn't one of our files"));
         remove(temp);
         return false;
     }

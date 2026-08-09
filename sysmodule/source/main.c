@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "drive.h"
+#include "cloud.h"
 #include "gfx.h"
 #include "http.h"
 #include "oauth.h"
@@ -238,31 +238,31 @@ static void count_cb(const char *id, const char *name, bool is_folder, void *ud)
     (void)name;
     CountCtx *c = (CountCtx *)ud;
     if (is_folder)
-        drive_list_children(c->token, id, count_cb, c);
+        cloud_list_children(c->token, id, count_cb, c);
     else
         c->n++;
 }
 
 static int count_remote_files(const char *safe_name)
 {
-    char token[2048];
-    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
         return 0;
 
-    char root_id[128];
-    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
         return 0;
 
-    char game_id[128];
-    if (!drive_ensure_subfolder(token, root_id, safe_name, game_id, sizeof(game_id)))
+    char game_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_subfolder(token, root_id, safe_name, game_id, sizeof(game_id)))
         return 0;
 
     CountCtx ctx = { token, 0 };
-    drive_list_children(token, game_id, count_cb, &ctx);
+    cloud_list_children(token, game_id, count_cb, &ctx);
     return ctx.n;
 }
 
-// Chamado pelo drive.c a cada arquivo.
+// Chamado pelo cloud.c a cada arquivo.
 static void progress_cb(const char *action, const char *name, bool ok)
 {
     if (!ok)
@@ -481,11 +481,11 @@ static void pull_title_idle(u64 application_id)
     g_files_total = count_remote_files(safe);
     pull_redraw(false);
 
-    drive_set_progress_cb(progress_cb);
-    drive_set_abort_cb(pull_abort_cb);
+    cloud_set_progress_cb(progress_cb);
+    cloud_set_abort_cb(pull_abort_cb);
     bool ok = syncjob_restore_title(&title, NULL);
-    drive_set_progress_cb(NULL);
-    drive_set_abort_cb(NULL);
+    cloud_set_progress_cb(NULL);
+    cloud_set_abort_cb(NULL);
 
     if (g_pull_never)
     {

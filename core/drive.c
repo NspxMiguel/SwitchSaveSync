@@ -1,7 +1,10 @@
 #include "drive.h"
+#include "cloud_backend.h"
+#include "oauth.h"
 #include "http.h"
 #include "minijson.h"
 #include "config.h"
+#include "lang.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -40,11 +43,16 @@ static void json_escape(const char *in, char *out, size_t outsz) {
     out[oi < outsz ? oi : outsz - 1] = '\0';
 }
 
+#define DRIVE_FOLDER_MIME "application/vnd.google-apps.folder"
+
 // Procura um arquivo/pasta por nome. parent_id_or_null restringe a busca a
-// dentro de uma pasta; mime_type_or_null restringe pelo mimeType exato
-// (usado pra "só pastas"). Devolve o id do primeiro resultado.
+// dentro de uma pasta; mime_type_or_null restringe pelo mimeType (igual a
+// ele, ou diferente dele quando mime_negate — é assim que se pede "qualquer
+// coisa MENOS pasta", que não tem como escrever com '='). Devolve o id do
+// primeiro resultado.
 static bool find_by_name(const char *access_token, const char *name,
                           const char *parent_id_or_null, const char *mime_type_or_null,
+                          bool mime_negate,
                           char *id_out, size_t outsz) {
     char name_escaped[256];
     size_t ni = 0;
@@ -60,7 +68,8 @@ static bool find_by_name(const char *access_token, const char *name,
         qi += snprintf(query + qi, sizeof(query) - qi, " and '%s' in parents", parent_id_or_null);
     }
     if (mime_type_or_null && qi > 0 && (size_t)qi < sizeof(query)) {
-        qi += snprintf(query + qi, sizeof(query) - qi, " and mimeType='%s'", mime_type_or_null);
+        qi += snprintf(query + qi, sizeof(query) - qi, " and mimeType%s'%s'",
+                       mime_negate ? "!=" : "=", mime_type_or_null);
     }
 
     // url_encode troca boa parte dos caracteres por "%XX" (3x o tamanho).
@@ -94,7 +103,7 @@ static bool find_by_name(const char *access_token, const char *name,
 static bool ensure_folder(const char *access_token, const char *parent_id_or_null,
                            const char *name, char *out, size_t outsz) {
     if (find_by_name(access_token, name, parent_id_or_null,
-                      "application/vnd.google-apps.folder", out, outsz)) {
+                      DRIVE_FOLDER_MIME, false, out, outsz)) {
         return true;
     }
 
@@ -137,14 +146,14 @@ bool drive_ensure_subfolder(const char *access_token, const char *parent_id,
 bool drive_find_subfolder(const char *access_token, const char *parent_id,
                            const char *name, char *out, size_t outsz) {
     return find_by_name(access_token, name, parent_id,
-                        "application/vnd.google-apps.folder", out, outsz);
+                        DRIVE_FOLDER_MIME, false, out, outsz);
 }
 
 bool drive_upload(const char *access_token, const char *folder_id,
                    const char *remote_name, const char *local_path,
                    const char *mime_type) {
     char existing_id[128] = {0};
-    bool updating = find_by_name(access_token, remote_name, folder_id, NULL,
+    bool updating = find_by_name(access_token, remote_name, folder_id, NULL, false,
                                   existing_id, sizeof(existing_id));
 
     char name_json[300];
@@ -178,7 +187,7 @@ bool drive_upload(const char *access_token, const char *folder_id,
 bool drive_download(const char *access_token, const char *folder_id,
                      const char *remote_name, const char *local_path) {
     char file_id[128] = {0};
-    if (!find_by_name(access_token, remote_name, folder_id, NULL, file_id, sizeof(file_id))) {
+    if (!find_by_name(access_token, remote_name, folder_id, NULL, false, file_id, sizeof(file_id))) {
         return false;
     }
     return drive_download_by_id(access_token, file_id, local_path);
@@ -227,71 +236,10 @@ bool drive_list_children(const char *access_token, const char *folder_id,
         json_get_string(elem, "id", id, sizeof(id));
         json_get_string(elem, "name", name, sizeof(name));
         json_get_string(elem, "mimeType", mime, sizeof(mime));
-        bool is_folder = strcmp(mime, "application/vnd.google-apps.folder") == 0;
+        bool is_folder = strcmp(mime, DRIVE_FOLDER_MIME) == 0;
         if (id[0] && cb) cb(id, name, is_folder, userdata);
     }
     return true;
-}
-
-static drive_progress_cb g_progress_cb = NULL;
-
-void drive_set_progress_cb(drive_progress_cb cb) {
-    g_progress_cb = cb;
-}
-
-static void report(const char *action, const char *name, bool ok) {
-    if (g_progress_cb) g_progress_cb(action, name, ok);
-}
-
-static drive_abort_cb g_abort_cb = NULL;
-
-void drive_set_abort_cb(drive_abort_cb cb) {
-    g_abort_cb = cb;
-}
-
-static bool aborted(void) {
-    return g_abort_cb && g_abort_cb();
-}
-
-bool drive_upload_tree(const char *access_token, const char *parent_folder_id,
-                        const char *local_dir) {
-    DIR *d = opendir(local_dir);
-    if (!d) return false;
-
-    bool all_ok = true;
-    struct dirent *entry;
-    while ((entry = readdir(d)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-        if (aborted()) { all_ok = false; break; }
-
-        char full_path[700];
-        snprintf(full_path, sizeof(full_path), "%s/%s", local_dir, entry->d_name);
-
-        struct stat st;
-        if (stat(full_path, &st) != 0) {
-            all_ok = false;
-            continue;
-        }
-
-        if (S_ISDIR(st.st_mode)) {
-            char sub_id[128];
-            if (!drive_ensure_subfolder(access_token, parent_folder_id, entry->d_name,
-                                         sub_id, sizeof(sub_id))) {
-                report("dir", entry->d_name, false);
-                all_ok = false;
-                continue;
-            }
-            report("dir", entry->d_name, true);
-            if (!drive_upload_tree(access_token, sub_id, full_path)) all_ok = false;
-        } else {
-            bool ok = drive_upload(access_token, parent_folder_id, entry->d_name, full_path,
-                                    "application/octet-stream");
-            report("up", entry->d_name, ok);
-            if (!ok) all_ok = false;
-        }
-    }
-    closedir(d);
-    return all_ok;
 }
 
 bool drive_trash_by_id(const char *access_token, const char *file_id) {
@@ -309,69 +257,86 @@ bool drive_trash_by_id(const char *access_token, const char *file_id) {
     return ok;
 }
 
-typedef struct {
-    const char *access_token;
-    const char *local_dir;
-    bool ok;
-} PruneCtx;
+// --- o adaptador pro cloud.c ------------------------------------------------
+//
+// As sete funcoes que qualquer nuvem precisa saber fazer. Percorrer arvore,
+// espelhar e avisar a UI nao estao mais aqui: nao tinham nada de Google e
+// foram pro cloud.c, que faz isso por cima destas.
 
-static void prune_item_cb(const char *id, const char *name, bool is_folder, void *userdata) {
-    PruneCtx *ctx = (PruneCtx *)userdata;
-    if (aborted()) { ctx->ok = false; return; }
-
-    char child_path[700];
-    snprintf(child_path, sizeof(child_path), "%s/%s", ctx->local_dir, name);
-
-    struct stat st;
-    bool aqui  = stat(child_path, &st) == 0;
-    bool pasta = aqui && S_ISDIR(st.st_mode);
-
-    if (!aqui || pasta != is_folder) {
-        bool ok = drive_trash_by_id(ctx->access_token, id);
-        report("del", name, ok);
-        if (!ok) ctx->ok = false;
-        return;
-    }
-
-    if (is_folder && !drive_prune_extras(ctx->access_token, id, child_path)) ctx->ok = false;
+static const char *drive_be_name(void) {
+    return "Google Drive"; // nome proprio, igual nas duas linguas
 }
 
-bool drive_prune_extras(const char *access_token, const char *folder_id,
-                         const char *local_dir) {
-    PruneCtx ctx = { access_token, local_dir, true };
-    if (!drive_list_children(access_token, folder_id, prune_item_cb, &ctx)) return false;
-    return ctx.ok;
+static bool drive_be_is_ready(void) {
+    return oauth_is_logged_in();
 }
 
-typedef struct {
-    const char *access_token;
-    const char *local_dir;
-    bool ok;
-} DownloadTreeCtx;
-
-static void download_tree_item_cb(const char *id, const char *name, bool is_folder, void *userdata) {
-    DownloadTreeCtx *ctx = (DownloadTreeCtx *)userdata;
-    if (aborted()) { ctx->ok = false; return; }
-
-    char child_path[700];
-    snprintf(child_path, sizeof(child_path), "%s/%s", ctx->local_dir, name);
-
-    if (is_folder) {
-        mkdir(child_path, 0777);
-        report("dir", name, true);
-        if (!drive_download_tree(ctx->access_token, id, child_path)) ctx->ok = false;
-    } else {
-        bool ok = drive_download_by_id(ctx->access_token, id, child_path);
-        report("down", name, ok);
-        if (!ok) ctx->ok = false;
-    }
+static const char *drive_be_setup_hint(void) {
+    if (oauth_is_logged_in()) return "";
+    return TR("falta entrar na conta Google, aqui embaixo",
+              "you still have to sign in to the Google account, below");
 }
 
-bool drive_download_tree(const char *access_token, const char *folder_id,
-                          const char *local_dir) {
-    mkdir(local_dir, 0777); // ignora erro se já existe
+static void drive_be_logout(void) {
+    oauth_logout();
+}
 
-    DownloadTreeCtx ctx = { access_token, local_dir, true };
-    if (!drive_list_children(access_token, folder_id, download_tree_item_cb, &ctx)) return false;
-    return ctx.ok;
+static bool drive_be_begin(char *auth, size_t authsz) {
+    return oauth_get_fresh_access_token(auth, authsz);
+}
+
+static bool drive_be_root(const char *auth, char *id_out, size_t outsz) {
+    return ensure_folder(auth, NULL, DRIVE_APP_FOLDER_NAME, id_out, outsz);
+}
+
+static bool drive_be_find_child(const char *auth, const char *parent_id, const char *name,
+                                 bool want_folder, char *id_out, size_t outsz) {
+    // "qualquer coisa menos pasta" em vez de "sem filtro": um jogo e o
+    // arquivo .ssaves dele podem ter o mesmo nome dentro da mesma pasta, e
+    // sem o filtro a busca por arquivo podia devolver a pasta.
+    return find_by_name(auth, name, parent_id, DRIVE_FOLDER_MIME, !want_folder,
+                        id_out, outsz);
+}
+
+static bool drive_be_make_folder(const char *auth, const char *parent_id, const char *name,
+                                  char *id_out, size_t outsz) {
+    return ensure_folder(auth, parent_id, name, id_out, outsz);
+}
+
+static bool drive_be_put_file(const char *auth, const char *parent_id, const char *name,
+                               const char *local_path, const char *mime_type) {
+    return drive_upload(auth, parent_id, name, local_path, mime_type);
+}
+
+static bool drive_be_get_file(const char *auth, const char *id, const char *local_path) {
+    return drive_download_by_id(auth, id, local_path);
+}
+
+static bool drive_be_remove(const char *auth, const char *id) {
+    return drive_trash_by_id(auth, id);
+}
+
+static bool drive_be_list(const char *auth, const char *folder_id,
+                           cloud_list_cb cb, void *userdata) {
+    return drive_list_children(auth, folder_id, (drive_list_cb)cb, userdata);
+}
+
+static const CloudBackend g_drive_backend = {
+    .key         = "drive",
+    .name        = drive_be_name,
+    .is_ready    = drive_be_is_ready,
+    .setup_hint  = drive_be_setup_hint,
+    .logout      = drive_be_logout,
+    .begin       = drive_be_begin,
+    .root        = drive_be_root,
+    .find_child  = drive_be_find_child,
+    .make_folder = drive_be_make_folder,
+    .put_file    = drive_be_put_file,
+    .get_file    = drive_be_get_file,
+    .remove      = drive_be_remove,
+    .list        = drive_be_list,
+};
+
+const CloudBackend *drive_backend(void) {
+    return &g_drive_backend;
 }

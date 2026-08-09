@@ -11,7 +11,7 @@ extern "C" {
 #include "config.h"   // DRIVE_APP_FOLDER_NAME (mostrado na tela)
 #include "http.h"
 #include "oauth.h"
-#include "drive.h"
+#include "cloud.h"
 #include "titles.h"
 #include "savemount.h"
 }
@@ -57,10 +57,11 @@ static void ui_header() {
     printf("\x1b[2J\x1b[H"); // limpa tela, cursor pro topo
     printf(C_HEAD " SwitchSaveSync" C_OFF C_DIM "  ~  spike de validacao" C_OFF "\n");
     ui_rule('=');
-    printf(" Conta Google : %s\n",
-           oauth_is_logged_in() ? C_OK "conectada" C_OFF
-                                : C_WARN "desconectada" C_OFF);
-    printf(" Pasta no Drive: " C_DIM DRIVE_APP_FOLDER_NAME "/" C_OFF "\n");
+    CloudKind nuvem = cloud_current();
+    printf(" Nuvem : %s  %s\n", cloud_name(nuvem),
+           cloud_is_ready(nuvem) ? C_OK "pronta" C_OFF
+                                 : C_WARN "falta configurar" C_OFF);
+    printf(" Pasta na nuvem: " C_DIM DRIVE_APP_FOLDER_NAME "/" C_OFF "\n");
     ui_rule('=');
     printf("\n");
 }
@@ -231,7 +232,7 @@ static int pick_title(TitleEntry *titles, size_t count, const char *action_label
 
 // Chamado pelo drive.c a cada arquivo/pasta. Mantem a tela viva durante
 // operacoes longas em vez de congelar numa linha so.
-extern "C" void on_drive_progress(const char *action, const char *name, bool ok) {
+extern "C" void on_cloud_progress(const char *action, const char *name, bool ok) {
     const char *verb = (strcmp(action, "dir") == 0) ? "pasta"
                      : (strcmp(action, "up")  == 0) ? "enviado"
                                                     : "baixado";
@@ -270,17 +271,25 @@ static void do_login() {
     ui_pause();
 }
 
+// Vale pra nuvem que estiver escolhida no nuvem.cfg: no Drive isto renova o
+// token do OAuth, no WebDAV monta o cabecalho com usuario e senha. Quem
+// escolhe a nuvem e a tela de Ajustes do app grafico -- aqui so se usa o que
+// ja esta gravado.
 static bool ensure_logged_in_with_token(const char *screen, char *access_token, size_t outsz) {
-    if (!oauth_is_logged_in()) {
+    CloudKind nuvem = cloud_current();
+
+    if (!cloud_is_ready(nuvem)) {
         ui_screen(screen);
-        ui_err("voce ainda nao esta conectado.");
-        printf("\n  Escolha \"Entrar na conta Google\" no menu primeiro.\n");
+        ui_err("falta configurar a nuvem escolhida.");
+        printf("\n  Nuvem: %s\n", cloud_name(nuvem));
+        const char *falta = cloud_setup_hint(nuvem);
+        if (falta && falta[0]) printf("  %s\n", falta);
         ui_pause();
         return false;
     }
-    if (!oauth_get_fresh_access_token(access_token, outsz)) {
+    if (!cloud_begin(access_token, outsz)) {
         ui_screen(screen);
-        ui_err("nao consegui renovar o acesso. Entre na conta de novo.");
+        ui_err("nao consegui abrir o acesso. Confira os dados e tente de novo.");
         ui_pause();
         return false;
     }
@@ -299,14 +308,14 @@ static void write_test_file() {
 // Teste de conexao: sobe e baixa um arquivinho, so pra validar rede + TLS +
 // API sem encostar em save nenhum.
 static void do_connection_test() {
-    char access_token[512];
+    char access_token[CLOUD_AUTH_MAX];
     if (!ensure_logged_in_with_token("Teste de conexao", access_token, sizeof(access_token))) return;
 
     ui_screen("Teste de conexao");
 
     ui_step("procurando a pasta no Drive...");
-    char folder_id[128];
-    if (!drive_ensure_app_folder(access_token, folder_id, sizeof(folder_id))) {
+    char folder_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(access_token, folder_id, sizeof(folder_id))) {
         ui_err("nao consegui criar/achar a pasta no Drive.");
         ui_pause();
         return;
@@ -315,7 +324,7 @@ static void do_connection_test() {
 
     write_test_file();
     ui_step("enviando arquivo de teste...");
-    if (!drive_upload(access_token, folder_id, TEST_REMOTE_NAME, TEST_LOCAL_PATH, "text/plain")) {
+    if (!cloud_upload(access_token, folder_id, TEST_REMOTE_NAME, TEST_LOCAL_PATH, "text/plain")) {
         ui_err("upload falhou.");
         ui_pause();
         return;
@@ -323,7 +332,7 @@ static void do_connection_test() {
     ui_ok("upload OK.");
 
     ui_step("baixando de volta...");
-    if (!drive_download(access_token, folder_id, TEST_REMOTE_NAME, TEST_DOWN_PATH)) {
+    if (!cloud_download(access_token, folder_id, TEST_REMOTE_NAME, TEST_DOWN_PATH)) {
         ui_err("download falhou.");
         ui_pause();
         return;
@@ -344,7 +353,7 @@ static void do_connection_test() {
 // pasta de staging local, sobe a arvore inteira pro Drive dentro de
 // "<pasta do app>/<Nome do Jogo>/".
 static void do_backup_real() {
-    char access_token[512];
+    char access_token[CLOUD_AUTH_MAX];
     if (!ensure_logged_in_with_token("Backup", access_token, sizeof(access_token))) return;
 
     static TitleEntry titles[MAX_TITLES];
@@ -387,16 +396,16 @@ static void do_backup_real() {
     ui_ok("save copiado.");
 
     ui_step("preparando as pastas no Drive...");
-    char app_folder_id[128], game_folder_id[128];
-    if (!drive_ensure_app_folder(access_token, app_folder_id, sizeof(app_folder_id)) ||
-        !drive_ensure_subfolder(access_token, app_folder_id, t->name, game_folder_id, sizeof(game_folder_id))) {
+    char app_folder_id[CLOUD_ID_MAX], game_folder_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(access_token, app_folder_id, sizeof(app_folder_id)) ||
+        !cloud_ensure_subfolder(access_token, app_folder_id, t->name, game_folder_id, sizeof(game_folder_id))) {
         ui_err("nao consegui criar/achar as pastas no Drive.");
         ui_pause();
         return;
     }
 
     ui_step("enviando pro Drive...");
-    bool ok = drive_upload_tree(access_token, game_folder_id, staging_path);
+    bool ok = cloud_upload_tree(access_token, game_folder_id, staging_path);
 
     printf("\n");
     if (ok) {
@@ -411,7 +420,7 @@ static void do_backup_real() {
 // Restore: baixa a arvore de "<pasta do app>/<Nome do Jogo>/" do Drive pra
 // staging local, copia pro save montado com escrita, e comita.
 static void do_restore_real() {
-    char access_token[512];
+    char access_token[CLOUD_AUTH_MAX];
     if (!ensure_logged_in_with_token("Restaurar", access_token, sizeof(access_token))) return;
 
     static TitleEntry titles[MAX_TITLES];
@@ -448,16 +457,16 @@ static void do_restore_real() {
     ui_screen("Restaurar");
     printf("  Jogo: " C_HEAD "%s" C_OFF "\n\n", t->name);
     ui_step("procurando a pasta do jogo no Drive...");
-    char app_folder_id[128], game_folder_id[128];
-    if (!drive_ensure_app_folder(access_token, app_folder_id, sizeof(app_folder_id)) ||
-        !drive_ensure_subfolder(access_token, app_folder_id, t->name, game_folder_id, sizeof(game_folder_id))) {
+    char app_folder_id[CLOUD_ID_MAX], game_folder_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(access_token, app_folder_id, sizeof(app_folder_id)) ||
+        !cloud_ensure_subfolder(access_token, app_folder_id, t->name, game_folder_id, sizeof(game_folder_id))) {
         ui_err("nao achei a pasta desse jogo no Drive (ja fez backup dele?).");
         ui_pause();
         return;
     }
 
     ui_step("baixando do Drive...");
-    if (!drive_download_tree(access_token, game_folder_id, staging_path)) {
+    if (!cloud_download_tree(access_token, game_folder_id, staging_path)) {
         ui_err("falha ao baixar o save do Drive. Nada foi escrito no console.");
         ui_pause();
         return;
@@ -539,7 +548,7 @@ int main(int argc, char *argv[]) {
         goto cleanup_romfs;
     }
 
-    drive_set_progress_cb(on_drive_progress);
+    cloud_set_progress_cb(on_cloud_progress);
     oauth_load_saved_login();
 
     for (int sel = 0; appletMainLoop(); ) {

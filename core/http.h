@@ -56,6 +56,32 @@ HttpResponse http_upload_multipart_related(const char *url, const char *bearer,
 // um arquivo local. Usado pra 'alt=media' do Drive.
 bool http_download_to_file(const char *url, const char *bearer, const char *local_file_path);
 
+// --- o que não é Google -------------------------------------------------
+//
+// As de cima assumem duas coisas do Drive: que o método é GET/POST/PATCH e
+// que o Authorization é "Bearer <token>". O WebDAV (NAS, Nextcloud, Synology)
+// não é nenhum dos dois — usa PROPFIND/MKCOL/PUT/DELETE e Authorization
+// "Basic ...". Estas três recebem o valor CRU do header e o método na mão.
+
+// 'auth_raw' é o valor inteiro do header Authorization ("Basic dXNlcjpwdw=="
+// ou "Bearer ..."), ou NULL pra não mandar nenhum.
+// 'extra_header' é uma linha extra ("Depth: 1"), ou NULL.
+// 'body'/'body_len' podem ser NULL/0.
+HttpResponse http_request_raw(const char *method, const char *url,
+                               const char *auth_raw, const char *content_type,
+                               const char *body, size_t body_len,
+                               const char *extra_header);
+
+// PUT com o conteúdo de um arquivo local. Vai em streaming (o curl lê do
+// FILE* conforme manda), não carrega o arquivo inteiro na RAM — save de jogo
+// pode ter dezenas de MB e o Switch não tem folga de memória.
+HttpResponse http_put_file_raw(const char *url, const char *auth_raw,
+                                const char *local_path, const char *content_type);
+
+// GET direto pra arquivo, com Authorization cru.
+bool http_download_to_file_raw(const char *url, const char *auth_raw,
+                                const char *local_file_path);
+
 #ifdef __cplusplus
 }
 #endif
