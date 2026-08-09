@@ -385,7 +385,7 @@ static void backup_now(u64 application_id)
             // compara pra decidir se pode escrever por cima do save local.
             u64 fp = 0;
             if (syncjob_fingerprint(&title, &fp))
-                syncjob_mark_synced(application_id, fp);
+                syncjob_mark_synced(&title, fp);
         }
     }
 
@@ -433,7 +433,7 @@ static void pull_title_idle(u64 application_id)
     // registro de sync anterior, não se puxa nada.
     u64 now_fp = 0, synced_fp = 0;
     bool have_now    = syncjob_fingerprint(&title, &now_fp);
-    bool have_synced = syncjob_last_synced(application_id, &synced_fp);
+    bool have_synced = syncjob_last_synced(&title, &synced_fp);
 
     if (!have_synced)
     {
@@ -503,7 +503,7 @@ static void pull_title_idle(u64 application_id)
         // de "não mudou desde o sync".
         u64 fp = 0;
         if (syncjob_fingerprint(&title, &fp))
-            syncjob_mark_synced(application_id, fp);
+            syncjob_mark_synced(&title, fp);
 
         syncstate_set_status("Save da nuvem carregado: %s", title.name);
         snprintf(g_pull_line, sizeof(g_pull_line), "Save carregado. Bom jogo.");

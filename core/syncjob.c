@@ -30,6 +30,11 @@ static void say(syncjob_log_cb log, const char *fmt, ...)
         log(buf);
 }
 
+// Atenção: com mais de uma conta tendo save do mesmo jogo, isso devolve a
+// PRIMEIRA que aparecer — o application_id sozinho não diz de quem é o save.
+// Quem chama é só o sysmodule de autosync, que hoje está fora de escopo e só
+// sabe o application_id do jogo que fechou; quando ele voltar, vai precisar
+// descobrir a conta que estava jogando antes de chamar aqui.
 bool syncjob_find_title(u64 application_id, TitleEntry *out)
 {
     // Estático: são ~70 KB de TitleEntry, e no sysmodule a heap é apertada.
@@ -48,10 +53,39 @@ bool syncjob_find_title(u64 application_id, TitleEntry *out)
     return false;
 }
 
+// O nome da pasta desse save — no Drive, no staging e no backup do cartão.
+//
+// A conta só entra quando o console TEM save de mais de uma conta pra esse
+// jogo. Não é preguiça: incluir a conta sempre renomearia a pasta de todo
+// mundo, e save que já está no Drive numa pasta com o nome antigo viraria
+// órfão — o app não acharia mais e trataria como "primeira sync", pronto pra
+// subir o save de estreia por cima. Do jeito que está, jogo de conta única
+// mantém exatamente o nome de sempre e nada se perde.
+static void save_folder_name(const TitleEntry *title, char *out, size_t outsz)
+{
+    if (!title->shared_game || title->account[0] == '\0')
+    {
+        syncstate_sanitize_name(title->name, out, outsz);
+        return;
+    }
+
+    // O sufixo da conta é justamente o que separa um save do outro, então não
+    // pode ser ele a sobrar da truncagem. Reservo o espaço dele primeiro; quem
+    // encurta, se precisar, é o nome do jogo.
+    char sufixo[0x28];
+    snprintf(sufixo, sizeof(sufixo), " (%s)", title->account);
+
+    char junto[0x201];
+    size_t espaco = sizeof(junto) - strlen(sufixo) - 1;
+    snprintf(junto, sizeof(junto), "%.*s%s", (int)espaco, title->name, sufixo);
+
+    syncstate_sanitize_name(junto, out, outsz);
+}
+
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 {
     char safe[0x201];
-    syncstate_sanitize_name(title->name, safe, sizeof(safe));
+    save_folder_name(title, safe, sizeof(safe));
 
     char staging[0x280];
     snprintf(staging, sizeof(staging), "%s/%s", SYNC_STAGING_DIR, safe);
@@ -127,7 +161,7 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 static void local_backup_path(const TitleEntry *title, char *out, size_t outsz)
 {
     char safe[0x201];
-    syncstate_sanitize_name(title->name, safe, sizeof(safe));
+    save_folder_name(title, safe, sizeof(safe));
     snprintf(out, outsz, "%s/%s", SYNC_LOCAL_DIR, safe);
 }
 
@@ -450,18 +484,29 @@ bool syncjob_fingerprint(const TitleEntry *title, u64 *out)
     return true;
 }
 
-static void marker_path(u64 application_id, char *out, size_t outsz)
+// Mesma regra do save_folder_name: a conta só entra no nome quando o jogo tem
+// save de mais de uma. Marcador é por (jogo, conta) — com um marcador só pros
+// dois, o save de uma conta seria comparado contra o que a OUTRA sincronizou, e
+// a decisão de "quem mudou" sairia errada nos dois sentidos: conflito onde não
+// tem, e pior, sobrescrita silenciosa onde tem.
+static void marker_path(const TitleEntry *title, char *out, size_t outsz)
 {
-    snprintf(out, outsz, "%s/rev-%016llX.txt", SYNC_APP_DIR,
-        (unsigned long long)application_id);
+    if (title->shared_game)
+        snprintf(out, outsz, "%s/rev-%016llX-%016llX%016llX.txt", SYNC_APP_DIR,
+            (unsigned long long)title->application_id,
+            (unsigned long long)title->uid.uid[0],
+            (unsigned long long)title->uid.uid[1]);
+    else
+        snprintf(out, outsz, "%s/rev-%016llX.txt", SYNC_APP_DIR,
+            (unsigned long long)title->application_id);
 }
 
-void syncjob_mark_synced(u64 application_id, u64 fingerprint)
+void syncjob_mark_synced(const TitleEntry *title, u64 fingerprint)
 {
     syncstate_ensure_dirs();
 
     char path[0x120];
-    marker_path(application_id, path, sizeof(path));
+    marker_path(title, path, sizeof(path));
 
     FILE *f = fopen(path, "w");
     if (!f)
@@ -470,10 +515,10 @@ void syncjob_mark_synced(u64 application_id, u64 fingerprint)
     fclose(f);
 }
 
-bool syncjob_last_synced(u64 application_id, u64 *out)
+bool syncjob_last_synced(const TitleEntry *title, u64 *out)
 {
     char path[0x120];
-    marker_path(application_id, path, sizeof(path));
+    marker_path(title, path, sizeof(path));
 
     FILE *f = fopen(path, "r");
     if (!f)
@@ -496,7 +541,7 @@ bool syncjob_last_synced(u64 application_id, u64 *out)
 bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
 {
     char safe[0x201];
-    syncstate_sanitize_name(title->name, safe, sizeof(safe));
+    save_folder_name(title, safe, sizeof(safe));
 
     char staging[0x280];
     snprintf(staging, sizeof(staging), "%s/%s", SYNC_STAGING_DIR, safe);
@@ -587,7 +632,7 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
 SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log)
 {
     char safe[0x201];
-    syncstate_sanitize_name(title->name, safe, sizeof(safe));
+    save_folder_name(title, safe, sizeof(safe));
 
     char cloud_dir[0x2A0], console_dir[0x2A0];
     snprintf(cloud_dir, sizeof(cloud_dir), "%s/%s", SYNC_STAGING_DIR, safe);
@@ -677,7 +722,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
             return SYNCJOB_SYNC_FAILED;
         }
         drive_prune_extras(token, game_id, console_dir);
-        syncjob_mark_synced(title->application_id, local_fp);
+        syncjob_mark_synced(title, local_fp);
         say(log, "Save de %s guardado na nuvem", title->name);
         return SYNCJOB_SYNC_UPLOADED;
     }
@@ -693,7 +738,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         if (!write_over_save(title, cloud_dir, log))
             return SYNCJOB_SYNC_FAILED;
 
-        syncjob_mark_synced(title->application_id, cloud_fp);
+        syncjob_mark_synced(title, cloud_fp);
         say(log, "Save de %s veio da nuvem", title->name);
         return SYNCJOB_SYNC_DOWNLOADED;
     }
@@ -704,13 +749,13 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         // iguais AGORA, e é exatamente isso que o marcador significa. Sem
         // esta linha, a primeira sync depois de uma instalação nova cairia
         // em conflito na próxima vez que qualquer um dos lados mudasse.
-        syncjob_mark_synced(title->application_id, local_fp);
+        syncjob_mark_synced(title, local_fp);
         say(log, "Ja estava sincronizado — nao mexi em nada");
         return SYNCJOB_SYNC_EQUAL;
     }
 
     u64 ultima = 0;
-    bool tem_marcador = syncjob_last_synced(title->application_id, &ultima);
+    bool tem_marcador = syncjob_last_synced(title, &ultima);
 
     if (!tem_marcador)
     {
@@ -741,7 +786,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         if (!write_over_save(title, cloud_dir, log))
             return SYNCJOB_SYNC_FAILED;
 
-        syncjob_mark_synced(title->application_id, cloud_fp);
+        syncjob_mark_synced(title, cloud_fp);
         say(log, "Save de %s veio da nuvem", title->name);
         return SYNCJOB_SYNC_DOWNLOADED;
     }
@@ -754,7 +799,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         return SYNCJOB_SYNC_FAILED;
     }
     drive_prune_extras(token, game_id, console_dir);
-    syncjob_mark_synced(title->application_id, local_fp);
+    syncjob_mark_synced(title, local_fp);
     say(log, "Save de %s subiu pra nuvem", title->name);
     return SYNCJOB_SYNC_UPLOADED;
 }
