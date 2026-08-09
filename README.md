@@ -1,0 +1,166 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="SwitchSaveSync" width="128">
+
+# SwitchSaveSync
+
+**Save de Switch no Google Drive, num clique só.**
+Abre o app, aperta A no jogo, pronto — ele decide sozinho se sobe ou se desce.
+
+[![Plataforma](https://img.shields.io/badge/plataforma-Nintendo%20Switch-e60012)](https://switchbrew.org/)
+[![CFW](https://img.shields.io/badge/CFW-Atmosph%C3%A8re-5865f2)](https://github.com/Atmosphere-NX/Atmosphere)
+[![Compilador](https://img.shields.io/badge/build-devkitPro-1f9c4b)](https://devkitpro.org/)
+[![Idiomas](https://img.shields.io/badge/idiomas-PT%20%7C%20EN-blue)](#idioma)
+
+[English](README.en.md)
+
+</div>
+
+---
+
+## O que é
+
+Um homebrew que guarda os saves dos seus jogos no **seu** Google Drive e traz de volta
+quando você precisa — do jeito que o Steam Cloud faz, mas sem servidor, sem assinatura e
+sem custo nenhum. Não existe backend: o console fala direto com a API do Google Drive,
+usando uma conta que é sua.
+
+Ele **nunca interpreta o conteúdo do save**. Copia a árvore de arquivos byte a byte nos
+dois sentidos. Por isso funciona em jogo que nunca foi testado — inclusive jogo que ainda
+nem saiu — sem precisar de lista de jogos suportados.
+
+## O clique único
+
+O botão **A** faz a coisa certa sozinho, comparando uma impressão digital do save dos dois
+lados com a da última sincronização:
+
+| Situação | O que ele faz |
+| --- | --- |
+| Só o console mudou | Sobe pro Drive |
+| Só o Drive mudou | Baixa pro console |
+| Nenhum dos dois mudou | Não encosta em nada |
+| O console não tem save ainda | Baixa do Drive |
+| **Os dois mudaram** | **Para e pergunta** |
+
+O último caso é o importante: escolher sozinho ali apagaria progresso de verdade. O app
+mostra os dois lados (quantos arquivos, quantos bytes) e deixa a decisão com você. Nada é
+escrito enquanto você não apertar.
+
+O botão **Y** abre o menu com as ações separadas, pra quando você quiser mandar em vez de
+deixar ele decidir: subir, baixar, backup no cartão, restaurar do cartão.
+
+## O que ele faz que os outros não fazem
+
+**Save separado por conta.** O mesmo jogo jogado por dois perfis do console tem dois saves
+diferentes, e eles não se misturam. O jogo aparece uma vez na lista, com `2 saves` do lado,
+e a escolha de quem é o save acontece no clique.
+
+**Save de console, não só de conta.** Existem dois tipos de save no Switch: o de conta
+(`FsSaveDataType_Account`) e o de console (`FsSaveDataType_Device`), que é do aparelho e não
+de um perfil. Animal Crossing é o caso feio: **a ilha é save de console**, e o save de conta
+existe e é quase vazio. Ferramenta que só lê save de conta faz "backup do Animal Crossing"
+e não leva a ilha junto. Pokémon Sword/Shield usa os dois tipos. Aqui os dois são lidos.
+
+**Espelho de verdade.** Arquivo que o jogo apagou do save também sai da nuvem — senão ele
+voltaria vivo no próximo restore. Some pra lixeira do Drive, não de vez: você tem 30 dias
+pra desfazer.
+
+**Backup no próprio cartão.** Sem internet e sem conta Google, dá pra guardar uma cópia em
+`sdmc:/switch/SwitchSaveSync/backups` e restaurar de lá. É a rede de segurança pra quando a
+nuvem não é uma opção.
+
+## Também tem
+
+- **Login por QR code** — aponta o celular, digita o código, pronto. Sem teclado de tela.
+- **Controle parental** — senha de 4 a 8 dígitos na abertura do app, guardada como hash.
+  Trocar ou tirar a senha exige a atual.
+- **Lista por último jogado**, com o ícone e o nome de verdade de cada jogo, lidos do
+  console.
+- **Português e inglês**, com o idioma seguindo o console ou escolhido na mão.
+
+## Instalar
+
+1. Console com CFW (**Atmosphère**) e o menu de homebrew funcionando.
+2. Copie `SwitchSaveSync.nro` pra `sdmc:/switch/`.
+3. Abra pelo menu de homebrew.
+
+> **Abra segurando R num jogo, não pelo Álbum.** Aberto pelo Álbum, o homebrew roda em
+> *modo applet*: ganha ~448 MB de memória e a pilha de rede às vezes não sobe — o app avisa
+> isso na aba Conta, em Diagnóstico. Segurando **R** ao abrir um jogo instalado, ele roda
+> como aplicação, com a memória e a rede inteiras.
+
+## Configurar o Google Drive
+
+O app não vem com credencial embutida — cada pessoa usa um projeto Google Cloud seu, de
+graça. É o que mantém o custo em zero e o acesso restrito a você.
+
+```bash
+cp core/config.h.example core/config.h
+```
+
+O `config.h.example` tem o passo a passo completo (criar o projeto, ativar a Drive API,
+gerar um ID de cliente do tipo *TVs e dispositivos de entrada limitada*). O `config.h` está
+no `.gitignore` e nunca entra em commit.
+
+O escopo pedido é **`drive.file`**: o app só enxerga os arquivos que ele mesmo criou. O resto
+do seu Drive fica invisível pra ele — não é uma promessa nossa, é o Google que não deixa.
+
+Os saves vão pra uma pasta `Nintendo Switch Saves/`, com uma subpasta por jogo.
+
+## Compilar
+
+Precisa do [devkitPro](https://devkitpro.org/wiki/Getting_Started) com o grupo
+`switch-dev`, mais `switch-curl`, `switch-mbedtls` e `switch-zlib`.
+
+```bash
+export DEVKITPRO=/opt/devkitpro
+export DEVKITA64=$DEVKITPRO/devkitA64
+export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
+make -C gui
+```
+
+Sai um `gui/SwitchSaveSync.nro`.
+
+## O que ele não faz
+
+- **Não mexe em save de jogo aberto.** O jogo tem que estar fechado; o app avisa quando não
+  consegue montar.
+- **Não interpreta save.** Não edita, não converte, não "conserta" save.
+- **Não sobe nada sozinho.** Sincronização é sempre um clique seu. O modo automático está
+  planejado, mas não existe ainda.
+- **Não se instala no boot.** Nada de `boot2.flag` — decisão consciente: homebrew que sobe
+  junto com o console é homebrew que pode deixar o console sem subir.
+
+## Estado do projeto
+
+O **app gráfico** (`gui/`) é o que está pronto e em uso. As outras pastas são caminhos que
+foram abertos e estão parados de propósito:
+
+| Pasta | O que é | Estado |
+| --- | --- | --- |
+| `gui/` | O app, em [borealis](https://github.com/natinusala/borealis) | **Em uso** |
+| `core/` | O motor: Drive, OAuth, montagem de save, sincronização | **Em uso** |
+| `app/` | Primeira versão, em modo texto | Histórico |
+| `sysmodule/` | Autosync rodando de fundo | Pausado |
+| `overlay/` | Menu no Ultrahand/Tesla | Pausado |
+
+O autosync vai voltar como uma tela na **abertura** do jogo — "sincronizando, aguarde", com
+barra de porcentagem e um botão **Pular** pra quem não quer esperar. Ainda não está feito.
+
+## Leitura
+
+- [`ANALISE.md`](ANALISE.md) — a análise de viabilidade que começou o projeto: o que já
+  existia pronto, o que precisava ser construído, e onde estava o risco.
+- [`SAVES.md`](SAVES.md) — como save de Switch funciona de verdade, e o que isso obriga o
+  app a fazer.
+
+## Créditos
+
+[borealis](https://github.com/natinusala/borealis) pela interface,
+[libnx](https://github.com/switchbrew/libnx) e [devkitPro](https://devkitpro.org/) pelo
+resto, [Atmosphère](https://github.com/Atmosphere-NX/Atmosphere) por existir,
+[qrcodegen](https://github.com/nayuki/QR-Code-generator) pelo QR do login.
+
+O caminho de save de console veio de olhar onde o [JKSV](https://github.com/J-D-K/JKSV) e o
+[Checkpoint](https://github.com/FlagBrew/Checkpoint) tropeçam — os dois têm issue aberta
+sobre isso.

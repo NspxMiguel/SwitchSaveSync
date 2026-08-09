@@ -1,6 +1,9 @@
 build/
+build-symbols/
 *.nro
 *.nso
+*.nsp
+*.ovl
 *.nacp
 *.elf
 core/config.h
@@ -9,3 +12,9 @@ gui/resources/shaders/
 # token de refresh do Google, puxado do cartao junto com o resto do backup.
 # Nunca entra em commit.
 token.txt
+
+# Anotacoes de trabalho e backups do console de quem usa. Ficam na pasta, nao no repo:
+# conversa privada removida do historico
+PEDIDOS.md
+backups-do-switch/
+cartao/
