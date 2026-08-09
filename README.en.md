@@ -73,6 +73,14 @@ safety net for when the cloud isn't an option.
 
 ## Also in here
 
+- **Sync everything at once** — one row at the top of the list walks every save, deciding
+  which way each one goes. When both sides changed it does **not** choose: that game is
+  left alone and shows up in a list at the end, for you to sort out one by one.
+- **Everything in one file** — optional: packs every save into a `.sss`, a format of ours
+  that isn't a zip and that only this app reads. Handy for taking everything at once. *It's
+  a disguise, not a lock* — the code is open, so anyone determined enough can read it.
+  That's why the normal mode (one folder per game on Drive) is still the recommended one: a
+  save locked in a format only one program reads is a save that dies with that program.
 - **QR code login** — point your phone at it, type the code, done. No on-screen keyboard.
 - **Parental lock** — a 4-to-8 digit password at startup, stored as a hash. Changing or
   removing it requires the current one.
@@ -89,6 +97,29 @@ safety net for when the cloud isn't an option.
 > runs in *applet mode*: it gets ~448 MB of memory and the network stack sometimes fails to
 > come up — the app says so in the Account tab, under Diagnostics. Holding **R** while
 > opening an installed game runs it as an application, with full memory and networking.
+
+### As a game, on the home screen
+
+You can have an icon for the app on the console's home screen, next to your games, and open
+it from there. [Sphaira](https://github.com/ITotalJustice/sphaira) does it by itself, **on
+the console** — no PC, no `hacbrewpack`, no `prod.keys` of yours: it derives the key
+straight from the console.
+
+1. Open Sphaira and find `SwitchSaveSync` in the homebrew list.
+2. Open the options and pick **Install Forwarder**.
+3. Installing ships disabled in Sphaira; it asks whether it may turn it on — say yes.
+
+The shortcut is born with the name and icon that live inside the `.nro`, so it shows up as
+**SwitchSaveSync**, by *Miguel*, with the same icon at the top of this page.
+
+It also settles the paragraph above: the shortcut is installed as an *application*, so
+opening it that way already gives you full memory and networking. The **R** trick stops
+being necessary.
+
+> **Don't move the `.nro` afterwards.** The shortcut stores the file's path, and Sphaira
+> derives the title ID from a hash of that path. Move the file and the shortcut points at
+> nothing — and rebuilding it from the new path creates a second icon instead of fixing the
+> first. Leave it at `sdmc:/switch/SwitchSaveSync.nro` and be done.
 
 ## Setting up Google Drive
 
