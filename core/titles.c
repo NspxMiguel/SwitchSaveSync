@@ -36,6 +36,29 @@ static bool is_installed(uint64_t application_id) {
     return installed;
 }
 
+// Apelido da conta dona do save, o mesmo que aparece no perfil do console.
+//
+// Em erro devolve string vazia em vez de inventar "Conta 1"/"Usuario": o nome
+// vai virar nome de pasta no Drive, e nome chutado que muda de uma versão pra
+// outra transformaria a pasta de alguém em pasta órfã. Sem apelido, o save cai
+// no nome sem sufixo — que é o comportamento de sempre.
+static void resolve_account_name(AccountUid uid, char *out, size_t outsz) {
+    out[0] = '\0';
+
+    AccountProfile profile;
+    if (R_FAILED(accountGetProfile(&profile, uid))) return;
+
+    AccountProfileBase base = {0};
+    if (R_SUCCEEDED(accountProfileGet(&profile, NULL, &base))) {
+        // nickname[0x20] não é garantidamente terminado em zero.
+        size_t n = sizeof(base.nickname);
+        if (n > outsz - 1) n = outsz - 1;
+        memcpy(out, base.nickname, n);
+        out[n] = '\0';
+    }
+    accountProfileClose(&profile);
+}
+
 static bool resolve_title_name(uint64_t application_id, char *out, size_t outsz) {
     // NsApplicationControlData tem um icon[0x20000] embutido — é grande
     // demais pra stack do Switch (crash certo), por isso aqui embaixo tem
@@ -143,9 +166,13 @@ static void sort_by_last_played(TitleEntry *entries, size_t count) {
 size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
     if (!out || max_entries == 0) return 0;
 
-    bool fs_owned = false, ns_owned = false;
+    bool fs_owned = false, ns_owned = false, acc_owned = false;
     if (R_SUCCEEDED(fsInitialize())) {
         fs_owned = true;
+    }
+    // acc:u0 é o suficiente pra ler apelido de perfil; não precisa de acc:su.
+    if (R_SUCCEEDED(accountInitialize(AccountServiceType_Application))) {
+        acc_owned = true;
     }
     // se fsInitialize já tinha sido chamado em outro lugar do app, essa
     // chamada falha com erro "já inicializado" — não é fatal, seguimos
@@ -184,23 +211,31 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 // So jogo instalado. Ver is_installed() logo acima.
                 if (!is_installed(application_id)) continue;
 
-                // pula duplicata (mesmo jogo pode ter mais de uma entrada de
-                // save, ex: perfis de usuário diferentes — por ora pegamos só
-                // a primeira que achar)
+                // Duplicata agora é (jogo, CONTA), não jogo.
+                //
+                // Antes bastava o application_id bater pra pular, então o save
+                // da segunda conta era descartado aqui: nunca aparecia na
+                // conversa privada removida do historico
+                // conversa privada removida do historico
+                // conversa privada removida do historico
                 bool dup = false;
                 for (size_t j = 0; j < count; j++) {
-                    if (out[j].application_id == application_id) { dup = true; break; }
+                    if (out[j].application_id == application_id &&
+                        out[j].uid.uid[0] == info->uid.uid[0] &&
+                        out[j].uid.uid[1] == info->uid.uid[1]) { dup = true; break; }
                 }
                 if (dup) continue;
 
                 out[count].application_id = application_id;
                 out[count].save_data_id = info->save_data_id;
                 out[count].uid = info->uid;
+                out[count].shared_game = false; // decidido no passe de baixo
 
                 if (!resolve_title_name(application_id, out[count].name, sizeof(out[count].name))) {
                     snprintf(out[count].name, sizeof(out[count].name),
                              "Titulo desconhecido (%016lX)", application_id);
                 }
+                resolve_account_name(info->uid, out[count].account, sizeof(out[count].account));
                 count++;
             }
 
@@ -213,6 +248,19 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
 cleanup:
     if (ns_owned) nsExit();
     if (fs_owned) fsExit();
+    if (acc_owned) accountExit();
+
+    // Só agora dá pra saber quem divide jogo com quem — depende da lista
+    // inteira, e ela só existe aqui no fim.
+    for (size_t i = 0; i < count; i++) {
+        for (size_t j = i + 1; j < count; j++) {
+            if (out[i].application_id == out[j].application_id) {
+                out[i].shared_game = true;
+                out[j].shared_game = true;
+            }
+        }
+    }
+
     sort_by_last_played(out, count);
     return count;
 }

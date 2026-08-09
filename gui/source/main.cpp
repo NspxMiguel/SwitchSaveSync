@@ -416,7 +416,9 @@ static bool jobRestore(Job* job, TitleEntry title)
 static void openGamePage(const TitleEntry& title)
 {
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
-    frame->setTitle(title.name);
+    frame->setTitle((title.shared_game && title.account[0])
+            ? title.name + std::string(" — ") + title.account
+            : title.name);
 
     size_t iconLen = 0;
     if (titles_get_icon(title.application_id, g_icon_buffer, sizeof(g_icon_buffer), &iconLen))
@@ -510,7 +512,13 @@ static void fillGamesList(brls::List* list)
     {
         TitleEntry title = g_titles[i];
 
-        brls::ListItem* item = new brls::ListItem(title.name);
+        // O apelido da conta só aparece quando o jogo TEM save de mais de uma
+        // conversa privada removida do historico
+        // conversa privada removida do historico
+        // toda linha só faria barulho: é sempre ele.
+        brls::ListItem* item = (title.shared_game && title.account[0])
+            ? new brls::ListItem(title.name, "", title.account)
+            : new brls::ListItem(title.name);
 
         size_t iconLen = 0;
         if (titles_get_icon(title.application_id, g_icon_buffer, sizeof(g_icon_buffer), &iconLen))

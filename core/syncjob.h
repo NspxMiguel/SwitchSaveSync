@@ -54,8 +54,8 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log);
 bool syncjob_fingerprint(const TitleEntry *title, u64 *out);
 
 // Grava/lê a impressão digital do último upload bem-sucedido desse jogo.
-void syncjob_mark_synced(u64 application_id, u64 fingerprint);
-bool syncjob_last_synced(u64 application_id, u64 *out);
+void syncjob_mark_synced(const TitleEntry *title, u64 fingerprint);
+bool syncjob_last_synced(const TitleEntry *title, u64 *out);
 
 // O que a sincronização decidiu fazer.
 typedef enum
