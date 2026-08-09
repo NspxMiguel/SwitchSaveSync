@@ -1,0 +1,368 @@
+#include "gfx.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "stb_truetype.h"
+
+// A camada é 1280x720 (tela cheia), mas o framebuffer é metade disso e o
+// compositor estica. Motivo: memória. Em RGBA4444, 640x360 dá 460 KB por
+// buffer; em 1280x720 RGBA8888 daria 3,6 MB por buffer, e essa heap também
+// precisa caber o curl e o mbedTLS baixando o save ao mesmo tempo.
+#define FB_W 640
+#define FB_H 360
+
+#define LAYER_W 1280
+#define LAYER_H 720
+
+extern u64 __nx_vi_layer_id;
+
+static bool g_ready = false;
+static ViDisplay g_display;
+static ViLayer g_layer;
+static NWindow g_window;
+static Framebuffer g_fb;
+static PadState g_pad;
+static bool g_pad_ready = false;
+
+static stbtt_fontinfo g_font;
+static bool g_font_ready = false;
+
+// ---------------------------------------------------------------------------
+// Cor e pixel (RGBA4444: r nos 4 bits de baixo, a nos 4 de cima)
+// ---------------------------------------------------------------------------
+
+typedef u16 Color;
+
+static inline Color rgba(u8 r, u8 g, u8 b, u8 a)
+{
+    return (Color)((r & 0xF) | ((g & 0xF) << 4) | ((b & 0xF) << 8) | ((a & 0xF) << 12));
+}
+
+static u16 *g_buf = NULL;
+static u32 g_stride_px = FB_W;
+
+static inline void blend_px(int x, int y, Color c, u8 alpha)
+{
+    if (!g_buf || x < 0 || y < 0 || x >= FB_W || y >= FB_H || alpha == 0)
+        return;
+
+    u16 *p = &g_buf[y * g_stride_px + x];
+
+    if (alpha >= 0xF)
+    {
+        *p = c;
+        return;
+    }
+
+    u16 d = *p;
+    u8 inv = 0xF - alpha;
+    u8 r = (((c >> 0) & 0xF) * alpha + ((d >> 0) & 0xF) * inv) / 0xF;
+    u8 g = (((c >> 4) & 0xF) * alpha + ((d >> 4) & 0xF) * inv) / 0xF;
+    u8 b = (((c >> 8) & 0xF) * alpha + ((d >> 8) & 0xF) * inv) / 0xF;
+    *p = rgba(r, g, b, 0xF);
+}
+
+static void fill_rect(int x, int y, int w, int h, Color c)
+{
+    u8 a = (c >> 12) & 0xF;
+    for (int j = y; j < y + h; j++)
+        for (int i = x; i < x + w; i++)
+            blend_px(i, j, c, a);
+}
+
+static void stroke_rect(int x, int y, int w, int h, Color c)
+{
+    fill_rect(x, y, w, 2, c);
+    fill_rect(x, y + h - 2, w, 2, c);
+    fill_rect(x, y, 2, h, c);
+    fill_rect(x + w - 2, y, 2, h, c);
+}
+
+// ---------------------------------------------------------------------------
+// Texto
+// ---------------------------------------------------------------------------
+
+// UTF-8 -> codepoint. O texto tem acento ("Não puxar"), então não dá pra tratar
+// byte a byte.
+static const char *next_cp(const char *s, int *cp)
+{
+    unsigned char c = (unsigned char)*s;
+    if (c < 0x80) { *cp = c; return s + 1; }
+    if ((c & 0xE0) == 0xC0 && s[1]) { *cp = ((c & 0x1F) << 6) | (s[1] & 0x3F); return s + 2; }
+    if ((c & 0xF0) == 0xE0 && s[1] && s[2]) { *cp = ((c & 0x0F) << 12) | ((s[1] & 0x3F) << 6) | (s[2] & 0x3F); return s + 3; }
+    if ((c & 0xF8) == 0xF0 && s[1] && s[2] && s[3]) { *cp = ((c & 0x07) << 18) | ((s[1] & 0x3F) << 12) | ((s[2] & 0x3F) << 6) | (s[3] & 0x3F); return s + 4; }
+    *cp = '?';
+    return s + 1;
+}
+
+static int text_width(const char *s, int size)
+{
+    if (!g_font_ready)
+        return 0;
+
+    float scale = stbtt_ScaleForPixelHeight(&g_font, (float)size);
+    int total = 0, cp = 0;
+    const char *p = s;
+    while (*p)
+    {
+        const char *nxt = next_cp(p, &cp);
+        int adv = 0, lsb = 0;
+        stbtt_GetCodepointHMetrics(&g_font, cp, &adv, &lsb);
+        total += (int)(adv * scale);
+        p = nxt;
+    }
+    return total;
+}
+
+// Desenha a partir da linha de base em (x, y).
+static void draw_text(int x, int y, int size, Color c, const char *s)
+{
+    if (!g_font_ready)
+        return;
+
+    float scale = stbtt_ScaleForPixelHeight(&g_font, (float)size);
+    int cp = 0;
+    const char *p = s;
+
+    while (*p)
+    {
+        const char *nxt = next_cp(p, &cp);
+
+        int gw = 0, gh = 0, gx = 0, gy = 0;
+        unsigned char *bmp = stbtt_GetCodepointBitmap(&g_font, 0, scale, cp, &gw, &gh, &gx, &gy);
+        if (bmp)
+        {
+            for (int j = 0; j < gh; j++)
+                for (int i = 0; i < gw; i++)
+                {
+                    u8 v = bmp[j * gw + i];
+                    if (v)
+                        blend_px(x + gx + i, y + gy + j, c, (u8)(v >> 4));
+                }
+            stbtt_FreeBitmap(bmp, NULL);
+        }
+
+        int adv = 0, lsb = 0;
+        stbtt_GetCodepointHMetrics(&g_font, cp, &adv, &lsb);
+        x += (int)(adv * scale);
+        p = nxt;
+    }
+}
+
+static void draw_text_centered(int cx, int y, int size, Color c, const char *s)
+{
+    draw_text(cx - text_width(s, size) / 2, y, size, c, s);
+}
+
+// ---------------------------------------------------------------------------
+// Camada
+// ---------------------------------------------------------------------------
+
+static Result add_to_layer_stack(ViLayer *layer, ViLayerStack stack)
+{
+    // Não tem wrapper na libnx; é o mesmo comando que o Tesla manda.
+    const struct
+    {
+        u32 stack;
+        u64 layer_id;
+    } in = { stack, layer->layer_id };
+
+    return serviceDispatchIn(viGetSession_IManagerDisplayService(), 6000, in);
+}
+
+static bool init_font(void)
+{
+    if (g_font_ready)
+        return true;
+
+    PlFontData fd;
+    if (R_FAILED(plGetSharedFontByType(&fd, PlSharedFontType_Standard)))
+        return false;
+
+    if (!stbtt_InitFont(&g_font, (unsigned char *)fd.address,
+            stbtt_GetFontOffsetForIndex((unsigned char *)fd.address, 0)))
+        return false;
+
+    g_font_ready = true;
+    return true;
+}
+
+bool gfx_init(void)
+{
+    if (g_ready)
+        return true;
+
+    if (R_FAILED(viOpenDefaultDisplay(&g_display)))
+        return false;
+
+    if (R_FAILED(viCreateManagedLayer(&g_display, (ViLayerFlags)0, 0, &__nx_vi_layer_id)))
+        goto fail_display;
+
+    if (R_FAILED(viCreateLayer(&g_display, &g_layer)))
+        goto fail_managed;
+
+    viSetLayerScalingMode(&g_layer, ViScalingMode_FitToLayer);
+
+    // Z máximo: essa tela tem que ficar na frente do jogo e do resto.
+    s32 z = 0;
+    if (R_SUCCEEDED(viGetZOrderCountMax(&g_display, &z)) && z > 0)
+        viSetLayerZ(&g_layer, z);
+
+    add_to_layer_stack(&g_layer, ViLayerStack_Default);
+    add_to_layer_stack(&g_layer, ViLayerStack_Screenshot);
+    add_to_layer_stack(&g_layer, ViLayerStack_Recording);
+    add_to_layer_stack(&g_layer, ViLayerStack_Arbitrary);
+    add_to_layer_stack(&g_layer, ViLayerStack_LastFrame);
+    add_to_layer_stack(&g_layer, ViLayerStack_Null);
+    add_to_layer_stack(&g_layer, ViLayerStack_ApplicationForDebug);
+    add_to_layer_stack(&g_layer, ViLayerStack_Lcd);
+
+    viSetLayerSize(&g_layer, LAYER_W, LAYER_H);
+    viSetLayerPosition(&g_layer, 0, 0);
+
+    if (R_FAILED(nwindowCreateFromLayer(&g_window, &g_layer)))
+        goto fail_layer;
+
+    if (R_FAILED(framebufferCreate(&g_fb, &g_window, FB_W, FB_H, PIXEL_FORMAT_RGBA_4444, 2)))
+        goto fail_window;
+
+    // Sem isso o framebuffer é block-linear (swizzled) e cada pixel exigiria
+    // calcular o endereço no bloco. Linear troca um pouco de banda por código
+    // simples — e essa tela desenha ~4 quadros por segundo.
+    if (R_FAILED(framebufferMakeLinear(&g_fb)))
+        goto fail_fb;
+
+    init_font(); // sem fonte ainda dá pra mostrar a barra; não é motivo pra desistir
+
+    if (!g_pad_ready)
+    {
+        padConfigureInput(8, HidNpadStyleSet_NpadStandard);
+        padInitializeAny(&g_pad);
+        g_pad_ready = true;
+    }
+
+    g_ready = true;
+    return true;
+
+fail_fb:
+    framebufferClose(&g_fb);
+fail_window:
+    nwindowClose(&g_window);
+fail_layer:
+    viCloseLayer(&g_layer);
+fail_managed:
+    viDestroyManagedLayer(&g_layer);
+fail_display:
+    viCloseDisplay(&g_display);
+    return false;
+}
+
+void gfx_exit(void)
+{
+    if (!g_ready)
+        return;
+
+    framebufferClose(&g_fb);
+    nwindowClose(&g_window);
+    viCloseLayer(&g_layer);
+    viDestroyManagedLayer(&g_layer);
+    viCloseDisplay(&g_display);
+
+    g_buf = NULL;
+    g_ready = false;
+}
+
+u64 gfx_keys_down(void)
+{
+    if (!g_pad_ready)
+        return 0;
+    padUpdate(&g_pad);
+    return padGetButtonsDown(&g_pad);
+}
+
+// ---------------------------------------------------------------------------
+// A tela
+// ---------------------------------------------------------------------------
+
+static void draw_button(int x, int y, int w, int h, const char *label, bool selected, bool enabled)
+{
+    Color bg     = selected ? rgba(0x0, 0x9, 0xC, 0xF) : rgba(0x3, 0x3, 0x3, 0xF);
+    Color border = selected ? rgba(0x6, 0xE, 0xF, 0xF) : rgba(0x5, 0x5, 0x5, 0xF);
+    Color fg     = enabled ? rgba(0xF, 0xF, 0xF, 0xF) : rgba(0x7, 0x7, 0x7, 0xF);
+
+    if (!enabled)
+    {
+        bg     = rgba(0x2, 0x2, 0x2, 0xF);
+        border = selected ? rgba(0x6, 0x6, 0x6, 0xF) : rgba(0x3, 0x3, 0x3, 0xF);
+    }
+
+    fill_rect(x, y, w, h, bg);
+    stroke_rect(x, y, w, h, border);
+    draw_text_centered(x + w / 2, y + h / 2 + 5, 15, fg, label);
+}
+
+void gfx_draw_pull(const char *game, int pct, const char *line, int selected, bool done)
+{
+    if (!g_ready)
+        return;
+
+    u32 stride = 0;
+    g_buf = (u16 *)framebufferBegin(&g_fb, &stride);
+    if (!g_buf)
+        return;
+    g_stride_px = stride / sizeof(u16);
+
+    // Fundo: o jogo continua atrás, só escurecido — igual às telas do console.
+    for (u32 j = 0; j < FB_H; j++)
+        for (u32 i = 0; i < FB_W; i++)
+            g_buf[j * g_stride_px + i] = rgba(0x1, 0x1, 0x2, 0xE);
+
+    const int px = 60, py = 60, pw = FB_W - 120, ph = 240;
+
+    fill_rect(px, py, pw, ph, rgba(0x2, 0x2, 0x3, 0xF));
+    stroke_rect(px, py, pw, ph, rgba(0x5, 0x5, 0x6, 0xF));
+
+    draw_text_centered(FB_W / 2, py + 42, 24, rgba(0xF, 0xF, 0xF, 0xF), "Puxando save da nuvem");
+
+    if (game && game[0])
+        draw_text_centered(FB_W / 2, py + 68, 15, rgba(0xB, 0xB, 0xB, 0xF), game);
+
+    // Barra
+    const int bx = px + 40, by = py + 92, bw = pw - 80, bh = 14;
+    fill_rect(bx, by, bw, bh, rgba(0x1, 0x1, 0x1, 0xF));
+
+    int fillw;
+    if (pct < 0)
+        fillw = bw / 6; // total desconhecido: só mostra que está andando
+    else
+        fillw = (bw * (pct > 100 ? 100 : pct)) / 100;
+
+    if (fillw > 0)
+        fill_rect(bx, by, fillw, bh, rgba(0x0, 0xC, 0xE, 0xF));
+    stroke_rect(bx, by, bw, bh, rgba(0x5, 0x5, 0x6, 0xF));
+
+    char pctbuf[16];
+    if (pct < 0)
+        snprintf(pctbuf, sizeof(pctbuf), "...");
+    else
+        snprintf(pctbuf, sizeof(pctbuf), "%d%%", pct > 100 ? 100 : pct);
+    draw_text_centered(FB_W / 2, by + bh + 22, 16, rgba(0xF, 0xF, 0xF, 0xF), pctbuf);
+
+    if (line && line[0])
+        draw_text_centered(FB_W / 2, by + bh + 42, 13, rgba(0x9, 0x9, 0x9, 0xF), line);
+
+    // Botões
+    const int byy = py + ph - 52, bh2 = 34;
+    draw_button(px + 24, byy, 300, bh2, "Nao puxar save da nuvem nesse jogo",
+        selected == GFX_BTN_NEVER, true);
+    draw_button(px + pw - 24 - 110, byy, 110, bh2, done ? "OK" : "Aguarde",
+        selected == GFX_BTN_OK, done);
+
+    framebufferEnd(&g_fb);
+    g_buf = NULL;
+}
