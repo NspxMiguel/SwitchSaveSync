@@ -11,6 +11,7 @@ Open the app, press A on a game, done — it works out for itself whether to upl
 [![CFW](https://img.shields.io/badge/CFW-Atmosph%C3%A8re-5865f2)](https://github.com/Atmosphere-NX/Atmosphere)
 [![Build](https://img.shields.io/badge/build-devkitPro-1f9c4b)](https://devkitpro.org/)
 [![Languages](https://img.shields.io/badge/languages-PT%20%7C%20EN-blue)](#also-in-here)
+[![Tested on](https://img.shields.io/badge/tested%20on-firmware%2018.1.0-f59f00)](#where-it-was-tested)
 [![License](https://img.shields.io/badge/license-GPLv3-663366)](LICENSE)
 
 [Português](README.md)
@@ -86,6 +87,22 @@ safety net for when the cloud isn't an option.
   removing it requires the current one.
 - **Sorted by last played**, with each game's real name and icon read from the console.
 - **Portuguese and English**, following the console's language or picked by hand.
+
+## Where it was tested
+
+**A Switch OLED on firmware 18.1.0, running Atmosphère.** That's the console it was written
+on and the one it runs on every day — everything else here is honesty about what nobody has
+tried yet.
+
+Nothing in here is version-dependent: the app has no offset tables, patches nothing, and
+never reads a save's internal structure. It uses libnx's save-mounting calls, which have
+been the same since firmware 1.0, and the Google Drive API, which is HTTPS. So the odds of
+it breaking on a different version are low — but *low* isn't *tested*, and that's what this
+paragraph is saying.
+
+If it works (or doesn't) on another version, [open an
+issue](https://github.com/NspxMiguel/SwitchSaveSync/issues) saying which one — this can
+become a real list.
 
 ## Install
 
