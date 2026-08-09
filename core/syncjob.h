@@ -41,6 +41,12 @@ bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log);
 // Existe backup no cartao pra esse jogo?
 bool syncjob_has_local_backup(const TitleEntry *title);
 
+// O nome da pasta desse save: o mesmo no Drive, no backup do cartao e dentro
+// do arquivo unico. Exposto porque a interface precisa fazer o caminho
+// contrario — dada uma pasta que veio de dentro de um arquivo, descobrir de
+// qual save deste console ela e (ou que nao e de nenhum).
+void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz);
+
 // Traz o save da nuvem e escreve por cima do save local. É a única função do
 // projeto que escreve em save de jogo — quem chama tem que ter certeza de que
 // o jogo NÃO está com o save aberto.
@@ -117,6 +123,36 @@ bool syncjob_archive_list(syncjob_archive_cb cb, void *userdata);
 // Tira o save desse jogo de dentro do arquivo único e escreve por cima do save
 // do console. Mesma regra de sempre: o jogo NÃO pode estar aberto.
 bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log);
+
+// ---------------------------------------------------------------------------
+// Um arquivo por jogo, com todas as contas dentro
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// conversa privada removida do historico
+// juntar as contas de um jogo não passa por cima do arquivo com tudo.
+// ---------------------------------------------------------------------------
+
+// Onde fica o arquivo desse jogo. O nome sai do nome do jogo, sem o sufixo de
+// conta: o arquivo é do JOGO, e as contas são o que tem dentro dele.
+void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz);
+
+// As mesmas funções de cima, com o caminho do arquivo dito na mão. As de cima
+// são estas aqui com o caminho do arquivo geral.
+size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, size_t count,
+                                  syncjob_log_cb log, syncjob_stop_cb stop);
+bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log);
+bool syncjob_archive_list_path(const char *path, syncjob_archive_cb cb, void *userdata);
+
+// Tira a pasta `folder` de dentro do arquivo e escreve por cima do save de
+// `dest`.
+//
+// A diferença pro restore normal é que o dono do save que saiu do arquivo e o
+// dono do save que vai receber podem ser CONTAS DIFERENTES. É o que faz um
+// save vindo de outro console ter pra onde ir quando a conta original não
+// existe aqui.
+bool syncjob_archive_restore_folder(const char *path, const char *folder,
+                                     const TitleEntry *dest, syncjob_log_cb log);
 
 #ifdef __cplusplus
 }

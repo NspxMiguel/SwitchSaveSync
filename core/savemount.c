@@ -54,6 +54,46 @@ void savemount_unmount(bool should_commit) {
     g_mounted = false;
 }
 
+bool savemount_save_exists(u64 application_id, AccountUid uid) {
+    if (g_mounted) return false; // não dá pra responder com outro save montado
+
+    if (R_FAILED(fsdevMountSaveDataReadOnly(SAVE_DEVICE_NAME, application_id, uid)))
+        return false;
+
+    fsdevUnmountDevice(SAVE_DEVICE_NAME);
+    return true;
+}
+
+bool savemount_create_account_save(u64 application_id, AccountUid uid, u64 size, u64 journal) {
+    // Campos conferidos contra
+    // /opt/devkitpro/libnx/include/switch/services/fs.h — FsSaveDataAttribute,
+    // FsSaveDataCreationInfo e FsSaveDataMetaInfo.
+    FsSaveDataAttribute attr;
+    memset(&attr, 0, sizeof(attr));
+    attr.application_id  = application_id;
+    attr.uid             = uid;
+    attr.save_data_type  = FsSaveDataType_Account;
+
+    FsSaveDataCreationInfo info;
+    memset(&info, 0, sizeof(info));
+    info.save_data_size     = (s64)size;
+    info.journal_size       = (s64)journal;
+    info.available_size     = 0x4000;
+    info.owner_id           = application_id;
+    info.flags              = 0;
+    info.save_data_space_id = FsSaveDataSpaceId_User;
+
+    // Save de conta leva meta de thumbnail — é o que o sistema espera desse
+    // tipo. Sem isso o save nasce, mas o console não o trata como save de jogo
+    // de verdade.
+    FsSaveDataMetaInfo meta;
+    memset(&meta, 0, sizeof(meta));
+    meta.size = 0x40060;
+    meta.type = FsSaveDataMetaType_Thumbnail;
+
+    return R_SUCCEEDED(fsCreateSaveDataFileSystem(&attr, &info, &meta));
+}
+
 // Apaga o conteúdo de dir recursivamente. Se remove_self=true, apaga a
 // própria pasta no fim (não fazemos isso na raiz do save: o container tem
 // que continuar existindo).

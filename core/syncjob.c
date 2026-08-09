@@ -90,6 +90,11 @@ static void save_folder_name(const TitleEntry *title, char *out, size_t outsz)
     syncstate_sanitize_name(junto, out, outsz);
 }
 
+void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz)
+{
+    save_folder_name(title, out, outsz);
+}
+
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 {
     char safe[0x201];
@@ -832,13 +837,30 @@ bool syncjob_has_archive(void)
     return sssbox_is_box(path);
 }
 
+void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
+{
+    // O nome do JOGO, sem sufixo de conta: o arquivo junta as contas todas, e
+    // pôr o apelido de uma delas no nome seria mentir sobre o conteúdo.
+    char limpo[0x201];
+    syncstate_sanitize_name(title->name, limpo, sizeof(limpo));
+    snprintf(out, outsz, "%s/%s.ssaves", SYNC_APP_DIR, limpo);
+}
+
 size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
                                syncjob_log_cb log, syncjob_stop_cb stop)
+{
+    char final[0x300];
+    syncjob_archive_path(final, sizeof(final));
+    return syncjob_archive_titles_to(final, titles, count, log, stop);
+}
+
+size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, size_t count,
+                                  syncjob_log_cb log, syncjob_stop_cb stop)
 {
     syncstate_ensure_dirs();
 
     char final[0x300], temp[0x310];
-    syncjob_archive_path(final, sizeof(final));
+    snprintf(final, sizeof(final), "%s", path);
     snprintf(temp, sizeof(temp), "%s.parcial", final);
 
     SssBoxWriter *box = sssbox_open_write(temp);
@@ -966,8 +988,9 @@ size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
 
     remove(guardado);
 
-    say(log, TR("%zu jogos, %zu arquivos, tudo em %s", "%zu games, %zu files, all in %s"),
-        entraram, arquivos, SYNC_ARCHIVE_NAME);
+    const char *so_o_nome = strrchr(final, '/');
+    say(log, TR("%zu saves, %zu arquivos, tudo em %s", "%zu saves, %zu files, all in %s"),
+        entraram, arquivos, so_o_nome ? so_o_nome + 1 : final);
     return entraram;
 }
 
@@ -975,6 +998,14 @@ bool syncjob_archive_upload(syncjob_log_cb log)
 {
     char path[0x300];
     syncjob_archive_path(path, sizeof(path));
+    return syncjob_archive_upload_path(path, log);
+}
+
+bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log)
+{
+    // No Drive ele fica com o mesmo nome que tem no cartão.
+    const char *nome_remoto = strrchr(path, '/');
+    nome_remoto = nome_remoto ? nome_remoto + 1 : path;
 
     if (!sssbox_is_box(path))
     {
@@ -997,13 +1028,13 @@ bool syncjob_archive_upload(syncjob_log_cb log)
     }
 
     say(log, TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
-    if (!drive_upload(token, root_id, SYNC_ARCHIVE_NAME, path, "application/octet-stream"))
+    if (!drive_upload(token, root_id, nome_remoto, path, "application/octet-stream"))
     {
         say(log, TR("Upload falhou", "Upload failed"));
         return false;
     }
 
-    say(log, TR("%s está no seu Drive", "%s is on your Drive"), SYNC_ARCHIVE_NAME);
+    say(log, TR("%s está no seu Drive", "%s is on your Drive"), nome_remoto);
     return true;
 }
 
@@ -1084,7 +1115,11 @@ bool syncjob_archive_list(syncjob_archive_cb cb, void *userdata)
 {
     char path[0x300];
     syncjob_archive_path(path, sizeof(path));
+    return syncjob_archive_list_path(path, cb, userdata);
+}
 
+bool syncjob_archive_list_path(const char *path, syncjob_archive_cb cb, void *userdata)
+{
     ArquivoCtx c = { cb, userdata };
     return sssbox_list_folders(path, um_jogo_do_arquivo, &c);
 }
@@ -1094,6 +1129,15 @@ bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
     char path[0x300];
     syncjob_archive_path(path, sizeof(path));
 
+    char pasta[0x201];
+    save_folder_name(title, pasta, sizeof(pasta));
+
+    return syncjob_archive_restore_folder(path, pasta, title, log);
+}
+
+bool syncjob_archive_restore_folder(const char *path, const char *folder,
+                                     const TitleEntry *dest, syncjob_log_cb log)
+{
     if (!sssbox_is_box(path))
     {
         say(log, TR("Não tem arquivo único no cartão", "There's no single file on the SD card"));
@@ -1101,7 +1145,7 @@ bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
     }
 
     char pasta[0x201];
-    save_folder_name(title, pasta, sizeof(pasta));
+    snprintf(pasta, sizeof(pasta), "%s", folder);
 
     char prefixo[0x210];
     snprintf(prefixo, sizeof(prefixo), "%s/", pasta);
@@ -1118,17 +1162,17 @@ bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
     mkdir(staging, 0777);
     clear_dir(staging);
 
-    say(log, TR("Tirando o save de %s de dentro do arquivo...", "Pulling %s's save out of the file..."), title->name);
+    say(log, TR("Tirando %s de dentro do arquivo...", "Pulling %s out of the file..."), pasta);
     if (!sssbox_extract(path, prefixo, staging))
     {
-        say(log, TR("Esse jogo não está dentro do arquivo (ou o arquivo está corrompido)", "This game isn't inside the file (or the file is corrupted)"));
+        say(log, TR("Esse save não está dentro do arquivo (ou o arquivo está corrompido)", "That save isn't inside the file (or the file is corrupted)"));
         return false;
     }
 
     say(log, TR("Gravando no save do console...", "Writing to the console's save..."));
-    if (!write_over_save(title, staging, log))
+    if (!write_over_save(dest, staging, log))
         return false;
 
-    say(log, TR("Save de %s restaurado do arquivo único", "%s's save restored from the single file"), title->name);
+    say(log, TR("Save de %s restaurado do arquivo", "%s's save restored from the file"), dest->name);
     return true;
 }
