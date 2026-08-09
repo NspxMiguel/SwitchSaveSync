@@ -76,7 +76,7 @@ nuvem não é uma opção.
 - **Sincronizar tudo de uma vez** — uma linha no topo da lista passa por todos os saves,
   decidindo pra que lado cada um vai. Quando os dois lados mudaram ele **não** escolhe:
   aquele jogo fica de fora e sai listado no fim, pra você resolver um a um.
-- **Tudo num arquivo só** — opcional: junta todos os saves num `.sss`, um formato nosso que
+- **Tudo num arquivo só** — opcional: junta todos os saves num `.ssaves`, um formato nosso que
   não é zip e que só este app lê. Serve pra levar tudo de uma vez. *É disfarce, não
   cadeado* — o código é aberto, então quem quiser de verdade lê. Por isso o modo normal
   (uma pasta por jogo no Drive) continua sendo o recomendado: save preso num formato que só
@@ -90,7 +90,7 @@ nuvem não é uma opção.
 
 ## Onde foi testado
 
-**Switch OLED com firmware 18.1.0, em Atmosphère.** É o console em que ele foi escrito e é
+**Switch V2 com firmware 18.1.0, em Atmosphère.** É o console em que ele foi escrito e é
 onde ele roda todo dia — o resto é honestidade sobre o que ninguém tentou ainda.
 
 Nada aqui depende de versão: o app não tem tabela de offsets, não faz patch em nada e não

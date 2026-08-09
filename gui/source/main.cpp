@@ -1157,14 +1157,14 @@ static void openArchivePage(std::vector<TitleEntry> titles)
     // Isto está na tela de propósito. É a diferença entre uma escolha e uma
     // armadilha: o formato é nosso, então o arquivo depende deste app existir.
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("O arquivo é de um formato nosso (.sss): não é zip, não abre com dois cliques "
+        TR("O arquivo é de um formato nosso (.ssaves): não é zip, não abre com dois cliques "
            "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
            "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
            "de verdade consegue ler.\n\n"
            "O modo normal — uma pasta por jogo no Drive — continua sendo o recomendado, e "
            "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
            "pasta por jogo é o que continua servindo se um dia este app sumir.",
-            "The file uses a format of ours (.sss): it isn't a zip, it doesn't open with a "
+            "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
             "double-click on a computer, and only this app reads it. Anyone who stumbles on "
             "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
             "open, so anyone determined enough can read it.\n\n"

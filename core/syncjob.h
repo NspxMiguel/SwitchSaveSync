@@ -83,7 +83,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 // ---------------------------------------------------------------------------
 
 // Nome do arquivo único no Drive e no cartão.
-#define SYNC_ARCHIVE_NAME "SwitchSaveSync.sss"
+#define SYNC_ARCHIVE_NAME "SwitchSaveSync.ssaves"
 
 // Perguntado entre um jogo e outro: devolver true faz parar. Pode ser NULL.
 // Parar aqui é seguro — nada foi escrito em save nenhum ainda.
