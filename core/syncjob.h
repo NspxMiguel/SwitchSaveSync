@@ -74,6 +74,50 @@ typedef enum
 // nenhum — quem escolhe nessa hora é ele, pelo menu do Y.
 SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log);
 
+// ---------------------------------------------------------------------------
+// Tudo num arquivo só
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// continua sendo uma pasta por jogo no Drive. Ver core/sssbox.h.
+// ---------------------------------------------------------------------------
+
+// Nome do arquivo único no Drive e no cartão.
+#define SYNC_ARCHIVE_NAME "SwitchSaveSync.sss"
+
+// Perguntado entre um jogo e outro: devolver true faz parar. Pode ser NULL.
+// Parar aqui é seguro — nada foi escrito em save nenhum ainda.
+typedef bool (*syncjob_stop_cb)(void);
+
+// Onde o arquivo único fica no cartão.
+void syncjob_archive_path(char *out, size_t outsz);
+
+// Junta o save de todos esses jogos num arquivo só. Os saves são montados
+// read-only e lidos DIRETO pro arquivo — nada é copiado pro cartão no meio do
+// caminho, então isso não pede o dobro de espaço.
+//
+// Escreve num temporário e só troca pelo definitivo no fim: se falhar no meio,
+// o arquivo de antes continua inteiro.
+//
+// Devolve quantos jogos entraram; 0 quer dizer que nada foi guardado.
+size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
+                               syncjob_log_cb log, syncjob_stop_cb stop);
+
+// Sobe o arquivo único pro Drive (e o baixa de volta).
+bool syncjob_archive_upload(syncjob_log_cb log);
+bool syncjob_archive_download(syncjob_log_cb log);
+
+// Existe arquivo único no cartão?
+bool syncjob_has_archive(void);
+
+// Passa por cada jogo que está dentro do arquivo do cartão.
+typedef void (*syncjob_archive_cb)(const char *game_folder, u64 bytes, void *userdata);
+bool syncjob_archive_list(syncjob_archive_cb cb, void *userdata);
+
+// Tira o save desse jogo de dentro do arquivo único e escreve por cima do save
+// do console. Mesma regra de sempre: o jogo NÃO pode estar aberto.
+bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log);
+
 #ifdef __cplusplus
 }
 #endif

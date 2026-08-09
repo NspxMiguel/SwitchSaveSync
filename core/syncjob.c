@@ -13,6 +13,7 @@
 #include "lang.h"
 #include "oauth.h"
 #include "savemount.h"
+#include "sssbox.h"
 #include "syncstate.h"
 
 #define MAX_TITLES 128
@@ -809,4 +810,288 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     syncjob_mark_synced(title, local_fp);
     say(log, TR("Save de %s subiu pra nuvem", "%s's save went up to the cloud"), title->name);
     return SYNCJOB_SYNC_UPLOADED;
+}
+
+// ---------------------------------------------------------------------------
+// Tudo num arquivo só
+//
+// conversa privada removida do historico
+// O formato está em sssbox.c. Aqui é só a costura: montar save, empurrar pro
+// arquivo, e a volta.
+// ---------------------------------------------------------------------------
+
+void syncjob_archive_path(char *out, size_t outsz)
+{
+    snprintf(out, outsz, "%s/%s", SYNC_APP_DIR, SYNC_ARCHIVE_NAME);
+}
+
+bool syncjob_has_archive(void)
+{
+    char path[0x300];
+    syncjob_archive_path(path, sizeof(path));
+    return sssbox_is_box(path);
+}
+
+size_t syncjob_archive_titles(const TitleEntry *titles, size_t count,
+                               syncjob_log_cb log, syncjob_stop_cb stop)
+{
+    syncstate_ensure_dirs();
+
+    char final[0x300], temp[0x310];
+    syncjob_archive_path(final, sizeof(final));
+    snprintf(temp, sizeof(temp), "%s.parcial", final);
+
+    SssBoxWriter *box = sssbox_open_write(temp);
+    if (!box)
+    {
+        say(log, TR("Não consegui criar o arquivo no cartão", "Couldn't create the file on the SD card"));
+        return 0;
+    }
+
+    size_t entraram = 0;
+
+    for (size_t i = 0; i < count; i++)
+    {
+        // Só entre um jogo e outro: parar no meio de um save deixaria o
+        // arquivo com meio jogo dentro, e é isso que o abort abaixo evita.
+        if (stop && stop())
+        {
+            say(log, TR("Parado a pedido — o arquivo não foi gravado", "Stopped on request — the file wasn't written"));
+            sssbox_abort_write(box);
+            return 0;
+        }
+
+        const TitleEntry *t = &titles[i];
+
+        char pasta[0x201];
+        save_folder_name(t, pasta, sizeof(pasta));
+
+        // Dois saves com o MESMO nome de pasta é raro (mesmo jogo, duas contas,
+        // e o apelido de uma delas não veio do console), mas aqui não pode
+        // passar: o segundo entraria com o nome do primeiro, e na hora de tirar
+        // de volta sairia o save da conta errada. Fora do arquivo isso já é uma
+        // limitação conhecida do nome de pasta; dentro dele, pelo menos, não
+        // vai existir nome repetido.
+        bool repetido = false;
+        for (size_t j = 0; j < i && !repetido; j++)
+        {
+            char outra[0x201];
+            save_folder_name(&titles[j], outra, sizeof(outra));
+            repetido = (strcmp(outra, pasta) == 0);
+        }
+        if (repetido)
+        {
+            say(log, TR("%s: já tem outro save com esse mesmo nome — pulado",
+                        "%s: another save already uses this same name — skipped"), t->name);
+            continue;
+        }
+
+        char prefixo[0x210];
+        snprintf(prefixo, sizeof(prefixo), "%s/", pasta);
+
+        say(log, TR("Montando o save de %s...", "Mounting %s's save..."), t->name);
+        if (!savemount_mount_typed(t->application_id, t->uid, t->device_save, true))
+        {
+            // Jogo aberto é o caso comum aqui, e não é motivo pra jogar fora o
+            // trabalho dos outros. Pula e segue.
+            say(log, TR("%s: não deu pra montar (jogo aberto?) — pulado", "%s: couldn't mount (game running?) — skipped"), t->name);
+            continue;
+        }
+
+        // Lê DIRETO do save montado pro arquivo. Sem staging: o container é o
+        // único lugar onde esses bytes pousam.
+        bool ok = sssbox_add_dir(box, prefixo, "save:/");
+        savemount_unmount(false);
+
+        if (!ok)
+        {
+            say(log, TR("Falhou ao guardar o save de %s", "Failed to store %s's save"), t->name);
+            sssbox_abort_write(box);
+            return 0;
+        }
+
+        entraram++;
+        say(log, TR("%s: guardado", "%s: stored"), t->name);
+    }
+
+    if (entraram == 0)
+    {
+        say(log, TR("Nenhum save entrou — nada foi gravado", "No save made it in — nothing was written"));
+        sssbox_abort_write(box);
+        return 0;
+    }
+
+    size_t arquivos = sssbox_entry_count(box);
+
+    if (!sssbox_close_write(box))
+    {
+        say(log, TR("Não consegui fechar o arquivo (cartão cheio?)", "Couldn't close the file (SD card full?)"));
+        return 0;
+    }
+
+    // A troca só acontece agora: até aqui, o arquivo de antes continuava
+    // inteiro no lugar dele.
+    remove(final);
+    if (rename(temp, final) != 0)
+    {
+        say(log, TR("Não consegui pôr o arquivo no lugar", "Couldn't move the file into place"));
+        remove(temp);
+        return 0;
+    }
+
+    say(log, TR("%zu jogos, %zu arquivos, tudo em %s", "%zu games, %zu files, all in %s"),
+        entraram, arquivos, SYNC_ARCHIVE_NAME);
+    return entraram;
+}
+
+bool syncjob_archive_upload(syncjob_log_cb log)
+{
+    char path[0x300];
+    syncjob_archive_path(path, sizeof(path));
+
+    if (!sssbox_is_box(path))
+    {
+        say(log, TR("Não tem arquivo único no cartão pra subir", "There's no single file on the SD card to upload"));
+        return false;
+    }
+
+    char token[2048];
+    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    {
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
+        return false;
+    }
+
+    char root_id[128];
+    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    {
+        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        return false;
+    }
+
+    say(log, TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    if (!drive_upload(token, root_id, SYNC_ARCHIVE_NAME, path, "application/octet-stream"))
+    {
+        say(log, TR("Upload falhou", "Upload failed"));
+        return false;
+    }
+
+    say(log, TR("%s está no seu Drive", "%s is on your Drive"), SYNC_ARCHIVE_NAME);
+    return true;
+}
+
+bool syncjob_archive_download(syncjob_log_cb log)
+{
+    syncstate_ensure_dirs();
+
+    char final[0x300], temp[0x310];
+    syncjob_archive_path(final, sizeof(final));
+    snprintf(temp, sizeof(temp), "%s.baixando", final);
+
+    char token[2048];
+    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    {
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
+        return false;
+    }
+
+    char root_id[128];
+    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    {
+        say(log, TR("Não achei a pasta \"%s\" no Drive", "Couldn't find the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
+        return false;
+    }
+
+    say(log, TR("Baixando o arquivo do Drive...", "Downloading the file from Drive..."));
+    if (!drive_download(token, root_id, SYNC_ARCHIVE_NAME, temp))
+    {
+        say(log, TR("Não tem %s no seu Drive", "There's no %s on your Drive"), SYNC_ARCHIVE_NAME);
+        remove(temp);
+        return false;
+    }
+
+    // Baixou não quer dizer prestável. Conferir antes de trocar evita que um
+    // download pela metade apague o arquivo bom que estava no cartão.
+    if (!sssbox_is_box(temp))
+    {
+        say(log, TR("O que veio do Drive não é um arquivo nosso", "What came from Drive isn't one of our files"));
+        remove(temp);
+        return false;
+    }
+
+    remove(final);
+    if (rename(temp, final) != 0)
+    {
+        say(log, TR("Não consegui pôr o arquivo no lugar", "Couldn't move the file into place"));
+        remove(temp);
+        return false;
+    }
+
+    say(log, TR("%s está no cartão", "%s is on the SD card"), SYNC_ARCHIVE_NAME);
+    return true;
+}
+
+typedef struct
+{
+    syncjob_archive_cb cb;
+    void *userdata;
+} ArquivoCtx;
+
+static void um_jogo_do_arquivo(const char *nome, uint64_t bytes, void *userdata)
+{
+    ArquivoCtx *c = userdata;
+    c->cb(nome, bytes, c->userdata);
+}
+
+bool syncjob_archive_list(syncjob_archive_cb cb, void *userdata)
+{
+    char path[0x300];
+    syncjob_archive_path(path, sizeof(path));
+
+    ArquivoCtx c = { cb, userdata };
+    return sssbox_list_folders(path, um_jogo_do_arquivo, &c);
+}
+
+bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log)
+{
+    char path[0x300];
+    syncjob_archive_path(path, sizeof(path));
+
+    if (!sssbox_is_box(path))
+    {
+        say(log, TR("Não tem arquivo único no cartão", "There's no single file on the SD card"));
+        return false;
+    }
+
+    char pasta[0x201];
+    save_folder_name(title, pasta, sizeof(pasta));
+
+    char prefixo[0x210];
+    snprintf(prefixo, sizeof(prefixo), "%s/", pasta);
+
+    // Sai do container pro staging, e só do staging pro save. Escrever direto
+    // no save montado economizaria uma cópia, mas aí um arquivo corrompido no
+    // meio do container deixaria o save metade novo, metade velho — e é assim
+    // que um jogo abre dizendo que os dados estão corrompidos.
+    char staging[0x280];
+    snprintf(staging, sizeof(staging), "%s/%s", SYNC_STAGING_DIR, pasta);
+
+    syncstate_ensure_dirs();
+    mkdir(SYNC_STAGING_DIR, 0777);
+    mkdir(staging, 0777);
+    clear_dir(staging);
+
+    say(log, TR("Tirando o save de %s de dentro do arquivo...", "Pulling %s's save out of the file..."), title->name);
+    if (!sssbox_extract(path, prefixo, staging))
+    {
+        say(log, TR("Esse jogo não está dentro do arquivo (ou o arquivo está corrompido)", "This game isn't inside the file (or the file is corrupted)"));
+        return false;
+    }
+
+    say(log, TR("Gravando no save do console...", "Writing to the console's save..."));
+    if (!write_over_save(title, staging, log))
+        return false;
+
+    say(log, TR("Save de %s restaurado do arquivo único", "%s's save restored from the single file"), title->name);
+    return true;
 }

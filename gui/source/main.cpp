@@ -600,6 +600,218 @@ static bool jobRestore(Job* job, TitleEntry title)
     return true;
 }
 
+// ============================ tudo de uma vez ============================
+
+// "faz salvar todos os saves".
+//
+// A lista chega COPIADA de propósito. O X da tela dos jogos refaz o g_titles na
+// thread da interface, e isto aqui roda na thread de trabalho — ler o array
+// enquanto o outro lado o reescreve é como se sincroniza o save errado.
+static bool jobSyncAll(Job* job, std::vector<TitleEntry> titles)
+{
+    if (!ensureLogin(job))
+        return false;
+
+    size_t subiram = 0, desceram = 0, iguais = 0, vazios = 0;
+    std::vector<std::string> conflitos, falharam;
+    size_t feitos = 0;
+
+    for (size_t i = 0; i < titles.size(); i++)
+    {
+        // Só entre um jogo e o outro. Parar no meio de um restore deixaria um
+        // save pela metade — o botão diz "cancelar", não "abortar".
+        if (job->cancelRequested())
+        {
+            job->log(TR("Parado a pedido. Os jogos que faltavam ficaram como estavam.",
+                "Stopped on request. The remaining games were left as they were."));
+            break;
+        }
+
+        const TitleEntry& t = titles[i];
+        std::string quantos = "(" + std::to_string(i + 1) + "/" + std::to_string(titles.size()) + ") ";
+        std::string nome    = titleWithOwner(t);
+
+        job->setStatus(quantos + TR("Sincronizando ", "Syncing ") + nome + "...");
+        feitos++;
+
+        switch (syncjob_sync_title(&t, jobLogLine))
+        {
+            case SYNCJOB_SYNC_UPLOADED:
+                subiram++;
+                job->log(quantos + nome + TR(" — subiu pro Drive", " — uploaded to Drive"));
+                break;
+
+            case SYNCJOB_SYNC_DOWNLOADED:
+                desceram++;
+                job->log(quantos + nome + TR(" — veio do Drive", " — pulled from Drive"));
+                break;
+
+            case SYNCJOB_SYNC_EQUAL:
+                iguais++;
+                job->log(quantos + nome + TR(" — já estava igual", " — already in sync"));
+                break;
+
+            case SYNCJOB_SYNC_NOTHING:
+                vazios++;
+                job->log(quantos + nome + TR(" — sem save nenhum dos dois lados",
+                    " — no save on either side"));
+                break;
+
+            case SYNCJOB_SYNC_CONFLICT:
+                // Não pergunta agora. Perguntar no meio de trinta jogos vira
+                // trinta perguntas, e "sincronizar tudo" deixa de ser um clique
+                // só. Ficam listados no fim, pra ele resolver um a um no Y.
+                conflitos.push_back(nome);
+                job->log(quantos + nome + TR(" — os dois lados mudaram, não mexi",
+                              " — both sides changed, left alone"),
+                    true);
+                break;
+
+            case SYNCJOB_SYNC_FAILED:
+            default:
+                falharam.push_back(nome);
+                job->log(quantos + nome + TR(" — falhou", " — failed"), true);
+                break;
+        }
+    }
+
+    std::string resumo = std::to_string(feitos) + TR(" jogos: ", " games: ")
+        + std::to_string(subiram) + TR(" subiram, ", " uploaded, ")
+        + std::to_string(desceram) + TR(" desceram, ", " downloaded, ")
+        + std::to_string(iguais) + TR(" já estavam iguais, ", " already in sync, ")
+        + std::to_string(vazios) + TR(" sem save.", " with no save.");
+
+    if (!conflitos.empty())
+    {
+        resumo += TR("\n\nEstes têm save dos dois lados, diferentes, e eu não escolhi por "
+                     "você — abra cada um e aperte Y:\n",
+            "\n\nThese have different saves on both sides and I didn't choose for you — "
+            "open each one and press Y:\n");
+        for (const std::string& nome : conflitos)
+            resumo += "  • " + nome + "\n";
+    }
+
+    if (!falharam.empty())
+    {
+        resumo += TR("\n\nNão deu certo em:\n", "\n\nDidn't work for:\n");
+        for (const std::string& nome : falharam)
+            resumo += "  • " + nome + "\n";
+    }
+
+    job->setStatus(resumo);
+
+    // Conflito não é erro: é o app fazendo o certo e devolvendo a escolha pra
+    // ele. Só falha de verdade pinta a tela de vermelho.
+    return falharam.empty();
+}
+
+// ---------------------------------------------------------------------------
+// Tudo num arquivo só
+// ---------------------------------------------------------------------------
+
+// O syncjob pergunta por um ponteiro de função sem userdata, então o jeito de
+// chegar no job em andamento é a global — igual ao jobLogLine.
+static bool jobStopAsked()
+{
+    return Job::current && Job::current->cancelRequested();
+}
+
+static bool jobArchiveAll(Job* job, std::vector<TitleEntry> titles, bool subir)
+{
+    // O login primeiro: juntar 8 GB de save pra depois descobrir que não tem
+    // conta conectada é desperdício de tempo dele.
+    if (subir && !ensureLogin(job))
+        return false;
+
+    job->setStatus(TR("Juntando os saves num arquivo só...",
+        "Packing the saves into a single file..."));
+
+    size_t quantos = syncjob_archive_titles(titles.data(), titles.size(), jobLogLine, jobStopAsked);
+    if (quantos == 0)
+    {
+        job->setStatus(TR("Nada foi guardado. Se já existia um arquivo, ele continua "
+                          "inteiro do jeito que estava.",
+            "Nothing was stored. If a file already existed, it's still intact as it was."));
+        return false;
+    }
+
+    if (!subir)
+    {
+        job->setStatus(std::to_string(quantos)
+            + TR(" saves num arquivo só, em switch/SwitchSaveSync/" SYNC_ARCHIVE_NAME ".",
+                " saves in a single file, at switch/SwitchSaveSync/" SYNC_ARCHIVE_NAME "."));
+        return true;
+    }
+
+    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    if (!syncjob_archive_upload(jobLogLine))
+    {
+        job->setStatus(TR("O arquivo ficou pronto no cartão, mas não subiu pro Drive.",
+            "The file is ready on the SD card, but it didn't upload to Drive."));
+        return false;
+    }
+
+    job->setStatus(std::to_string(quantos)
+        + TR(" saves num arquivo só, no cartão e no seu Drive.",
+            " saves in a single file, on the SD card and on your Drive."));
+    return true;
+}
+
+static bool jobArchiveUpload(Job* job)
+{
+    if (!ensureLogin(job))
+        return false;
+
+    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    if (!syncjob_archive_upload(jobLogLine))
+    {
+        job->setStatus(TR("Não consegui subir o arquivo.", "Couldn't upload the file."));
+        return false;
+    }
+
+    job->setStatus(TR("O arquivo está no seu Drive.", "The file is on your Drive."));
+    return true;
+}
+
+static bool jobArchiveDownload(Job* job)
+{
+    if (!ensureLogin(job))
+        return false;
+
+    job->setStatus(TR("Baixando o arquivo do Drive...", "Downloading the file from Drive..."));
+    if (!syncjob_archive_download(jobLogLine))
+    {
+        job->setStatus(TR("Não consegui baixar o arquivo. Nada no console foi alterado.",
+            "Couldn't download the file. Nothing on the console was changed."));
+        return false;
+    }
+
+    job->setStatus(TR("Arquivo no cartão. Ele ainda NÃO foi escrito em save nenhum — pra "
+                      "isso, abra o jogo na lista e escolha \"Restaurar do arquivo único\".",
+        "File is on the SD card. It has NOT been written to any save yet — for that, open "
+        "the game in the list and pick \"Restore from the single file\"."));
+    return true;
+}
+
+static bool jobArchiveRestore(Job* job, TitleEntry title)
+{
+    job->setStatus(TR("Tirando o save de dentro do arquivo...",
+        "Pulling the save out of the file..."));
+
+    if (!syncjob_archive_restore_title(&title, jobLogLine))
+    {
+        job->setStatus(TR("Não restaurei nada. Se falhou no meio da gravação, o save do "
+                          "console continua como estava.",
+            "Nothing was restored. If it failed mid-write, the console's save is still as "
+            "it was."));
+        return false;
+    }
+
+    job->setStatus(TR("Save restaurado de dentro do arquivo único.",
+        "Save restored from inside the single file."));
+    return true;
+}
+
 // ============================ telas ============================
 
 // Tela de um jogo: o que fazer quando o clique simples não serve.
@@ -696,10 +908,47 @@ static void openGamePage(const TitleEntry& title)
         dialog->open();
     });
 
+    // Só aparece quando existe arquivo único no cartão. Oferecer "restaurar de
+    // um arquivo que não existe" é oferecer um erro.
+    brls::ListItem* restoreArchiveItem = nullptr;
+    if (syncjob_has_archive())
+    {
+        restoreArchiveItem = new brls::ListItem(
+            TR("Restaurar do arquivo único", "Restore from the single file"),
+            TR("Tira o save deste jogo de dentro do " SYNC_ARCHIVE_NAME " e escreve por "
+               "cima do save do console.",
+                "Pulls this game's save out of " SYNC_ARCHIVE_NAME " and writes it over "
+                "the console's save."));
+        restoreArchiveItem->getClickEvent()->subscribe([title](brls::View* view) {
+            brls::Dialog* dialog = new brls::Dialog(
+                TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
+                        + "\" que está no console e põe no lugar o que está dentro do "
+                          "arquivo único. O save atual se perde.\n\nContinuar?",
+                    std::string("This erases the \"") + titleWithOwner(title)
+                        + "\" save on the console and puts what's inside the single file "
+                          "in its place. The current save is lost.\n\nContinue?"));
+
+            dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+            dialog->addButton(TR("Restaurar", "Restore"), [dialog, title](brls::View* view) {
+                dialog->close([title]() {
+                    openJob(new Job(std::string(TR("Restaurar do arquivo — ", "Restore from file — "))
+                                + titleWithOwner(title),
+                                [title](Job* job) { return jobArchiveRestore(job, title); }),
+                        false);
+                });
+            });
+
+            dialog->setCancelable(true);
+            dialog->open();
+        });
+    }
+
     list->addView(backupItem);
     list->addView(backupLocalItem);
     list->addView(restoreLocalItem);
     list->addView(restoreItem);
+    if (restoreArchiveItem)
+        list->addView(restoreArchiveItem);
 
     char idText[64];
     snprintf(idText, sizeof(idText), "Title ID: %016lX", title.application_id);
@@ -765,6 +1014,169 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
     brls::Application::pushView(frame);
 }
 
+static std::string humanSize(u64 bytes)
+{
+    char texto[32];
+    if (bytes >= 1024ull * 1024 * 1024)
+        snprintf(texto, sizeof(texto), "%.1f GB", (double)bytes / (1024.0 * 1024 * 1024));
+    else if (bytes >= 1024 * 1024)
+        snprintf(texto, sizeof(texto), "%.1f MB", (double)bytes / (1024.0 * 1024));
+    else if (bytes >= 1024)
+        snprintf(texto, sizeof(texto), "%.0f KB", (double)bytes / 1024.0);
+    else
+        snprintf(texto, sizeof(texto), "%llu B", (unsigned long long)bytes);
+    return texto;
+}
+
+// O "o que tem dentro" do arquivo único: uma linha por jogo guardado. Roda na
+// thread da interface porque só lê o índice, que é pequeno e está no fim do
+// arquivo — não desempacota nada.
+struct ArchiveListing
+{
+    brls::List* list;
+    size_t jogos;
+    u64 bytes;
+};
+
+static void archiveListingRow(const char* pasta, u64 bytes, void* userdata)
+{
+    ArchiveListing* ctx = (ArchiveListing*)userdata;
+    ctx->jogos++;
+    ctx->bytes += bytes;
+
+    brls::ListItem* item = new brls::ListItem(pasta);
+    item->setValue(humanSize(bytes));
+    ctx->list->addView(item);
+}
+
+static void openArchiveContents()
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Dentro do arquivo", "Inside the file"));
+
+    brls::List* list = new brls::List();
+    ArchiveListing ctx = { list, 0, 0 };
+
+    if (!syncjob_archive_list(archiveListingRow, &ctx) || ctx.jogos == 0)
+    {
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Não consegui ler o arquivo. Ou ele não existe, ou está corrompido — em "
+               "qualquer um dos casos, dá pra fazer outro.",
+                "Couldn't read the file. Either it doesn't exist or it's corrupted — "
+                "either way, you can make another one."),
+            true));
+    }
+    else
+    {
+        frame->setFooterText(std::to_string(ctx.jogos) + TR(" saves, ", " saves, ")
+            + humanSize(ctx.bytes) + TR(" sem compressão", " uncompressed"));
+
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Pra pôr um destes de volta no console, saia daqui, abra o jogo na lista e "
+               "escolha \"Restaurar do arquivo único\". Nada aqui escreve em save.",
+                "To put one of these back on the console, leave this screen, open the game "
+                "in the list and pick \"Restore from the single file\". Nothing here writes "
+                "to a save."),
+            true));
+    }
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
+// conversa privada removida do historico
+static void openArchivePage(std::vector<TitleEntry> titles)
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Tudo num arquivo só", "Everything in one file"));
+
+    brls::List* list = new brls::List();
+
+    list->addView(new brls::Header(TR("Guardar", "Store")));
+
+    brls::ListItem* fazerESubir = new brls::ListItem(
+        TR("Juntar tudo e subir pro Drive", "Pack everything and upload to Drive"),
+        TR("Junta o save de todos os jogos num arquivo só e manda pro seu Drive.",
+            "Packs every game's save into a single file and sends it to your Drive."));
+    fazerESubir->getClickEvent()->subscribe([titles](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [titles](Job* job) { return jobArchiveAll(job, titles, true); }),
+            true);
+    });
+
+    brls::ListItem* soFazer = new brls::ListItem(
+        TR("Só juntar, sem subir", "Just pack it, don't upload"),
+        TR("Deixa o arquivo em switch/SwitchSaveSync/ e não encosta na internet.",
+            "Leaves the file in switch/SwitchSaveSync/ and doesn't touch the internet."));
+    soFazer->getClickEvent()->subscribe([titles](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [titles](Job* job) { return jobArchiveAll(job, titles, false); }),
+            true);
+    });
+
+    list->addView(fazerESubir);
+    list->addView(soFazer);
+
+    if (syncjob_has_archive())
+    {
+        brls::ListItem* subir = new brls::ListItem(
+            TR("Subir o arquivo que já está no cartão", "Upload the file already on the SD card"),
+            TR("Manda pro Drive o arquivo de agora, sem refazer.",
+                "Sends the current file to Drive without rebuilding it."));
+        subir->getClickEvent()->subscribe([](brls::View* view) {
+            openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
+        });
+        list->addView(subir);
+    }
+
+    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
+
+    brls::ListItem* baixar = new brls::ListItem(
+        TR("Baixar o arquivo do Drive", "Download the file from Drive"),
+        TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
+           "jogo por jogo.",
+            "Brings the file to the SD card. Doesn't write to any save — that's your call, "
+            "game by game."));
+    baixar->getClickEvent()->subscribe([](brls::View* view) {
+        openJob(new Job(TR("Baixar o arquivo", "Download the file"), jobArchiveDownload), false);
+    });
+    list->addView(baixar);
+
+    if (syncjob_has_archive())
+    {
+        brls::ListItem* dentro = new brls::ListItem(
+            TR("Ver o que tem dentro", "See what's inside"),
+            TR("Lista os saves guardados no arquivo do cartão.",
+                "Lists the saves stored in the file on the SD card."));
+        dentro->getClickEvent()->subscribe([](brls::View* view) { openArchiveContents(); });
+        list->addView(dentro);
+    }
+
+    list->addView(new brls::Header(TR("Antes de usar", "Before you use it")));
+
+    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
+    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("O arquivo é de um formato nosso (.sss): não é zip, não abre com dois cliques "
+           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
+           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
+           "de verdade consegue ler.\n\n"
+           "O modo normal — uma pasta por jogo no Drive — continua sendo o recomendado, e "
+           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
+           "pasta por jogo é o que continua servindo se um dia este app sumir.",
+            "The file uses a format of ours (.sss): it isn't a zip, it doesn't open with a "
+            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
+            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
+            "open, so anyone determined enough can read it.\n\n"
+            "The normal mode — one folder per game on Drive — is still the recommended one, "
+            "and the two can coexist. A single file is handy for taking everything at once; "
+            "one folder per game is what still works if this app ever disappears."),
+        true));
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
 static void fillGamesList(brls::List* list)
 {
     list->clear(true);
@@ -779,6 +1191,57 @@ static void fillGamesList(brls::List* list)
             true));
         return;
     }
+
+    // A cópia que os trabalhos em lote levam. Feita AQUI, na thread da
+    // interface, junto com a lista que ele está vendo: assim o que a barra diz
+    // e o que o trabalho faz são a mesma coisa, mesmo que ele aperte X no meio.
+    //
+    // Vai todo mundo, não a lista de cima: o mesmo jogo com dois saves aparece
+    // uma linha só na tela, mas são dois saves pra sincronizar.
+    std::vector<TitleEntry> todos(g_titles, g_titles + g_titles_count);
+
+    list->addView(new brls::Header(TR("Tudo de uma vez", "All at once")));
+
+    brls::ListItem* syncAllItem = new brls::ListItem(
+        TR("Sincronizar todos os saves", "Sync every save"));
+    syncAllItem->setValue(std::to_string(todos.size()) + TR(" saves", " saves"));
+    syncAllItem->getClickEvent()->subscribe([todos](brls::View* view) {
+        brls::Dialog* dialog = new brls::Dialog(
+            TR(std::string("Vou passar pelos ") + std::to_string(todos.size())
+                    + " saves, um por um, e decidir sozinho pra que lado cada um vai.\n\n"
+                      "Quando os dois lados tiverem mudado, eu NÃO escolho: aquele jogo "
+                      "fica de fora e aparece na lista do fim, pra você resolver.\n\n"
+                      "Começar?",
+                std::string("I'll go through all ") + std::to_string(todos.size())
+                    + " saves, one by one, deciding which way each one goes.\n\n"
+                      "When both sides have changed I will NOT choose: that game is left "
+                      "alone and shows up in the list at the end for you to sort out.\n\n"
+                      "Start?"));
+
+        dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+        dialog->addButton(TR("Sincronizar", "Sync"), [dialog, todos](brls::View* view) {
+            dialog->close([todos]() {
+                openJob(new Job(TR("Sincronizando todos os saves", "Syncing every save"),
+                            [todos](Job* job) { return jobSyncAll(job, todos); }),
+                    true);
+            });
+        });
+
+        dialog->setCancelable(true);
+        dialog->open();
+    });
+    list->addView(syncAllItem);
+
+    brls::ListItem* archiveItem = new brls::ListItem(
+        TR("Tudo num arquivo só", "Everything in one file"),
+        TR("Junta todos os saves num arquivo nosso, que só este app lê. Opcional — o "
+           "normal continua sendo uma pasta por jogo.",
+            "Packs every save into a file of ours that only this app reads. Optional — the "
+            "normal way is still one folder per game."));
+    archiveItem->getClickEvent()->subscribe([todos](brls::View* view) { openArchivePage(todos); });
+    list->addView(archiveItem);
+
+    list->addView(new brls::Header(TR("Meus jogos", "My games")));
 
     for (size_t i = 0; i < g_titles_count; i++)
     {
