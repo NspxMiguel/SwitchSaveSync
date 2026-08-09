@@ -55,7 +55,7 @@ static brls::ListItem* g_pin_item     = nullptr;
 // reabrir o app quando ele troca de idioma.
 static std::string g_nro_path;
 
-// Diagnóstico da inicialização de rede, mostrado na aba Conta.
+// Diagnóstico da inicialização de rede, mostrado na aba Ajustes.
 static Result g_socket_rc = 0;
 static bool g_socket_lean = false;
 static bool g_applet_mode = false;
@@ -302,8 +302,8 @@ static bool ensureNetwork(Job* job)
 
     job->setStatus(TR("A rede não subiu quando o app abriu.",
         "The network didn't come up when the app started."));
-    job->log(TR("Detalhes na aba Conta, embaixo de Diagnóstico.",
-                "Details are in the Account tab, under Diagnostics."),
+    job->log(TR("Detalhes na aba Ajustes, embaixo de Diagnóstico.",
+                "Details are in the Settings tab, under Diagnostics."),
         true);
     return false;
 }
@@ -317,8 +317,8 @@ static bool ensureToken(Job* job, char* out, size_t outsz)
     {
         job->setStatus(TR("Você ainda não conectou uma conta Google.",
             "You haven't connected a Google account yet."));
-        job->log(TR("Vá na aba Conta e escolha Entrar.",
-                    "Go to the Account tab and choose Sign in."),
+        job->log(TR("Vá na aba Ajustes e escolha Entrar.",
+                    "Go to the Settings tab and choose Sign in."),
             true);
         return false;
     }
@@ -327,8 +327,8 @@ static bool ensureToken(Job* job, char* out, size_t outsz)
     if (!oauth_get_fresh_access_token(out, outsz))
     {
         job->setStatus(TR("Não consegui renovar o acesso.", "Couldn't refresh the access token."));
-        job->log(TR("Entre na conta de novo pela aba Conta.",
-                    "Sign in again from the Account tab."),
+        job->log(TR("Entre na conta de novo pela aba Ajustes.",
+                    "Sign in again from the Settings tab."),
             true);
         return false;
     }
@@ -797,9 +797,9 @@ static bool jobArchiveDownload(Job* job)
     }
 
     job->setStatus(TR("Arquivo no cartão. Ele ainda NÃO foi escrito em save nenhum — pra "
-                      "isso, abra o jogo na lista e escolha \"Restaurar do arquivo único\".",
+                      "isso, abra o jogo na lista e escolha \"Do arquivo com tudo\".",
         "File is on the SD card. It has NOT been written to any save yet — for that, open "
-        "the game in the list and pick \"Restore from the single file\"."));
+        "the game in the list and pick \"From the file with everything\"."));
     return true;
 }
 
@@ -817,8 +817,8 @@ static bool jobArchiveRestore(Job* job, TitleEntry title)
         return false;
     }
 
-    job->setStatus(TR("Save restaurado de dentro do arquivo único.",
-        "Save restored from inside the single file."));
+    job->setStatus(TR("Save restaurado de dentro do arquivo com tudo.",
+        "Save restored from inside the file with everything."));
     return true;
 }
 
@@ -948,6 +948,50 @@ static bool jobRestoreIntoNewAccount(Job* job, std::string caminho, std::string 
 // app resolver sozinho ("clica pra synca o save com a nuvem e PRONTO"). Isso
 // aqui é o Y: mandar pra que lado quando os dois lados mudaram, e as cópias no
 // próprio cartão, que não dependem de internet nem de conta.
+// "Todas as contas num arquivo só" — a mesma ação em dois lugares: na tela de
+// escolher conta (onde ele vê que o jogo tem mais de uma) e na tela do jogo.
+static void perguntarArquivoDoJogo(std::vector<TitleEntry> saves)
+{
+    brls::Dialog* dialog = new brls::Dialog(
+        TR(std::string("Vou juntar os ") + std::to_string(saves.size())
+                + " saves deste jogo num arquivo só.\n\nGuardar onde?",
+            std::string("I'll pack this game's ") + std::to_string(saves.size())
+                + " saves into a single file.\n\nStore it where?"));
+
+    dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+    dialog->addButton(TR("Só no cartão", "SD card only"), [dialog, saves](brls::View* view) {
+        dialog->close([saves]() {
+            openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
+                        [saves](Job* job) { return jobGameArchive(job, saves, false); }),
+                true);
+        });
+    });
+    dialog->addButton(TR("Cartão e Drive", "SD card and Drive"), [dialog, saves](brls::View* view) {
+        dialog->close([saves]() {
+            openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
+                        [saves](Job* job) { return jobGameArchive(job, saves, true); }),
+                true);
+        });
+    });
+
+    dialog->setCancelable(true);
+    dialog->open();
+}
+
+static brls::ListItem* itemTodasAsContas(const std::vector<TitleEntry>& saves)
+{
+    brls::ListItem* item = new brls::ListItem(
+        TR("Todas as contas num arquivo só", "Every account in one file"),
+        TR("Junta o save de todas as contas deste jogo num arquivo com o nome do jogo, "
+           "separado do arquivo que tem tudo.",
+            "Packs every account's save for this game into a file named after the game, "
+            "separate from the file that holds everything."));
+    item->setValue(std::to_string(saves.size()) + TR(" saves", " saves"));
+    item->getClickEvent()->subscribe(
+        [saves](brls::View* view) { perguntarArquivoDoJogo(saves); });
+    return item;
+}
+
 static void openGamePage(const TitleEntry& title)
 {
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
@@ -958,6 +1002,8 @@ static void openGamePage(const TitleEntry& title)
         frame->setIcon(g_icon_buffer, iconLen);
 
     brls::List* list = new brls::List();
+
+    std::vector<TitleEntry> saves = savesOf(title.application_id);
 
     brls::ListItem* backupItem = new brls::ListItem(
         TR("No Google Drive", "On Google Drive"),
@@ -1036,13 +1082,13 @@ static void openGamePage(const TitleEntry& title)
         dialog->open();
     });
 
-    // Só aparece quando existe arquivo único no cartão. Oferecer "restaurar de
+    // Só aparece quando existe arquivo com tudo no cartão. Oferecer "restaurar de
     // um arquivo que não existe" é oferecer um erro.
     brls::ListItem* restoreArchiveItem = nullptr;
     if (syncjob_has_archive())
     {
         restoreArchiveItem = new brls::ListItem(
-            TR("Do arquivo único", "From the single file"),
+            TR("Do arquivo com tudo", "From the file with everything"),
             TR("Tira o save deste jogo de dentro do " SYNC_ARCHIVE_NAME " e escreve por "
                "cima do save do console.",
                 "Pulls this game's save out of " SYNC_ARCHIVE_NAME " and writes it over "
@@ -1051,7 +1097,7 @@ static void openGamePage(const TitleEntry& title)
             brls::Dialog* dialog = new brls::Dialog(
                 TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
                         + "\" que está no console e põe no lugar o que está dentro do "
-                          "arquivo único. O save atual se perde.\n\nContinuar?",
+                          "arquivo com tudo. O save atual se perde.\n\nContinuar?",
                     std::string("This erases the \"") + titleWithOwner(title)
                         + "\" save on the console and puts what's inside the single file "
                           "in its place. The current save is lost.\n\nContinue?"));
@@ -1092,13 +1138,17 @@ static void openGamePage(const TitleEntry& title)
         });
     }
 
-    // A separação é por SENTIDO, não por lugar. Antes eram cinco linhas soltas
-    // misturando ler e escrever, e a linha que escreve por cima do save ficava
-    // do lado da que só copia — a mesma cara, o mesmo tamanho, um clique de
-    // distância. Agora tudo que escreve mora embaixo do aviso.
+    // A separação é por SENTIDO, não por lugar: tudo que só lê em cima, tudo que
+    // escreve por cima do save embaixo do aviso.
+    //
+    // E os dois lados na MESMA ordem — Drive, cartão, arquivo. Estavam trocados
+    // (guardar começava no Drive, trazer de volta começava no cartão), o que
+    // obriga a ler linha por linha em vez de bater o olho.
     list->addView(new brls::Header(TR("Guardar uma cópia", "Store a copy")));
     list->addView(backupItem);
     list->addView(backupLocalItem);
+    if (saves.size() > 1)
+        list->addView(itemTodasAsContas(saves));
 
     list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
@@ -1107,8 +1157,8 @@ static void openGamePage(const TitleEntry& title)
             "From here down, everything WRITES over the save on the console — what's there "
             "now is lost. Each one still asks first."),
         true));
-    list->addView(restoreLocalItem);
     list->addView(restoreItem);
+    list->addView(restoreLocalItem);
     if (restoreGameArchiveItem)
         list->addView(restoreGameArchiveItem);
     if (restoreArchiveItem)
@@ -1155,7 +1205,13 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
 
     brls::List* list = new brls::List();
 
-    list->addView(new brls::Header(TR("De quem é o save?", "Whose save is it?")));
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    // de 4 contas já nasce fora do campo de visão.
+    list->addView(new brls::Header(TR("Todas as contas de uma vez", "Every account at once")));
+    list->addView(itemTodasAsContas(saves));
+
+    list->addView(new brls::Header(TR("Ou escolha uma conta", "Or pick one account")));
 
     for (const TitleEntry& save : saves)
     {
@@ -1168,47 +1224,6 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
         });
         list->addView(item);
     }
-
-    // conversa privada removida do historico
-    //. Fica nesta tela porque é exatamente aqui que ele vê que o
-    // jogo tem mais de uma conta — e escolher uma por vez é o trabalho que ele
-    // queria evitar.
-    list->addView(new brls::Header(TR("Ou todas de uma vez", "Or all at once")));
-
-    brls::ListItem* todasItem = new brls::ListItem(
-        TR("Todas as contas num arquivo só", "Every account in one file"),
-        TR("Junta o save de todas as contas deste jogo num arquivo com o nome do jogo, "
-           "separado do arquivo que tem tudo.",
-            "Packs every account's save for this game into a file named after the game, "
-            "separate from the file that holds everything."));
-    todasItem->setValue(std::to_string(saves.size()) + TR(" saves", " saves"));
-    todasItem->getClickEvent()->subscribe([saves](brls::View* view) {
-        brls::Dialog* dialog = new brls::Dialog(
-            TR(std::string("Vou juntar os ") + std::to_string(saves.size())
-                    + " saves deste jogo num arquivo só.\n\nGuardar onde?",
-                std::string("I'll pack this game's ") + std::to_string(saves.size())
-                    + " saves into a single file.\n\nStore it where?"));
-
-        dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
-        dialog->addButton(TR("Só no cartão", "SD card only"), [dialog, saves](brls::View* view) {
-            dialog->close([saves]() {
-                openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
-                            [saves](Job* job) { return jobGameArchive(job, saves, false); }),
-                    true);
-            });
-        });
-        dialog->addButton(TR("Cartão e Drive", "SD card and Drive"), [dialog, saves](brls::View* view) {
-            dialog->close([saves]() {
-                openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
-                            [saves](Job* job) { return jobGameArchive(job, saves, true); }),
-                    true);
-            });
-        });
-
-        dialog->setCancelable(true);
-        dialog->open();
-    });
-    list->addView(todasItem);
 
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
         TR("Cada save destes é separado: tem a sua pasta no Drive e no cartão, e "
@@ -1781,7 +1796,7 @@ static void fillBulkList(brls::List* list)
     list->addView(syncAllItem);
 
     // conversa privada removida do historico
-    list->addView(new brls::Header(TR("Guardar num arquivo só", "Store in a single file")));
+    list->addView(new brls::Header(TR("Guardar tudo num arquivo", "Store everything in one file")));
 
     brls::ListItem* fazerESubir = new brls::ListItem(
         TR("Juntar tudo e subir pro Drive", "Pack everything and upload to Drive"),
@@ -1851,7 +1866,7 @@ static void fillBulkList(brls::List* list)
         list->addView(dentro);
     }
 
-    list->addView(new brls::Header(TR("Sobre o arquivo único", "About the single file")));
+    list->addView(new brls::Header(TR("Sobre o arquivo com tudo", "About the file with everything")));
 
     // Isto está na tela de propósito. É a diferença entre uma escolha e uma
     // armadilha: o formato é nosso, então o arquivo depende deste app existir.
@@ -2001,7 +2016,7 @@ static void restartApp()
     brls::Application::quit();
 }
 
-static brls::List* createAccountTab()
+static brls::List* createSettingsTab()
 {
     brls::List* list = new brls::List();
 
@@ -2311,7 +2326,7 @@ int main(int argc, char* argv[])
 
     g_root->addTab(TR("Meus jogos", "My games"), createGamesTab());
     g_root->addTab(TR("Tudo de uma vez", "All at once"), createBulkTab());
-    g_root->addTab(TR("Conta", "Account"), createAccountTab());
+    g_root->addTab(TR("Ajustes", "Settings"), createSettingsTab());
     g_root->addSeparator();
     g_root->addTab(TR("Sobre", "About"), createAboutTab());
 
@@ -2320,7 +2335,7 @@ int main(int argc, char* argv[])
     brls::Application::pushView(g_root);
 
     // Primeira vez no app (nenhuma conta salva): já oferece o login em vez de
-    // deixar ele descobrir sozinho que precisa ir na aba Conta.
+    // deixar ele descobrir sozinho que precisa ir na aba Ajustes.
     if (!oauth_is_logged_in() && http_ok)
     {
         brls::Dialog* welcome = new brls::Dialog(
@@ -2350,11 +2365,11 @@ int main(int argc, char* argv[])
         brls::Application::notify(TR("Falha ao montar o romfs: os certificados não carregaram",
             "Failed to mount romfs: the certificates didn't load"));
     else if (!http_ok && g_applet_mode)
-        brls::Application::notify(TR("Rede falhou (modo applet) — ver aba Conta",
-            "Network failed (applet mode) — see the Account tab"));
+        brls::Application::notify(TR("Rede falhou (modo applet) — ver aba Ajustes",
+            "Network failed (applet mode) — see the Settings tab"));
     else if (!http_ok)
-        brls::Application::notify(TR("Rede falhou — ver detalhes na aba Conta",
-            "Network failed — details in the Account tab"));
+        brls::Application::notify(TR("Rede falhou — ver detalhes na aba Ajustes",
+            "Network failed — details in the Settings tab"));
 
     while (brls::Application::mainLoop())
         ;
