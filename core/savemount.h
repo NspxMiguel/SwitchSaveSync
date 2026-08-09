@@ -50,6 +50,24 @@ bool savemount_wipe_contents(void);
 // Usado nos dois sentidos: save:/ -> staging e staging -> save:/.
 bool savemount_copy_tree(const char *src_dir, const char *dst_dir);
 
+// Esse jogo tem save data pra essa conta neste console?
+//
+// Responde montando e desmontando na hora. Não tem consulta mais barata que
+// preste: enumerar save data devolve o que EXISTE, e a pergunta aqui é
+// justamente sobre o que pode não existir.
+bool savemount_save_exists(u64 application_id, AccountUid uid);
+
+// Cria save data de conta, vazia, do tamanho que o jogo pede.
+//
+// Só existe por causa de conta nova: uma conta recém-criada não tem save de
+// jogo nenhum, e restaurar precisa de um lugar pra escrever. É a mesma coisa
+// que o jogo faria na primeira vez que abrisse com essa conta — a diferença é
+// só quem pediu.
+//
+// size/journal vêm do NACP do jogo (titles_save_sizes). Não invente valores:
+// save menor do que o jogo espera é save que o jogo abre e chama de corrompido.
+bool savemount_create_account_save(u64 application_id, AccountUid uid, u64 size, u64 journal);
+
 #ifdef __cplusplus
 }
 #endif

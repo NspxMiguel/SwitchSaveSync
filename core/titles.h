@@ -65,6 +65,14 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries);
 // todos os jogos de uma vez seriam vários MB parados na memória.
 bool titles_get_icon(u64 application_id, u8 *out, size_t outsz, size_t *out_len);
 
+// Quanto espaco o jogo pede pro save, lido do NACP dele.
+//
+// Serve pra criar save data que ainda nao existe: conta nova nao tem save de
+// jogo nenhum, e sem save criado nao tem onde escrever o que veio do arquivo.
+// O tamanho tem que ser o que o proprio jogo pede — inventar numero aqui daria
+// save menor do que o jogo espera, e o jogo trata isso como save corrompido.
+bool titles_save_sizes(u64 application_id, bool device, u64 *out_size, u64 *out_journal);
+
 #ifdef __cplusplus
 }
 #endif

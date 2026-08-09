@@ -458,6 +458,16 @@ static bool ensureLogin(Job* job)
 static bool jobBackup(Job* job, TitleEntry title);
 static bool jobRestore(Job* job, TitleEntry title);
 
+// Declarada aqui porque a tela de um jogo oferece "ver o que tem dentro do
+// arquivo deste jogo", e ela vem antes no arquivo.
+static void openArchiveContents(std::string caminho, std::string titulo);
+
+static bool arquivoExiste(const char* caminho)
+{
+    struct stat st;
+    return stat(caminho, &st) == 0;
+}
+
 // O clique principal: "clica pra synca o save com a nuvem e PRONTO".
 // Quem decide pra que lado vai é o syncjob_sync_title.
 static bool jobSync(Job* job, TitleEntry title)
@@ -812,6 +822,124 @@ static bool jobArchiveRestore(Job* job, TitleEntry title)
     return true;
 }
 
+// conversa privada removida do historico
+//. Um arquivo do JOGO, separado do arquivo com tudo — juntar as
+// contas de um jogo não pode passar por cima do backup geral.
+static bool jobGameArchive(Job* job, std::vector<TitleEntry> saves, bool subir)
+{
+    if (saves.empty())
+        return false;
+
+    if (subir && !ensureLogin(job))
+        return false;
+
+    char caminho[0x300];
+    syncjob_game_archive_path(&saves[0], caminho, sizeof(caminho));
+
+    job->setStatus(TR("Juntando as contas num arquivo só...",
+        "Packing the accounts into a single file..."));
+
+    size_t quantos = syncjob_archive_titles_to(caminho, saves.data(), saves.size(),
+        jobLogLine, jobStopAsked);
+    if (quantos == 0)
+    {
+        job->setStatus(TR("Nada foi guardado. Se já existia um arquivo deste jogo, ele "
+                          "continua inteiro do jeito que estava.",
+            "Nothing was stored. If a file for this game already existed, it's still "
+            "intact as it was."));
+        return false;
+    }
+
+    const char* soONome = strrchr(caminho, '/');
+    std::string nome    = soONome ? soONome + 1 : caminho;
+
+    if (!subir)
+    {
+        job->setStatus(std::to_string(quantos)
+            + TR(" contas em switch/SwitchSaveSync/", " accounts in switch/SwitchSaveSync/") + nome);
+        return true;
+    }
+
+    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    if (!syncjob_archive_upload_path(caminho, jobLogLine))
+    {
+        job->setStatus(TR("O arquivo ficou pronto no cartão, mas não subiu pro Drive.",
+            "The file is ready on the SD card, but it didn't upload to Drive."));
+        return false;
+    }
+
+    job->setStatus(std::to_string(quantos)
+        + TR(" contas em ", " accounts in ") + nome
+        + TR(", no cartão e no seu Drive.", ", on the SD card and on your Drive."));
+    return true;
+}
+
+// Restaura uma pasta do arquivo por cima do save de `dest` — que pode ser de
+// outra conta que não a dona original.
+static bool jobArchiveRestoreFolder(Job* job, std::string caminho, std::string folder,
+    TitleEntry dest)
+{
+    job->setStatus(TR("Tirando o save de dentro do arquivo...",
+        "Pulling the save out of the file..."));
+
+    if (!syncjob_archive_restore_folder(caminho.c_str(), folder.c_str(), &dest, jobLogLine))
+    {
+        job->setStatus(TR("Não restaurei nada. Se falhou no meio da gravação, o save do "
+                          "console continua como estava.",
+            "Nothing was restored. If it failed mid-write, the console's save is still as "
+            "it was."));
+        return false;
+    }
+
+    job->setStatus(TR("Save restaurado de dentro do arquivo.",
+        "Save restored from inside the file."));
+    return true;
+}
+
+// Conta recém-criada não tem save de jogo nenhum, então antes de restaurar é
+// preciso criar a save data — vazia, do tamanho que o próprio jogo pede.
+static bool jobRestoreIntoNewAccount(Job* job, std::string caminho, std::string folder,
+    TitleEntry molde, AccountUid conta, std::string apelido)
+{
+    TitleEntry dest = molde;
+    dest.uid        = conta;
+    dest.device_save = false;
+    snprintf(dest.account, sizeof(dest.account), "%s", apelido.c_str());
+
+    if (!savemount_save_exists(dest.application_id, conta))
+    {
+        job->setStatus(TR("Criando o save deste jogo na conta nova...",
+            "Creating this game's save on the new account..."));
+
+        u64 tamanho = 0, diario = 0;
+        if (!titles_save_sizes(dest.application_id, false, &tamanho, &diario))
+        {
+            job->setStatus(TR("Não consegui descobrir de que tamanho é o save deste jogo. "
+                              "Abra o jogo uma vez com a conta nova — isso cria o save — e "
+                              "volte aqui.",
+                "Couldn't work out how big this game's save should be. Open the game once "
+                "with the new account — that creates the save — and come back."));
+            return false;
+        }
+
+        job->log(TR("Tamanho pedido pelo jogo: ", "Size the game asks for: ")
+            + std::to_string(tamanho / 1024) + " KB");
+
+        if (!savemount_create_account_save(dest.application_id, conta, tamanho, diario))
+        {
+            job->setStatus(TR("Não consegui criar o save na conta nova. Abra o jogo uma vez "
+                              "com ela e volte aqui.",
+                "Couldn't create the save on the new account. Open the game once with it "
+                "and come back."));
+            return false;
+        }
+
+        job->log(TR("Save criado, vazio.", "Save created, empty."));
+    }
+
+    return jobArchiveRestoreFolder(job, caminho, folder, dest);
+}
+
 // ============================ telas ============================
 
 // Tela de um jogo: o que fazer quando o clique simples não serve.
@@ -832,7 +960,7 @@ static void openGamePage(const TitleEntry& title)
     brls::List* list = new brls::List();
 
     brls::ListItem* backupItem = new brls::ListItem(
-        TR("Enviar o save pro Drive", "Upload the save to Drive"),
+        TR("No Google Drive", "On Google Drive"),
         TR("Lê o save que está no console e sobe pro Google Drive. Não altera nada no "
            "console.",
             "Reads the console's save and uploads it to Google Drive. Nothing on the "
@@ -844,7 +972,7 @@ static void openGamePage(const TitleEntry& title)
     });
 
     brls::ListItem* restoreItem = new brls::ListItem(
-        TR("Baixar o save do Drive", "Download the save from Drive"),
+        TR("Do Google Drive", "From Google Drive"),
         TR("Substitui o save que está no console pelo que está no Drive.",
             "Replaces the console's save with the one on Drive."));
     restoreItem->getClickEvent()->subscribe([title](brls::View* view) {
@@ -870,7 +998,7 @@ static void openGamePage(const TitleEntry& title)
     });
 
     brls::ListItem* backupLocalItem = new brls::ListItem(
-        TR("Salvar o save no cartão SD", "Save to the SD card"),
+        TR("No cartão SD", "On the SD card"),
         TR("Guarda uma cópia em switch/SwitchSaveSync/backups, no próprio console. Não "
            "usa internet nem conta Google.",
             "Keeps a copy in switch/SwitchSaveSync/backups, on the console itself. Uses "
@@ -882,7 +1010,7 @@ static void openGamePage(const TitleEntry& title)
     });
 
     brls::ListItem* restoreLocalItem = new brls::ListItem(
-        TR("Restaurar do cartão SD", "Restore from the SD card"),
+        TR("Do cartão SD", "From the SD card"),
         TR("Substitui o save que está no console pela cópia guardada no cartão.",
             "Replaces the console's save with the copy kept on the SD card."));
     restoreLocalItem->getClickEvent()->subscribe([title](brls::View* view) {
@@ -914,7 +1042,7 @@ static void openGamePage(const TitleEntry& title)
     if (syncjob_has_archive())
     {
         restoreArchiveItem = new brls::ListItem(
-            TR("Restaurar do arquivo único", "Restore from the single file"),
+            TR("Do arquivo único", "From the single file"),
             TR("Tira o save deste jogo de dentro do " SYNC_ARCHIVE_NAME " e escreve por "
                "cima do save do console.",
                 "Pulls this game's save out of " SYNC_ARCHIVE_NAME " and writes it over "
@@ -943,10 +1071,46 @@ static void openGamePage(const TitleEntry& title)
         });
     }
 
+    // O arquivo com TODAS as contas deste jogo, quando ele existe. É o par do
+    // "salvar tudo num arquivo só" da tela de escolher conta: sem isto, o
+    // arquivo era feito e não tinha caminho de volta.
+    brls::ListItem* restoreGameArchiveItem = nullptr;
+    char arquivoDoJogo[0x300];
+    syncjob_game_archive_path(&title, arquivoDoJogo, sizeof(arquivoDoJogo));
+    if (arquivoExiste(arquivoDoJogo))
+    {
+        std::string caminho = arquivoDoJogo;
+
+        restoreGameArchiveItem = new brls::ListItem(
+            TR("Do arquivo deste jogo", "From this game's file"),
+            TR("Abre o arquivo com todas as contas deste jogo e deixa você escolher qual "
+               "save volta — inclusive pra uma conta diferente da original.",
+                "Opens the file holding every account of this game and lets you pick which "
+                "save comes back — including into a different account than the original."));
+        restoreGameArchiveItem->getClickEvent()->subscribe([caminho, title](brls::View* view) {
+            openArchiveContents(caminho, std::string(title.name));
+        });
+    }
+
+    // A separação é por SENTIDO, não por lugar. Antes eram cinco linhas soltas
+    // misturando ler e escrever, e a linha que escreve por cima do save ficava
+    // do lado da que só copia — a mesma cara, o mesmo tamanho, um clique de
+    // distância. Agora tudo que escreve mora embaixo do aviso.
+    list->addView(new brls::Header(TR("Guardar uma cópia", "Store a copy")));
     list->addView(backupItem);
     list->addView(backupLocalItem);
+
+    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Daqui pra baixo, tudo ESCREVE por cima do save que está no console — o que "
+           "está lá agora se perde. Cada um ainda pergunta antes.",
+            "From here down, everything WRITES over the save on the console — what's there "
+            "now is lost. Each one still asks first."),
+        true));
     list->addView(restoreLocalItem);
     list->addView(restoreItem);
+    if (restoreGameArchiveItem)
+        list->addView(restoreGameArchiveItem);
     if (restoreArchiveItem)
         list->addView(restoreArchiveItem);
 
@@ -991,6 +1155,8 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
 
     brls::List* list = new brls::List();
 
+    list->addView(new brls::Header(TR("De quem é o save?", "Whose save is it?")));
+
     for (const TitleEntry& save : saves)
     {
         brls::ListItem* item = new brls::ListItem(saveOwnerName(save), saveOwnerDescription(save));
@@ -1002,6 +1168,47 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
         });
         list->addView(item);
     }
+
+    // conversa privada removida do historico
+    //. Fica nesta tela porque é exatamente aqui que ele vê que o
+    // jogo tem mais de uma conta — e escolher uma por vez é o trabalho que ele
+    // queria evitar.
+    list->addView(new brls::Header(TR("Ou todas de uma vez", "Or all at once")));
+
+    brls::ListItem* todasItem = new brls::ListItem(
+        TR("Todas as contas num arquivo só", "Every account in one file"),
+        TR("Junta o save de todas as contas deste jogo num arquivo com o nome do jogo, "
+           "separado do arquivo que tem tudo.",
+            "Packs every account's save for this game into a file named after the game, "
+            "separate from the file that holds everything."));
+    todasItem->setValue(std::to_string(saves.size()) + TR(" saves", " saves"));
+    todasItem->getClickEvent()->subscribe([saves](brls::View* view) {
+        brls::Dialog* dialog = new brls::Dialog(
+            TR(std::string("Vou juntar os ") + std::to_string(saves.size())
+                    + " saves deste jogo num arquivo só.\n\nGuardar onde?",
+                std::string("I'll pack this game's ") + std::to_string(saves.size())
+                    + " saves into a single file.\n\nStore it where?"));
+
+        dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+        dialog->addButton(TR("Só no cartão", "SD card only"), [dialog, saves](brls::View* view) {
+            dialog->close([saves]() {
+                openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
+                            [saves](Job* job) { return jobGameArchive(job, saves, false); }),
+                    true);
+            });
+        });
+        dialog->addButton(TR("Cartão e Drive", "SD card and Drive"), [dialog, saves](brls::View* view) {
+            dialog->close([saves]() {
+                openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
+                            [saves](Job* job) { return jobGameArchive(job, saves, true); }),
+                    true);
+            });
+        });
+
+        dialog->setCancelable(true);
+        dialog->open();
+    });
+    list->addView(todasItem);
 
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
         TR("Cada save destes é separado: tem a sua pasta no Drive e no cartão, e "
@@ -1033,7 +1240,7 @@ static std::string humanSize(u64 bytes)
 // arquivo — não desempacota nada.
 struct ArchiveListing
 {
-    brls::List* list;
+    std::vector<std::pair<std::string, u64>>* linhas;
     size_t jogos;
     u64 bytes;
 };
@@ -1043,21 +1250,427 @@ static void archiveListingRow(const char* pasta, u64 bytes, void* userdata)
     ArchiveListing* ctx = (ArchiveListing*)userdata;
     ctx->jogos++;
     ctx->bytes += bytes;
-
-    brls::ListItem* item = new brls::ListItem(pasta);
-    item->setValue(humanSize(bytes));
-    ctx->list->addView(item);
+    ctx->linhas->push_back({ pasta, bytes });
 }
 
-static void openArchiveContents()
+// O caminho contrário do save_folder_name: dada uma pasta que veio de dentro
+// do arquivo, de qual save DESTE console ela é?
+static bool saveDaPasta(const std::string& pasta, TitleEntry* out)
 {
+    for (size_t i = 0; i < g_titles_count; i++)
+    {
+        char nome[0x201];
+        syncjob_save_folder_name(&g_titles[i], nome, sizeof(nome));
+        if (pasta == nome)
+        {
+            *out = g_titles[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+// E quando a conta não bate: pelo menos o JOGO é deste console?
+//
+// A pasta é o nome do jogo, com " (conta)" no fim quando o jogo tem mais de um
+// save. Então o jogo é o que sobra tirando o sufixo — por isso a comparação é
+// por começo, e exigindo espaço logo depois: sem isso "Mario" casaria com
+// "Mario Kart".
+static bool jogoDaPasta(const std::string& pasta, u64* out_app)
+{
+    for (size_t i = 0; i < g_titles_count; i++)
+    {
+        char limpo[0x201];
+        syncstate_sanitize_name(g_titles[i].name, limpo, sizeof(limpo));
+        std::string base = limpo;
+
+        if (pasta == base
+            || (pasta.size() > base.size() && pasta.compare(0, base.size(), base) == 0
+                && pasta[base.size()] == ' '))
+        {
+            *out_app = g_titles[i].application_id;
+            return true;
+        }
+    }
+    return false;
+}
+
+// As contas do console, na ordem em que o sistema devolve.
+static std::vector<AccountUid> contasDoConsole()
+{
+    std::vector<AccountUid> out;
+
+    bool nosso = R_SUCCEEDED(accountInitialize(AccountServiceType_Application));
+
+    AccountUid uids[ACC_USER_LIST_SIZE];
+    s32 quantas = 0;
+    if (R_SUCCEEDED(accountListAllUsers(uids, ACC_USER_LIST_SIZE, &quantas)))
+        for (s32 i = 0; i < quantas; i++)
+            out.push_back(uids[i]);
+
+    if (nosso)
+        accountExit();
+
+    return out;
+}
+
+static std::string apelidoDaConta(AccountUid uid)
+{
+    std::string apelido;
+
+    bool nosso = R_SUCCEEDED(accountInitialize(AccountServiceType_Application));
+
+    AccountProfile perfil;
+    if (R_SUCCEEDED(accountGetProfile(&perfil, uid)))
+    {
+        AccountProfileBase base;
+        AccountUserData dados;
+        if (R_SUCCEEDED(accountProfileGet(&perfil, &dados, &base)))
+        {
+            char nome[sizeof(base.nickname) + 1] = { 0 };
+            memcpy(nome, base.nickname, sizeof(base.nickname));
+            apelido = nome;
+        }
+        accountProfileClose(&perfil);
+    }
+
+    if (nosso)
+        accountExit();
+
+    return apelido;
+}
+
+static bool mesmaConta(const AccountUid& a, const AccountUid& b)
+{
+    return a.uid[0] == b.uid[0] && a.uid[1] == b.uid[1];
+}
+
+// O nome da conta que estava escrito na pasta: "Jogo (Player 1)" -> "Miguel".
+//
+// Só existe quando o jogo tinha mais de um save na hora em que o arquivo foi
+// feito — é o mesmo sufixo que o save_folder_name põe. Serve pra dizer a ele
+// QUAL conta ele está procurando, na hora de criar uma.
+static std::string contaDaPasta(const std::string& pasta)
+{
+    if (pasta.empty() || pasta.back() != ')')
+        return "";
+
+    size_t abre = pasta.rfind(" (");
+    if (abre == std::string::npos)
+        return "";
+
+    return pasta.substr(abre + 2, pasta.size() - abre - 3);
+}
+
+// A conta dona do save que está no arquivo não existe neste console.
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// perfil dele. A libnx não tem função de criar usuário — o que ela tem é
+// pselShowUserCreator, que abre a MESMA tela do menu do console. É o caminho
+// certo de qualquer jeito: a conta nasce de verdade, com foto e nome, em vez de
+// a gente escrever no banco de perfis do sistema na mão.
+static void openMissingAccountPage(std::string caminho, std::string pasta, u64 appId)
+{
+    std::vector<TitleEntry> locais = savesOf(appId);
+
+    // Molde do jogo: serve só pro nome e pro application_id. A conta e o tipo
+    // de save quem preenche é o trabalho.
+    TitleEntry molde = locais[0];
+    for (const TitleEntry& t : locais)
+        if (!t.device_save)
+        {
+            molde = t;
+            break;
+        }
+
+    std::string queria = contaDaPasta(pasta);
+
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
-    frame->setTitle(TR("Dentro do arquivo", "Inside the file"));
+    frame->setTitle(TR("Conta que não existe aqui", "Account that isn't on this console"));
 
     brls::List* list = new brls::List();
-    ArchiveListing ctx = { list, 0, 0 };
 
-    if (!syncjob_archive_list(archiveListingRow, &ctx) || ctx.jogos == 0)
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR(std::string("O jogo é este console conhece: \"") + molde.name
+                + "\". Quem não existe aqui é a conta dona deste save"
+                + (queria.empty() ? std::string(".") : std::string(", \"") + queria + "\".")
+                + "\n\nSave do Switch é preso a uma conta, então ele precisa de uma daqui pra "
+                  "morar. Escolha uma que já existe, ou crie a conta agora.",
+            std::string("This console knows the game: \"") + molde.name
+                + "\". What it doesn't have is the account this save belongs to"
+                + (queria.empty() ? std::string(".") : std::string(", \"") + queria + "\".")
+                + "\n\nA Switch save is tied to an account, so it needs one here to live in. "
+                  "Pick an account that already exists, or create the account now."),
+        true));
+
+    // Contas deste console que já têm save deste jogo. É o caminho sem
+    // surpresa: o save já existe, só vai ser sobrescrito.
+    bool temConta = false;
+    for (const TitleEntry& t : locais)
+        if (!t.device_save)
+        {
+            temConta = true;
+            break;
+        }
+
+    if (temConta)
+    {
+        list->addView(new brls::Header(TR("Pôr numa conta que já existe aqui",
+            "Put it on an account that's already here")));
+
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Isto ESCREVE por cima do save da conta que você escolher — o que está lá "
+               "agora se perde. Pergunto de novo antes.",
+                "This OVERWRITES the save of whichever account you pick — what's there now is "
+                "lost. I'll ask again first."),
+            true));
+
+        for (const TitleEntry& t : locais)
+        {
+            if (t.device_save)
+                continue;
+
+            std::string dono = t.account[0] ? t.account : TR("conta sem nome", "unnamed account");
+
+            brls::ListItem* item = new brls::ListItem(dono);
+            item->getClickEvent()->subscribe([caminho, pasta, t, dono](brls::View* view) {
+                brls::Dialog* dialog = new brls::Dialog(
+                    TR(std::string("Isso apaga o save de \"") + t.name + "\" da conta \"" + dono
+                            + "\" e põe no lugar o que está guardado no arquivo.\n\n"
+                              "O jogo não pode estar aberto. Continuar?",
+                        std::string("This erases the \"") + t.name + "\" save of account \""
+                            + dono + "\" and puts what's stored in the file in its place.\n\n"
+                                     "The game must not be running. Continue?"));
+
+                dialog->addButton(TR("Cancelar", "Cancel"),
+                    [dialog](brls::View* view) { dialog->close(); });
+                dialog->addButton(TR("Restaurar", "Restore"),
+                    [dialog, caminho, pasta, t](brls::View* view) {
+                        dialog->close([caminho, pasta, t]() {
+                            openJob(new Job(std::string(TR("Restaurar — ", "Restore — "))
+                                        + titleWithOwner(t),
+                                        [caminho, pasta, t](Job* job) {
+                                            return jobArchiveRestoreFolder(job, caminho, pasta, t);
+                                        }),
+                                false);
+                        });
+                    });
+
+                dialog->setCancelable(true);
+                dialog->open();
+            });
+
+            list->addView(item);
+        }
+    }
+
+    list->addView(new brls::Header(TR("Criar a conta agora", "Create the account now")));
+
+    brls::ListItem* criar = new brls::ListItem(
+        queria.empty() ? TR("Criar uma conta nova", "Create a new account")
+                       : TR(std::string("Criar a conta \"") + queria + "\"",
+                             std::string("Create the \"") + queria + "\" account"));
+
+    criar->getClickEvent()->subscribe(
+        [caminho, pasta, molde, queria](brls::View* view) {
+            // Applet mode não abre tela de sistema. Se tentar, a chamada falha e
+            // o app trava esperando uma resposta que não vem.
+            if (g_applet_mode)
+            {
+                brls::Dialog* aviso = new brls::Dialog(
+                    TR("Pra criar conta, o app precisa estar aberto como aplicação — segurando "
+                       "R num jogo instalado, e não pelo Álbum.\n\n"
+                       "Ou crie a conta pelo menu do console (Configurações > Usuários > Adicionar "
+                       "usuário) e volte aqui: ela vai aparecer na lista de cima.",
+                        "To create an account the app has to be running as an application — hold "
+                        "R on an installed game instead of opening it from the Album.\n\n"
+                        "Or create the account from the console menu (System Settings > Users > "
+                        "Add user) and come back: it'll show up in the list above."));
+                aviso->addButton(TR("Entendi", "Got it"),
+                    [aviso](brls::View* view) { aviso->close(); });
+                aviso->setCancelable(true);
+                aviso->open();
+                return;
+            }
+
+            brls::Dialog* dialog = new brls::Dialog(
+                TR(std::string("Vou abrir a tela de criar usuário do próprio console.")
+                        + (queria.empty()
+                                  ? std::string("")
+                                  : std::string(" Ponha o nome \"") + queria
+                                        + "\" — é o nome que estava no save.")
+                        + "\n\nO nome é só o nome: a conta nova é uma conta nova pro console, "
+                          "então o save vai passar a ser dela. Quando você voltar, eu crio o "
+                          "save deste jogo nela e ponho o que está no arquivo dentro.",
+                    std::string("I'll open the console's own create-user screen.")
+                        + (queria.empty() ? std::string("")
+                                          : std::string(" Use the name \"") + queria
+                                                + "\" — that's the name the save had.")
+                        + "\n\nThe name is just a name: the new account is a new account to the "
+                          "console, so the save becomes its own. When you come back, I'll create "
+                          "this game's save on it and put what's in the file inside."));
+
+            dialog->addButton(TR("Cancelar", "Cancel"),
+                [dialog](brls::View* view) { dialog->close(); });
+            dialog->addButton(TR("Abrir", "Open"), [dialog, caminho, pasta, molde](brls::View* view) {
+                dialog->close([caminho, pasta, molde]() {
+                    // Quem é conta nova? A que não estava aqui antes. O
+                    // pselShowUserCreator não devolve o uid do que foi criado,
+                    // então a resposta é a diferença entre as duas listas.
+                    std::vector<AccountUid> antes = contasDoConsole();
+
+                    if (R_FAILED(pselShowUserCreator()))
+                    {
+                        brls::Application::notify(TR("Não consegui abrir a tela do console",
+                            "Couldn't open the console's screen"));
+                        return;
+                    }
+
+                    AccountUid nova = { { 0, 0 } };
+                    for (const AccountUid& uid : contasDoConsole())
+                    {
+                        bool jaExistia = false;
+                        for (const AccountUid& velha : antes)
+                            if (mesmaConta(uid, velha))
+                            {
+                                jaExistia = true;
+                                break;
+                            }
+
+                        if (!jaExistia)
+                        {
+                            nova = uid;
+                            break;
+                        }
+                    }
+
+                    if (!accountUidIsValid(&nova))
+                    {
+                        brls::Application::notify(
+                            TR("Nenhuma conta nova foi criada", "No new account was created"));
+                        return;
+                    }
+
+                    std::string apelido = apelidoDaConta(nova);
+
+                    openJob(new Job(std::string(TR("Restaurar — ", "Restore — ")) + molde.name,
+                                [caminho, pasta, molde, nova, apelido](Job* job) {
+                                    return jobRestoreIntoNewAccount(
+                                        job, caminho, pasta, molde, nova, apelido);
+                                }),
+                        false);
+                });
+            });
+
+            dialog->setCancelable(true);
+            dialog->open();
+        });
+
+    list->addView(criar);
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Criar conta abre a tela do próprio console — a mesma de Configurações > Usuários. "
+           "Este app não mexe no cadastro de usuários por fora dela.",
+            "Creating an account opens the console's own screen — the same one in System "
+            "Settings > Users. This app doesn't touch the user database outside of it."),
+        true));
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
+// Clicou num save de dentro do arquivo. De quem ele é neste console?
+static void openArchiveEntry(std::string caminho, std::string pasta)
+{
+    // Caso normal: a conta que gravou é uma conta daqui. Só confirmar.
+    TitleEntry dest;
+    if (saveDaPasta(pasta, &dest))
+    {
+        brls::Dialog* dialog = new brls::Dialog(
+            TR(std::string("Isso apaga o save de \"") + titleWithOwner(dest)
+                    + "\" que está no console e põe no lugar o que está guardado no arquivo.\n\n"
+                      "O jogo não pode estar aberto. Continuar?",
+                std::string("This erases the \"") + titleWithOwner(dest)
+                    + "\" save on the console and puts what's stored in the file in its "
+                      "place.\n\nThe game must not be running. Continue?"));
+
+        dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+        dialog->addButton(TR("Restaurar", "Restore"), [dialog, caminho, pasta, dest](brls::View* view) {
+            dialog->close([caminho, pasta, dest]() {
+                openJob(new Job(std::string(TR("Restaurar — ", "Restore — ")) + titleWithOwner(dest),
+                            [caminho, pasta, dest](Job* job) {
+                                return jobArchiveRestoreFolder(job, caminho, pasta, dest);
+                            }),
+                    false);
+            });
+        });
+
+        dialog->setCancelable(true);
+        dialog->open();
+        return;
+    }
+
+    // O jogo está aqui, a conta não. Tem conversa: dá pra pôr noutra conta ou
+    // criar a que falta.
+    u64 appId = 0;
+    if (jogoDaPasta(pasta, &appId))
+    {
+        // Menos um caso: save do CONSOLE, não de conta. Não tem conta pra
+        // escolher nem pra criar — o que falta é o save do console existir, e
+        // quem cria ele é o jogo abrindo uma vez.
+        if (contaDaPasta(pasta) == "console")
+        {
+            brls::Dialog* aviso = new brls::Dialog(
+                TR("Este save é do console inteiro, não de uma conta — é o caso do Animal "
+                   "Crossing, por exemplo.\n\nO console ainda não tem esse save. Abra o jogo "
+                   "uma vez (pode fechar em seguida) pra ele criar o save, e volte aqui.",
+                    "This save belongs to the whole console, not to an account — Animal "
+                    "Crossing is one of these.\n\nThis console doesn't have that save yet. "
+                    "Open the game once (you can close it right after) so it creates the "
+                    "save, then come back."));
+
+            aviso->addButton(TR("Entendi", "Got it"), [aviso](brls::View* view) { aviso->close(); });
+            aviso->setCancelable(true);
+            aviso->open();
+            return;
+        }
+
+        openMissingAccountPage(caminho, pasta, appId);
+        return;
+    }
+
+    brls::Dialog* aviso = new brls::Dialog(
+        TR(std::string("\"") + pasta
+                + "\" não bate com nada deste console.\n\n"
+                  "Ou o jogo não está instalado aqui, ou ele nunca foi aberto — save só "
+                  "existe depois que o jogo roda uma vez. Instale/abra o jogo e volte: aí "
+                  "esta linha passa a ter pra onde ir.",
+            std::string("\"") + pasta
+                + "\" doesn't match anything on this console.\n\n"
+                  "Either the game isn't installed here, or it has never been opened — a save "
+                  "only exists after the game runs once. Install/open the game and come back: "
+                  "then this row will have somewhere to go."));
+
+    aviso->addButton(TR("Entendi", "Got it"), [aviso](brls::View* view) { aviso->close(); });
+    aviso->setCancelable(true);
+    aviso->open();
+}
+
+// O "o que tem dentro" de um arquivo: uma linha por save guardado, e cada linha
+// restaura. Roda na thread da interface porque só lê o índice, que é pequeno e
+// está no fim do arquivo — não desempacota nada.
+static void openArchiveContents(std::string caminho, std::string titulo)
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(titulo);
+
+    brls::List* list = new brls::List();
+
+    std::vector<std::pair<std::string, u64>> linhas;
+    ArchiveListing ctx = { &linhas, 0, 0 };
+
+    if (!syncjob_archive_list_path(caminho.c_str(), archiveListingRow, &ctx) || ctx.jogos == 0)
     {
         list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
             TR("Não consegui ler o arquivo. Ou ele não existe, ou está corrompido — em "
@@ -1072,138 +1685,67 @@ static void openArchiveContents()
             + humanSize(ctx.bytes) + TR(" sem compressão", " uncompressed"));
 
         list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-            TR("Pra pôr um destes de volta no console, saia daqui, abra o jogo na lista e "
-               "escolha \"Restaurar do arquivo único\". Nada aqui escreve em save.",
-                "To put one of these back on the console, leave this screen, open the game "
-                "in the list and pick \"Restore from the single file\". Nothing here writes "
-                "to a save."),
+            TR("Aperte A num save pra pôr ele de volta no console. Isso ESCREVE por cima do "
+               "save que está lá — pergunto antes, em cada um.\n\n"
+               "Save de conta que não existe mais aqui também tem saída: eu ofereço outra "
+               "conta, ou criar a conta que falta.",
+                "Press A on a save to put it back on the console. That OVERWRITES the save "
+                "that's there — I ask first, every time.\n\n"
+                "A save from an account that no longer exists here has a way out too: I'll "
+                "offer another account, or creating the missing one."),
             true));
+
+        for (const std::pair<std::string, u64>& linha : linhas)
+        {
+            const std::string& pasta = linha.first;
+
+            brls::ListItem* item = new brls::ListItem(pasta);
+            item->setValue(humanSize(linha.second));
+            item->getClickEvent()->subscribe(
+                [caminho, pasta](brls::View* view) { openArchiveEntry(caminho, pasta); });
+
+            list->addView(item);
+        }
     }
 
     frame->setContentView(list);
     brls::Application::pushView(frame);
 }
 
-// conversa privada removida do historico
-static void openArchivePage(std::vector<TitleEntry> titles)
-{
-    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
-    frame->setTitle(TR("Tudo num arquivo só", "Everything in one file"));
-
-    brls::List* list = new brls::List();
-
-    list->addView(new brls::Header(TR("Guardar", "Store")));
-
-    brls::ListItem* fazerESubir = new brls::ListItem(
-        TR("Juntar tudo e subir pro Drive", "Pack everything and upload to Drive"),
-        TR("Junta o save de todos os jogos num arquivo só e manda pro seu Drive.",
-            "Packs every game's save into a single file and sends it to your Drive."));
-    fazerESubir->getClickEvent()->subscribe([titles](brls::View* view) {
-        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
-                    [titles](Job* job) { return jobArchiveAll(job, titles, true); }),
-            true);
-    });
-
-    brls::ListItem* soFazer = new brls::ListItem(
-        TR("Só juntar, sem subir", "Just pack it, don't upload"),
-        TR("Deixa o arquivo em switch/SwitchSaveSync/ e não encosta na internet.",
-            "Leaves the file in switch/SwitchSaveSync/ and doesn't touch the internet."));
-    soFazer->getClickEvent()->subscribe([titles](brls::View* view) {
-        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
-                    [titles](Job* job) { return jobArchiveAll(job, titles, false); }),
-            true);
-    });
-
-    list->addView(fazerESubir);
-    list->addView(soFazer);
-
-    if (syncjob_has_archive())
-    {
-        brls::ListItem* subir = new brls::ListItem(
-            TR("Subir o arquivo que já está no cartão", "Upload the file already on the SD card"),
-            TR("Manda pro Drive o arquivo de agora, sem refazer.",
-                "Sends the current file to Drive without rebuilding it."));
-        subir->getClickEvent()->subscribe([](brls::View* view) {
-            openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
-        });
-        list->addView(subir);
-    }
-
-    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
-
-    brls::ListItem* baixar = new brls::ListItem(
-        TR("Baixar o arquivo do Drive", "Download the file from Drive"),
-        TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
-           "jogo por jogo.",
-            "Brings the file to the SD card. Doesn't write to any save — that's your call, "
-            "game by game."));
-    baixar->getClickEvent()->subscribe([](brls::View* view) {
-        openJob(new Job(TR("Baixar o arquivo", "Download the file"), jobArchiveDownload), false);
-    });
-    list->addView(baixar);
-
-    if (syncjob_has_archive())
-    {
-        brls::ListItem* dentro = new brls::ListItem(
-            TR("Ver o que tem dentro", "See what's inside"),
-            TR("Lista os saves guardados no arquivo do cartão.",
-                "Lists the saves stored in the file on the SD card."));
-        dentro->getClickEvent()->subscribe([](brls::View* view) { openArchiveContents(); });
-        list->addView(dentro);
-    }
-
-    list->addView(new brls::Header(TR("Antes de usar", "Before you use it")));
-
-    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
-    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
-    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("O arquivo é de um formato nosso (.ssaves): não é zip, não abre com dois cliques "
-           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
-           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
-           "de verdade consegue ler.\n\n"
-           "O modo normal — uma pasta por jogo no Drive — continua sendo o recomendado, e "
-           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
-           "pasta por jogo é o que continua servindo se um dia este app sumir.",
-            "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
-            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
-            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
-            "open, so anyone determined enough can read it.\n\n"
-            "The normal mode — one folder per game on Drive — is still the recommended one, "
-            "and the two can coexist. A single file is handy for taking everything at once; "
-            "one folder per game is what still works if this app ever disappears."),
-        true));
-
-    frame->setContentView(list);
-    brls::Application::pushView(frame);
-}
-
-static void fillGamesList(brls::List* list)
+// A aba "Tudo de uma vez": o que age em TODOS os saves de uma vez só.
+//
+// Estava tudo espremido no topo da lista de jogos, empurrando os jogos pra
+// baixo e misturando "sincroniza esse aí" com "sincroniza tudo". São coisas
+// diferentes e agora moram em lugares diferentes.
+static void fillBulkList(brls::List* list)
 {
     list->clear(true);
 
-    g_titles_count = titles_list_with_savedata(g_titles, MAX_TITLES);
+    // A cópia que os trabalhos em lote levam. Feita AQUI, na thread da
+    // interface: assim o que a tela diz e o que o trabalho faz são a mesma
+    // coisa. Vai todo mundo, não a lista de jogos: o mesmo jogo com dois saves
+    // aparece uma linha só lá, mas são dois saves pra sincronizar.
+    std::vector<TitleEntry> todos(g_titles, g_titles + g_titles_count);
 
-    if (g_titles_count == 0)
+    if (todos.empty())
     {
         list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-            TR("Nenhum jogo com save de usuário foi encontrado neste console.",
-                "No game with save data was found on this console."),
+            TR("Nenhum save encontrado neste console. Abra a aba \"Meus jogos\" e aperte X "
+               "pra procurar de novo.",
+                "No saves found on this console. Open the \"My games\" tab and press X to "
+                "look again."),
             true));
         return;
     }
 
-    // A cópia que os trabalhos em lote levam. Feita AQUI, na thread da
-    // interface, junto com a lista que ele está vendo: assim o que a barra diz
-    // e o que o trabalho faz são a mesma coisa, mesmo que ele aperte X no meio.
-    //
-    // Vai todo mundo, não a lista de cima: o mesmo jogo com dois saves aparece
-    // uma linha só na tela, mas são dois saves pra sincronizar.
-    std::vector<TitleEntry> todos(g_titles, g_titles + g_titles_count);
-
-    list->addView(new brls::Header(TR("Tudo de uma vez", "All at once")));
+    list->addView(new brls::Header(TR("Sincronizar", "Sync")));
 
     brls::ListItem* syncAllItem = new brls::ListItem(
-        TR("Sincronizar todos os saves", "Sync every save"));
+        TR("Sincronizar todos os saves", "Sync every save"),
+        TR("Passa por cada save decidindo sozinho pra que lado vai. Quando os dois lados "
+           "mudaram, deixa quieto e avisa no fim.",
+            "Goes through every save deciding which way each one goes. When both sides have "
+            "changed, it leaves it alone and tells you at the end."));
     syncAllItem->setValue(std::to_string(todos.size()) + TR(" saves", " saves"));
     syncAllItem->getClickEvent()->subscribe([todos](brls::View* view) {
         brls::Dialog* dialog = new brls::Dialog(
@@ -1232,16 +1774,115 @@ static void fillGamesList(brls::List* list)
     });
     list->addView(syncAllItem);
 
-    brls::ListItem* archiveItem = new brls::ListItem(
-        TR("Tudo num arquivo só", "Everything in one file"),
-        TR("Junta todos os saves num arquivo nosso, que só este app lê. Opcional — o "
-           "normal continua sendo uma pasta por jogo.",
-            "Packs every save into a file of ours that only this app reads. Optional — the "
-            "normal way is still one folder per game."));
-    archiveItem->getClickEvent()->subscribe([todos](brls::View* view) { openArchivePage(todos); });
-    list->addView(archiveItem);
+    // conversa privada removida do historico
+    list->addView(new brls::Header(TR("Guardar num arquivo só", "Store in a single file")));
 
-    list->addView(new brls::Header(TR("Meus jogos", "My games")));
+    brls::ListItem* fazerESubir = new brls::ListItem(
+        TR("Juntar tudo e subir pro Drive", "Pack everything and upload to Drive"),
+        TR("Junta o save de todos os jogos num arquivo só e manda pro seu Drive.",
+            "Packs every game's save into a single file and sends it to your Drive."));
+    fazerESubir->getClickEvent()->subscribe([todos](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [todos](Job* job) { return jobArchiveAll(job, todos, true); }),
+            true);
+    });
+    list->addView(fazerESubir);
+
+    brls::ListItem* soFazer = new brls::ListItem(
+        TR("Só juntar, sem subir", "Just pack it, don't upload"),
+        TR("Deixa o arquivo em switch/SwitchSaveSync/ e não encosta na internet.",
+            "Leaves the file in switch/SwitchSaveSync/ and doesn't touch the internet."));
+    soFazer->getClickEvent()->subscribe([todos](brls::View* view) {
+        openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
+                    [todos](Job* job) { return jobArchiveAll(job, todos, false); }),
+            true);
+    });
+    list->addView(soFazer);
+
+    if (syncjob_has_archive())
+    {
+        brls::ListItem* subir = new brls::ListItem(
+            TR("Subir o arquivo que já está no cartão", "Upload the file already on the SD card"),
+            TR("Manda pro Drive o arquivo de agora, sem refazer.",
+                "Sends the current file to Drive without rebuilding it."));
+        subir->getClickEvent()->subscribe([](brls::View* view) {
+            openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
+        });
+        list->addView(subir);
+    }
+
+    list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
+
+    brls::ListItem* baixar = new brls::ListItem(
+        TR("Baixar o arquivo do Drive", "Download the file from Drive"),
+        TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
+           "save por save.",
+            "Brings the file to the SD card. Doesn't write to any save — that's your call, "
+            "save by save."));
+    baixar->getClickEvent()->subscribe([](brls::View* view) {
+        openJob(new Job(TR("Baixar o arquivo", "Download the file"), jobArchiveDownload), false,
+            [](bool success) {
+                if (success)
+                    brls::Application::notify(TR("Aperte X pra atualizar esta tela",
+                        "Press X to refresh this screen"));
+            });
+    });
+    list->addView(baixar);
+
+    if (syncjob_has_archive())
+    {
+        char caminho[0x300];
+        syncjob_archive_path(caminho, sizeof(caminho));
+        std::string arquivo = caminho;
+
+        brls::ListItem* dentro = new brls::ListItem(
+            TR("Ver e restaurar o que tem dentro", "See and restore what's inside"),
+            TR("Lista os saves guardados no arquivo do cartão. Cada um dá pra pôr de volta.",
+                "Lists the saves stored in the file on the SD card. Each one can be put back."));
+        dentro->getClickEvent()->subscribe([arquivo](brls::View* view) {
+            openArchiveContents(arquivo, TR("Dentro do arquivo", "Inside the file"));
+        });
+        list->addView(dentro);
+    }
+
+    list->addView(new brls::Header(TR("Sobre o arquivo único", "About the single file")));
+
+    // Isto está na tela de propósito. É a diferença entre uma escolha e uma
+    // armadilha: o formato é nosso, então o arquivo depende deste app existir.
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("O arquivo é de um formato nosso (.ssaves): não é zip, não abre com dois cliques "
+           "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
+           "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
+           "de verdade consegue ler.\n\n"
+           "O modo normal — uma pasta por jogo no Drive — continua sendo o recomendado, e "
+           "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
+           "pasta por jogo é o que continua servindo se um dia este app sumir.",
+            "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
+            "double-click on a computer, and only this app reads it. Anyone who stumbles on "
+            "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
+            "open, so anyone determined enough can read it.\n\n"
+            "The normal mode — one folder per game on Drive — is still the recommended one, "
+            "and the two can coexist. A single file is handy for taking everything at once; "
+            "one folder per game is what still works if this app ever disappears."),
+        true));
+}
+
+// A lista de jogos, e só ela. O que agia em tudo de uma vez saiu daqui pra aba
+// "Tudo de uma vez": estava empurrando os jogos pra baixo da tela.
+static void fillGamesList(brls::List* list)
+{
+    list->clear(true);
+
+    g_titles_count = titles_list_with_savedata(g_titles, MAX_TITLES);
+
+    if (g_titles_count == 0)
+    {
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Nenhum jogo com save de usuário foi encontrado neste console.",
+                "No game with save data was found on this console."),
+            true));
+        return;
+    }
 
     for (size_t i = 0; i < g_titles_count; i++)
     {
@@ -1311,6 +1952,23 @@ static brls::List* createGamesTab()
     list->registerAction(TR("Atualizar lista", "Refresh list"), brls::Key::X, [list] {
         fillGamesList(list);
         brls::Application::notify(TR("Lista atualizada", "List refreshed"));
+        return true;
+    });
+
+    return list;
+}
+
+static brls::List* createBulkTab()
+{
+    brls::List* list = new brls::List();
+    fillBulkList(list);
+
+    // Mesmo X da aba dos jogos. Aqui ele importa por outro motivo: depois de
+    // baixar o arquivo do Drive, é o que faz o "ver o que tem dentro" aparecer.
+    list->registerAction(TR("Atualizar", "Refresh"), brls::Key::X, [list] {
+        g_titles_count = titles_list_with_savedata(g_titles, MAX_TITLES);
+        fillBulkList(list);
+        brls::Application::notify(TR("Atualizado", "Refreshed"));
         return true;
     });
 
@@ -1646,6 +2304,7 @@ int main(int argc, char* argv[])
     g_root->setIcon(BOREALIS_ASSET("icon/borealis.jpg"));
 
     g_root->addTab(TR("Meus jogos", "My games"), createGamesTab());
+    g_root->addTab(TR("Tudo de uma vez", "All at once"), createBulkTab());
     g_root->addTab(TR("Conta", "Account"), createAccountTab());
     g_root->addSeparator();
     g_root->addTab(TR("Sobre", "About"), createAboutTab());

@@ -106,6 +106,32 @@ bool titles_get_icon(u64 application_id, u8 *out, size_t outsz, size_t *out_len)
     return true;
 }
 
+bool titles_save_sizes(u64 application_id, bool device, u64 *out_size, u64 *out_journal) {
+    if (!out_size || !out_journal) return false;
+
+    // mesma história dos dois de cima: 128 KB de ícone dentro da struct.
+    static NsApplicationControlData ctrl;
+    u64 actual_size = 0;
+
+    bool ns_owned = R_SUCCEEDED(nsInitialize());
+    Result rc = nsGetApplicationControlData(NsApplicationControlSource_Storage,
+                                             application_id, &ctrl, sizeof(ctrl), &actual_size);
+    if (ns_owned) nsExit();
+    if (R_FAILED(rc)) return false;
+
+    u64 size    = device ? ctrl.nacp.device_save_data_size : ctrl.nacp.user_account_save_data_size;
+    u64 journal = device ? ctrl.nacp.device_save_data_journal_size
+                         : ctrl.nacp.user_account_save_data_journal_size;
+
+    // Zero aqui quer dizer "esse jogo não usa esse tipo de save". Criar um save
+    // de tamanho zero não é criar save nenhum, então isso é um não.
+    if (size == 0) return false;
+
+    *out_size    = size;
+    *out_journal = journal;
+    return true;
+}
+
 // Ordena a lista do mais recente jogado pro mais antigo, usando o serviço
 // pdm (o mesmo registro de uso que o próprio menu do console usa pra montar
 // a fileira de jogos recentes).
