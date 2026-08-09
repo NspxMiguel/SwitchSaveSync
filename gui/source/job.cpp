@@ -73,6 +73,21 @@ bool Job::takeDeviceLogin(std::string& url, std::string& code, std::string& urlW
     return true;
 }
 
+void Job::offerChoice(const std::string& label, const std::string& description,
+    std::function<void()> action)
+{
+    std::lock_guard<std::mutex> guard(this->mutex);
+    this->choices.push_back({ label, description, action });
+}
+
+std::vector<JobChoice> Job::takeChoices()
+{
+    std::lock_guard<std::mutex> guard(this->mutex);
+    std::vector<JobChoice> out;
+    out.swap(this->choices);
+    return out;
+}
+
 std::vector<JobLine> Job::takeNewLines()
 {
     std::lock_guard<std::mutex> guard(this->mutex);

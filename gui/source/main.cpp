@@ -278,6 +278,11 @@ static bool ensureLogin(Job* job)
     return ensureToken(job, token, sizeof(token));
 }
 
+// Declarados aqui porque o conflito do jobSync oferece os dois como saída, e
+// eles só são definidos mais abaixo.
+static bool jobBackup(Job* job, TitleEntry title);
+static bool jobRestore(Job* job, TitleEntry title);
+
 // O clique principal: "clica pra synca o save com a nuvem e PRONTO".
 // Quem decide pra que lado vai é o syncjob_sync_title.
 static bool jobSync(Job* job, TitleEntry title)
@@ -306,10 +311,29 @@ static bool jobSync(Job* job, TitleEntry title)
             return true;
 
         case SYNCJOB_SYNC_CONFLICT:
-            job->setStatus("O save mudou dos DOIS lados. Escolher sozinho apagaria "
-                           "progresso de um deles, entao nao mexi em nada.");
-            job->log("Aperte Y no jogo, na lista, pra escolher: enviar o daqui "
-                     "ou baixar o do Drive.", true);
+            job->setStatus("Os dois lados tem save e sao diferentes. Escolher sozinho "
+                           "apagaria progresso de um deles — escolha voce, abaixo.");
+
+            // A ordem importa: a primeira é a que recebe o foco, e o caso que
+            // leva ao conflito quase sempre é jogo reinstalado com o save de
+            // verdade no Drive. Nada é escrito até ele apertar A.
+            job->offerChoice("Trazer o save do Drive pro console",
+                "Apaga o save que esta no console e poe o do Drive no lugar. "
+                "E o que voce quer se reinstalou o jogo.",
+                [title] {
+                    openJob(new Job(std::string("Restaurar — ") + title.name,
+                                [title](Job* j) { return jobRestore(j, title); }),
+                        false);
+                });
+
+            job->offerChoice("Mandar o save do console pro Drive",
+                "Substitui o que esta no Drive pelo save deste console.",
+                [title] {
+                    openJob(new Job(std::string("Backup — ") + title.name,
+                                [title](Job* j) { return jobBackup(j, title); }),
+                        false);
+                });
+
             return false;
 
         case SYNCJOB_SYNC_FAILED:

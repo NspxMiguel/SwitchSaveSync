@@ -168,6 +168,57 @@ static bool dir_is_empty(const char *dir)
     return !dir_has_any_file(dir);
 }
 
+// Conta arquivos e bytes de uma árvore.
+static void dir_stats(const char *dir, int *files, u64 *bytes)
+{
+    DIR *d = opendir(dir);
+    if (!d)
+        return;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)))
+    {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+            continue;
+
+        char path[0x300];
+        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+
+        struct stat st;
+        if (stat(path, &st) != 0)
+            continue;
+
+        if (S_ISDIR(st.st_mode))
+            dir_stats(path, files, bytes);
+        else
+        {
+            (*files)++;
+            *bytes += (u64)st.st_size;
+        }
+    }
+    closedir(d);
+}
+
+// O tamanho dos dois lados, lado a lado, na hora do conflito.
+//
+// Sem isso a tela dizia "os dois mudaram, escolha" e não dava NADA em cima do
+// que escolher — e é justamente aí que uma escolha errada apaga progresso. O
+// conversa privada removida do historico
+// de estreia no console contra o save de verdade no Drive. Na tela os dois são
+// "um save"; em número, um tem alguns KB e o outro não.
+static void say_dois_lados(syncjob_log_cb log, const char *console_dir, const char *cloud_dir)
+{
+    int cf = 0, nf = 0;
+    u64 cb = 0, nb = 0;
+    dir_stats(console_dir, &cf, &cb);
+    dir_stats(cloud_dir, &nf, &nb);
+
+    say(log, "  no console: %d arquivo%s, %llu KB", cf, cf == 1 ? "" : "s",
+        (unsigned long long)((cb + 1023) / 1024));
+    say(log, "  na nuvem:   %d arquivo%s, %llu KB", nf, nf == 1 ? "" : "s",
+        (unsigned long long)((nb + 1023) / 1024));
+}
+
 // Esvazia a pasta de staging (mantém a pasta em si).
 //
 // O staging tem nome de jogo, então o lixo que sobra ali é do download
@@ -663,8 +714,11 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     if (!tem_marcador)
     {
-        say(log, "Os dois lados tem save e nunca sincronizaram por aqui —");
-        say(log, "nao da pra saber qual e o mais novo. Escolha no botao Y.");
+        say(log, "Primeira sync deste jogo por aqui, e ja tem save dos dois");
+        say(log, "lados. Sem uma sync anterior nao da pra saber qual andou.");
+        say_dois_lados(log, console_dir, cloud_dir);
+        say(log, "Se voce reinstalou o jogo e abriu uma vez, o do console e o");
+        say(log, "save de estreia — nesse caso e o da nuvem que voce quer.");
         return SYNCJOB_SYNC_CONFLICT;
     }
 
@@ -674,7 +728,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     if (console_mudou && nuvem_mudou)
     {
         say(log, "Mudou dos DOIS lados desde a ultima sync.");
-        say(log, "Escolher sozinho apagaria progresso — escolha no botao Y.");
+        say_dois_lados(log, console_dir, cloud_dir);
         return SYNCJOB_SYNC_CONFLICT;
     }
 
