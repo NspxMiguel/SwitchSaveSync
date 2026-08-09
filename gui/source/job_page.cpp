@@ -85,26 +85,42 @@ void JobPage::pump()
         // ~560 px, e o QR dividia esse espaço com o status, o botão, o código
         // e a explicação — sobrava QR cortado pela metade. Nesse tamanho a
         // câmera de celular ainda lê de longe, na TV.
-        QrView* qr = new QrView(urlWithCode, 260);
-        if (qr->isValid())
-        {
-            this->list->addView(qr);
-        }
-        else
-        {
-            delete qr;
-            this->list->addView(new brls::Label(brls::LabelStyle::SMALL,
-                "(nao consegui gerar o QR — use o endereco e o codigo abaixo)", true));
-        }
+        // O link e o código entram ANTES do QR de propósito. Na ordem antiga
+        // eles vinham depois, e como a lista rola, o que cabia na tela era só
+        // conversa privada removida do historico
+        // câmera à mão aponta pro QR, e quem não tem lê e digita, sem rolar.
+        brls::Label* linkLabel = new brls::Label(brls::LabelStyle::DIALOG, url, true);
+        linkLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
+        this->list->addView(linkLabel);
 
         brls::Label* codeLabel = new brls::Label(brls::LabelStyle::DIALOG,
             "Codigo: " + code, true);
         codeLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
         this->list->addView(codeLabel);
 
-        this->list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-            "Ou abra " + url + " e digite o codigo. O Switch nao pede senha.",
-            true));
+        this->loginViews.push_back(linkLabel);
+        this->loginViews.push_back(codeLabel);
+
+        // 260 px, e não 340: a tela útil entre o cabeçalho e o rodapé é de
+        // ~560 px, e o QR dividia esse espaço com o status, o botão, o código
+        // e a explicação — sobrava QR cortado pela metade. Nesse tamanho a
+        // câmera de celular ainda lê de longe, na TV.
+        QrView* qr = new QrView(urlWithCode, 260);
+        brls::View* qrView = qr;
+        if (!qr->isValid())
+        {
+            delete qr;
+            qrView = new brls::Label(brls::LabelStyle::SMALL,
+                "(nao consegui gerar o QR — use o endereco e o codigo acima)", true);
+        }
+        this->list->addView(qrView);
+        this->loginViews.push_back(qrView);
+
+        brls::View* helpLabel = new brls::Label(brls::LabelStyle::DESCRIPTION,
+            "Abra o endereco acima e digite o codigo, ou aponte a camera pro QR "
+            "(ja vai com o codigo preenchido). O Switch nao pede senha.", true);
+        this->list->addView(helpLabel);
+        this->loginViews.push_back(helpLabel);
     }
 
     for (const JobLine& line : this->job->takeNewLines())
@@ -121,6 +137,16 @@ void JobPage::pump()
 
         bool success = this->job->succeeded();
         this->setFooterText(success ? "Concluido" : "Falhou");
+
+        // Some com o link, o código e o QR. Sem isso, acabar o login não mudava
+        // nada de visível — o QR continuava ocupando a tela inteira, e ele leu
+        // isso como login quebrado. Escondo em vez de remover porque remover
+        // view na borealis vem com aviso de corrupção de memória no header
+        // dela; e o layout já pula filho escondido, então some do mesmo jeito.
+        for (brls::View* v : this->loginViews)
+            v->hide([] {}, false);
+        this->loginViews.clear();
+        this->invalidate();
 
         if (!success)
             this->statusLabel->setColor(nvgRGB(255, 92, 92));

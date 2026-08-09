@@ -40,15 +40,24 @@ void oauth_logout(void) {
     remove(TOKEN_PATH);
 }
 
+// Devolve false se o token NÃO chegou no cartão. A cópia em memória é feita
+// primeiro de propósito: com o cartão cheio ou protegido, a sessão de agora
+// continua inteira e o que se perde é só a parte de não precisar logar de novo
+// no próximo boot. Antes, um fopen que falhasse saía daqui sem nem guardar o
+// token na memória, e quem chamava ignorava o retorno.
 static bool save_refresh_token(const char *token) {
+    strncpy(g_refresh_token, token, sizeof(g_refresh_token) - 1);
+    g_refresh_token[sizeof(g_refresh_token) - 1] = '\0';
+
     ensure_token_dir();
     FILE *f = fopen(TOKEN_PATH, "wb");
     if (!f) return false;
-    fwrite(token, 1, strlen(token), f);
-    fclose(f);
-    strncpy(g_refresh_token, token, sizeof(g_refresh_token) - 1);
-    g_refresh_token[sizeof(g_refresh_token) - 1] = '\0';
-    return true;
+
+    size_t querido = strlen(token);
+    size_t escrito = fwrite(token, 1, querido, f);
+    // fclose também pode falhar: é nele que o buffer vai pro cartão de verdade.
+    bool fechou_ok = (fclose(f) == 0);
+    return fechou_ok && escrito == querido;
 }
 
 static oauth_device_cb g_device_cb = NULL;
@@ -118,7 +127,13 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
     }
     if (on_status) on_status(status_msg);
 
+    // O loop abaixo era inteiramente mudo: erro de rede caía num continue sem
+    // escrever nada, então "esperando ele confirmar" e "a rede morreu" ficavam
+    // exatamente iguais na tela — parada, no mesmo texto, pra sempre. Agora
+    // todo caminho escreve alguma coisa, e o contador de segundos serve de
+    // sinal de vida.
     double elapsed = 0;
+    int falhas_rede = 0;
     while (elapsed < expires_in) {
         if (should_cancel && should_cancel()) {
             if (on_status) on_status("Login cancelado.");
@@ -137,6 +152,14 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
         HttpResponse poll = http_post_form("https://oauth2.googleapis.com/token", poll_fields);
         if (!poll.ok) {
             // erro de rede pontual (ex: wifi soneca) — tenta de novo no próximo tick
+            falhas_rede++;
+            if (on_status) {
+                char m[200];
+                snprintf(m, sizeof(m),
+                         "Sem resposta do Google (%d falha%s de rede). Tentando de novo... (B cancela)",
+                         falhas_rede, falhas_rede == 1 ? "" : "s");
+                on_status(m);
+            }
             http_response_free(&poll);
             continue;
         }
@@ -145,8 +168,13 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
             char refresh_token[512] = {0};
             if (json_get_string(poll.body, "refresh_token", refresh_token, sizeof(refresh_token))) {
                 http_response_free(&poll);
-                save_refresh_token(refresh_token);
-                if (on_status) on_status("Login concluido! Token salvo no SD.");
+                if (save_refresh_token(refresh_token)) {
+                    if (on_status) on_status("Login concluido! Token salvo no cartao.");
+                } else {
+                    // Entrou de verdade — só não deu pra guardar. Dizer "falhou"
+                    // aqui seria mentira ao contrário: a sessão funciona.
+                    if (on_status) on_status("Login concluido, mas nao consegui gravar o token no cartao. Vai funcionar agora e pedir login de novo no proximo boot.");
+                }
                 return true;
             }
             // 200 sem refresh_token normalmente é o app já autorizado antes
@@ -162,7 +190,16 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
         http_response_free(&poll);
 
         if (strcmp(err, "authorization_pending") == 0) {
-            continue; // normal, usuário ainda não confirmou
+            // Normal: ele ainda não confirmou. O relógio na tela é o que separa
+            // "estou esperando você" de "travei".
+            if (on_status) {
+                char m[200];
+                snprintf(m, sizeof(m),
+                         "Aguardando voce confirmar no celular ou no PC — %ds. (B cancela)",
+                         (int)elapsed);
+                on_status(m);
+            }
+            continue;
         } else if (strcmp(err, "slow_down") == 0) {
             interval += 5; // Google pediu pra espaçar mais o poll
             continue;
