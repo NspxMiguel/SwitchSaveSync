@@ -277,6 +277,10 @@ barra de porcentagem e um botão **Pular** pra quem não quer esperar. Ainda nã
   existia pronto, o que precisava ser construído, e onde estava o risco.
 - [`SAVES.md`](SAVES.md) — como save de Switch funciona de verdade, e o que isso obriga o
   app a fazer.
+- [`NUVENS.md`](NUVENS.md) — **como adicionar uma nuvem nova você mesmo** (OneDrive,
+  Dropbox, o que for): as doze funções que faltam escrever, onde registrar, e os endpoints
+  do OneDrive já mastigados. Não precisa pedir pra mim — é um arquivo novo, não uma
+  cirurgia.
 
 ## Créditos
 

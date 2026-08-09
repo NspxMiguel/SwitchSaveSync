@@ -31,7 +31,7 @@ ICON        :=  ../assets/icon.jpg
 
 APP_TITLE   :=  SwitchSaveSync
 APP_AUTHOR  :=  Miguel
-APP_VERSION :=  0.3.1
+APP_VERSION :=  0.3.2
 
 # O romfs carrega os recursos da borealis (fontes, icones material, i18n) e
 # o cacert.pem que o http.c usa pra validar o TLS do Google.

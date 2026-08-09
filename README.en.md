@@ -277,6 +277,10 @@ percentage bar and a **Skip** button for people who won't wait. Not built yet.
   project: what already existed, what had to be built, and where the risk lived.
 - [`SAVES.md`](SAVES.md) *(Portuguese)* — how Switch saves actually work, and what that
   forces the app to do.
+- [`NUVENS.md`](NUVENS.md) *(Portuguese)* — **how to add a new cloud yourself** (OneDrive,
+  Dropbox, whatever): the twelve functions to write, the three lines that register them,
+  and the OneDrive Graph endpoints already chewed through. You don't need to ask me — it's
+  one new file, not surgery. The prose is Portuguese; the code and the endpoints aren't.
 
 ## Credits
 
