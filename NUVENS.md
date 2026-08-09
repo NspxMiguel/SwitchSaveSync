@@ -8,6 +8,8 @@ Não precisa pedir pra mim: o app foi montado pra isso ser um arquivo novo, não
 > Box), **não precisa programar nada**: já tem WebDAV pronto, em Ajustes → Onde salvar.
 > Este guia é pra nuvem que fala uma API própria.
 
+*In English: [CLOUDS.md](CLOUDS.md).*
+
 ---
 
 ## O tamanho da tarefa

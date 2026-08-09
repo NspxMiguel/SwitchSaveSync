@@ -2316,13 +2316,14 @@ static void openOutrasNuvens()
     list->addView(new brls::ListItem("OneDrive, Dropbox",
         TR("Dão pra fazer, e não estão feitos. Os dois exigem registrar um aplicativo no "
            "portal deles pra sair um código de acesso — de graça, só chato.\n\n"
-           "Se você quiser fazer, tem um guia passo a passo no NUVENS.md do repositório: "
+           "Se você quiser fazer, tem um guia passo a passo no NUVENS.md do repositório "
+           "(CLOUDS.md em inglês): "
            "são doze funções num arquivo novo e três linhas de registro, e os endereços do "
            "OneDrive já estão mastigados lá. O resto do app não muda.",
             "Both are doable, and neither is done. Each requires registering an app on "
             "their portal to get an access key — free, just tedious.\n\n"
             "If you want to do it, there's a step-by-step guide in the repository's "
-            "NUVENS.md: twelve functions in one new file and three lines to register them, "
+            "CLOUDS.md: twelve functions in one new file and three lines to register them, "
             "with the OneDrive endpoints already chewed through. Nothing else in the app "
             "changes.")));
 
