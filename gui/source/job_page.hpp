@@ -5,6 +5,7 @@
 #include <borealis.hpp>
 
 #include <memory>
+#include <vector>
 
 #include "job.hpp"
 
@@ -35,6 +36,12 @@ class JobPage : public brls::AppletFrame
     brls::Label* statusLabel  = nullptr;
     brls::ListItem* backItem  = nullptr;
     std::string lastStatus;
+
+    // QR, código e link. Ficam guardados porque precisam SUMIR quando o login
+    // termina: enquanto eles continuavam na tela, acabar o login não mudava
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    std::vector<brls::View*> loginViews;
 
     std::function<void(bool success)> onFinished;
 
