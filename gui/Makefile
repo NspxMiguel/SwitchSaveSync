@@ -120,13 +120,20 @@ endif
 
 all: $(BUILD)
 
-$(BUILD):
+$(BUILD): $(ROMFS)/icon/app.jpg
 	@[ -d $@ ] || mkdir -p $@
 	@MSYS2_ARG_CONV_EXCL="-D;$(MSYS2_ARG_CONV_EXCL)" $(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
+# O icone do canto de dentro do app é o MESMO arquivo do icone do .nro. Sai
+# copiado pro romfs em vez de estar commitado duas vezes: o icone do app tem que
+# ter um dono só, senão um dia trocam um e esquecem o outro — que foi exatamente
+# o que aconteceu (dentro do app ficou o icone da borealis).
+$(ROMFS)/icon/app.jpg: $(ICON)
+	@cp $< $@
+
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf $(ROMFS)/icon/app.jpg
 
 #---------------------------------------------------------------------------------
 else
