@@ -11,6 +11,7 @@ Abre o app, aperta A no jogo, pronto — ele decide sozinho se sobe ou se desce.
 [![CFW](https://img.shields.io/badge/CFW-Atmosph%C3%A8re-5865f2)](https://github.com/Atmosphere-NX/Atmosphere)
 [![Compilador](https://img.shields.io/badge/build-devkitPro-1f9c4b)](https://devkitpro.org/)
 [![Idiomas](https://img.shields.io/badge/idiomas-PT%20%7C%20EN-blue)](#tamb%C3%A9m-tem)
+[![Testado em](https://img.shields.io/badge/testado%20em-firmware%2018.1.0-f59f00)](#onde-foi-testado)
 [![Licença](https://img.shields.io/badge/licen%C3%A7a-GPLv3-663366)](LICENSE)
 
 [English](README.en.md)
@@ -86,6 +87,21 @@ nuvem não é uma opção.
 - **Lista por último jogado**, com o ícone e o nome de verdade de cada jogo, lidos do
   console.
 - **Português e inglês**, com o idioma seguindo o console ou escolhido na mão.
+
+## Onde foi testado
+
+**Switch OLED com firmware 18.1.0, em Atmosphère.** É o console em que ele foi escrito e é
+onde ele roda todo dia — o resto é honestidade sobre o que ninguém tentou ainda.
+
+Nada aqui depende de versão: o app não tem tabela de offsets, não faz patch em nada e não
+lê estrutura interna de save. Ele usa as chamadas de montar save da libnx, que são as
+mesmas desde o firmware 1.0, e a API do Google Drive, que é HTTPS. Então a chance de
+quebrar numa versão diferente é baixa — mas *baixa* não é *testada*, e é isso que este
+parágrafo está dizendo.
+
+Se rodar (ou não rodar) em outra versão, [abra uma
+issue](https://github.com/NspxMiguel/SwitchSaveSync/issues) contando qual — dá pra
+transformar isto numa lista de verdade.
 
 ## Instalar
 
