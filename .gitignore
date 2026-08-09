@@ -21,3 +21,6 @@ cartao/
 
 # copia do ../assets/icon.jpg, feita pelo Makefile
 gui/resources/icon/app.jpg
+
+# binarios e servidor de teste do tests/run.sh
+tests/build/
