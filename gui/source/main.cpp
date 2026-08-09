@@ -11,7 +11,8 @@
 
 extern "C" {
 #include "config.h"
-#include "drive.h"
+#include "cloud.h"
+#include "webdav.h"
 #include "http.h"
 #include "lang.h"
 #include "oauth.h"
@@ -50,6 +51,7 @@ static brls::ListItem* g_account_item = nullptr;
 static brls::ListItem* g_login_item   = nullptr;
 static brls::ListItem* g_logout_item  = nullptr;
 static brls::ListItem* g_pin_item     = nullptr;
+static brls::ListItem* g_webdav_item  = nullptr;
 
 // Caminho deste .nro, guardado do argv[0] — é o que envSetNextLoad precisa pra
 // reabrir o app quando ele troca de idioma.
@@ -131,12 +133,70 @@ static void updateAccountViews()
     if (g_logout_item)
         g_logout_item->setValue(logged ? "" : TR("nada pra sair", "not signed in"), !logged);
 
+    // O rodapé diz a nuvem que está valendo, não "Google Drive" na mão: desde
+    // que dá pra escolher WebDAV, dizer Drive aqui seria mentira metade das
+    // vezes.
     if (g_root)
-        g_root->setSubtitle(logged ? TR("Google Drive: conta conectada",
-                                        "Google Drive: account connected")
-                                   : TR("Google Drive: nenhuma conta conectada",
-                                        "Google Drive: no account connected"),
-            "v" APP_VERSION_STRING);
+    {
+        CloudKind nuvem = cloud_current();
+        std::string sub = std::string(cloud_name(nuvem)) + ": "
+            + (cloud_is_ready(nuvem) ? TR("pronto pra sincronizar", "ready to sync")
+                                     : TR("falta configurar", "still to set up"));
+        g_root->setSubtitle(sub, "v" APP_VERSION_STRING);
+    }
+}
+
+// O que aparece na linha do servidor WebDAV, na aba Ajustes.
+static void updateWebdavItem()
+{
+    if (!g_webdav_item)
+        return;
+
+    WebdavConfig cfg;
+    if (webdav_get_config(&cfg))
+        g_webdav_item->setValue(cfg.url);
+    else
+        g_webdav_item->setValue(TR("não configurado", "not set up"), true);
+}
+
+// Teclado de texto do console.
+//
+// Não uso o brls::Swkbd::openForText porque ele não tem como esconder o que
+// está sendo digitado, e um dos campos daqui é senha. Chamo a libnx direto,
+// do mesmo jeito que o parental.cpp faz com o teclado numérico.
+//
+// Devolve false quando ele cancela. Texto vazio conta como "deixa como está" —
+// quem chama decide o que fazer com isso.
+static bool pedirTexto(const std::string& header, const std::string& sub,
+    const std::string& inicial, bool senha, size_t maxLen, std::string& out)
+{
+    out.clear();
+
+    SwkbdConfig cfg;
+    if (R_FAILED(swkbdCreate(&cfg, 0)))
+        return false;
+
+    swkbdConfigMakePresetDefault(&cfg);
+    swkbdConfigSetType(&cfg, SwkbdType_Normal);
+    swkbdConfigSetHeaderText(&cfg, header.c_str());
+    swkbdConfigSetSubText(&cfg, sub.c_str());
+    swkbdConfigSetStringLenMax(&cfg, (u32)maxLen);
+    swkbdConfigSetBlurBackground(&cfg, true);
+
+    if (senha)
+        swkbdConfigSetPasswordFlag(&cfg, 1); // bolinha em vez de letra
+    else
+        swkbdConfigSetInitialText(&cfg, inicial.c_str());
+
+    std::vector<char> buffer(maxLen + 1, '\0');
+    Result rc = swkbdShow(&cfg, buffer.data(), buffer.size());
+    swkbdClose(&cfg);
+
+    if (R_FAILED(rc))
+        return false;
+
+    out = buffer.data();
+    return true;
 }
 
 // "De quem é este save?" — string vazia quando não há com o que confundir.
@@ -313,22 +373,33 @@ static bool ensureToken(Job* job, char* out, size_t outsz)
     if (!ensureNetwork(job))
         return false;
 
-    if (!oauth_is_logged_in())
+    // Vale pra qualquer nuvem: no Drive isto renova o token do OAuth, no
+    // WebDAV monta o cabeçalho com usuário e senha. Quem sabe a diferença é o
+    // core/cloud.c.
+    CloudKind nuvem   = cloud_current();
+    const char* falta = cloud_setup_hint(nuvem);
+
+    if (!cloud_is_ready(nuvem))
     {
-        job->setStatus(TR("Você ainda não conectou uma conta Google.",
-            "You haven't connected a Google account yet."));
-        job->log(TR("Vá na aba Ajustes e escolha Entrar.",
-                    "Go to the Settings tab and choose Sign in."),
+        job->setStatus(std::string(TR("Falta configurar ", "Still to set up "))
+            + cloud_name(nuvem) + ".");
+        if (falta && falta[0])
+            job->log(falta, true);
+        job->log(TR("A aba Ajustes tem tudo isso, em Onde salvar.",
+                    "The Settings tab has all of it, under Where to save."),
             true);
         return false;
     }
 
-    job->setStatus(TR("Renovando o acesso ao Google...", "Refreshing Google access..."));
-    if (!oauth_get_fresh_access_token(out, outsz))
+    job->setStatus(std::string(TR("Abrindo o acesso a ", "Opening access to ")) + cloud_name(nuvem)
+        + "...");
+    if (!cloud_begin(out, outsz))
     {
-        job->setStatus(TR("Não consegui renovar o acesso.", "Couldn't refresh the access token."));
-        job->log(TR("Entre na conta de novo pela aba Ajustes.",
-                    "Sign in again from the Settings tab."),
+        job->setStatus(std::string(TR("Não consegui abrir o acesso a ",
+                           "Couldn't open access to "))
+            + cloud_name(nuvem) + ".");
+        job->log(TR("Confira os dados de acesso na aba Ajustes, em Onde salvar.",
+                    "Check the credentials in the Settings tab, under Where to save."),
             true);
         return false;
     }
@@ -373,16 +444,20 @@ static bool jobConnectionTest(Job* job)
     if (!ensureNetwork(job))
         return false;
 
-    char token[512];
+    char token[CLOUD_AUTH_MAX];
     if (!ensureToken(job, token, sizeof(token)))
         return false;
 
-    job->setStatus(TR("Procurando a pasta no Drive...", "Looking for the folder on Drive..."));
-    char folder[128];
-    if (!drive_ensure_app_folder(token, folder, sizeof(folder)))
+    const char* nuvem = cloud_name(cloud_current());
+
+    job->setStatus(std::string(TR("Procurando a pasta em ", "Looking for the folder on ")) + nuvem
+        + "...");
+    char folder[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, folder, sizeof(folder)))
     {
-        job->setStatus(TR("Não consegui criar/achar a pasta no Drive.",
-            "Couldn't create/find the folder on Drive."));
+        job->setStatus(std::string(TR("Não consegui criar/achar a pasta em ",
+                           "Couldn't create/find the folder on "))
+            + nuvem + ".");
         return false;
     }
     job->log(std::string(TR("pasta pronta: ", "folder ready: ")) + DRIVE_APP_FOLDER_NAME);
@@ -396,11 +471,11 @@ static bool jobConnectionTest(Job* job)
     }
     fprintf(f, "SwitchSaveSync - arquivo de teste / test file.\n");
     fprintf(f, "Se voce esta lendo isso depois de um download, o ciclo "
-               "upload->Drive->download funcionou.\n");
+               "upload->nuvem->download funcionou.\n");
     fclose(f);
 
     job->setStatus(TR("Enviando um arquivo de teste...", "Uploading a test file..."));
-    if (!drive_upload(token, folder, TEST_REMOTE, TEST_LOCAL, "text/plain"))
+    if (!cloud_upload(token, folder, TEST_REMOTE, TEST_LOCAL, "text/plain"))
     {
         job->setStatus(TR("O upload falhou.", "The upload failed."));
         return false;
@@ -408,7 +483,7 @@ static bool jobConnectionTest(Job* job)
     job->log(TR("upload OK", "upload OK"));
 
     job->setStatus(TR("Baixando o mesmo arquivo de volta...", "Downloading the same file back..."));
-    if (!drive_download(token, folder, TEST_REMOTE, TEST_DOWN))
+    if (!cloud_download(token, folder, TEST_REMOTE, TEST_DOWN))
     {
         job->setStatus(TR("O download falhou.", "The download failed."));
         return false;
@@ -425,12 +500,13 @@ static bool jobConnectionTest(Job* job)
             while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
                 s.pop_back();
             if (!s.empty())
-                job->log(std::string(TR("recebido do Drive: ", "got back from Drive: ")) + s);
+                job->log(std::string(TR("recebido de volta: ", "got back: ")) + s);
         }
         fclose(f);
     }
 
-    job->setStatus(TR("Rede, TLS e Drive API funcionando.", "Network, TLS and the Drive API work."));
+    job->setStatus(std::string(TR("Rede, TLS e ", "Network, TLS and ")) + nuvem
+        + TR(" funcionando.", " all work."));
     return true;
 }
 
@@ -449,7 +525,7 @@ static void jobLogLine(const char* m)
 // não dá). Quem pega o token de verdade é o syncjob, na hora que precisa.
 static bool ensureLogin(Job* job)
 {
-    char token[512];
+    char token[CLOUD_AUTH_MAX];
     return ensureToken(job, token, sizeof(token));
 }
 
@@ -2016,9 +2092,277 @@ static void restartApp()
     brls::Application::quit();
 }
 
+// Confere se o servidor WebDAV responde com o que está gravado. Roda num Job
+// porque bate na rede, e rede no Switch demora o quanto quiser.
+static bool jobWebdavTest(Job* job)
+{
+    if (!ensureNetwork(job))
+        return false;
+
+    WebdavConfig cfg;
+    if (!webdav_get_config(&cfg))
+    {
+        job->setStatus(TR("Nenhum servidor gravado ainda.", "No server saved yet."));
+        return false;
+    }
+
+    job->setStatus(std::string(TR("Falando com ", "Talking to ")) + cfg.url + "...");
+
+    char erro[256] = { 0 };
+    if (!webdav_test_connection(erro, sizeof(erro)))
+    {
+        job->setStatus(TR("O servidor não aceitou.", "The server didn't accept it."));
+        job->log(erro, true);
+        return false;
+    }
+
+    job->setStatus(TR("Servidor respondeu. Endereço, usuário e senha estão certos.",
+        "The server answered. Address, username and password are right."));
+    return true;
+}
+
+// A tela do servidor WebDAV: endereço, usuário, senha e um botão pra conferir.
+//
+// Em página separada de propósito. São quatro campos que só interessam a quem
+// escolheu WebDAV, e enfiar tudo isso no meio dos Ajustes empurrava idioma e
+// senha pra fora da tela.
+static void openWebdavSetup()
+{
+    brls::AppletFrame* frame = new brls::AppletFrame(true, true);
+    frame->setTitle(TR("Servidor WebDAV", "WebDAV server"));
+
+    brls::List* list = new brls::List();
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Serve pra qualquer coisa que fale WebDAV: Nextcloud, ownCloud, NAS da "
+           "Synology ou da QNAP, Box, e servidor que você mesmo suba. É o jeito de "
+           "guardar save sem depender de conta de empresa nenhuma.\n\n"
+           "O endereço é o que o seu servidor chama de \"WebDAV\" nas configurações — "
+           "no Nextcloud é algo como https://sua-nuvem/remote.php/dav/files/seu-usuario.",
+            "Works with anything that speaks WebDAV: Nextcloud, ownCloud, a Synology or "
+            "QNAP NAS, Box, and servers you host yourself. It's the way to keep saves "
+            "without depending on any company account.\n\n"
+            "The address is whatever your server calls \"WebDAV\" in its settings — on "
+            "Nextcloud it looks like https://your-cloud/remote.php/dav/files/your-user."),
+        true));
+
+    list->addView(new brls::Header(TR("Dados de acesso", "Credentials"), false));
+
+    // O get devolve false quando ainda não tem endereço, mas preenche o struct
+    // de qualquer jeito — então cada linha olha pro SEU campo. Sem isso, quem
+    // digitasse o usuário antes do endereço via "vazio" no que acabou de
+    // escrever.
+    WebdavConfig atual;
+    webdav_get_config(&atual);
+
+    brls::ListItem* urlItem = new brls::ListItem(TR("Endereço", "Address"));
+    urlItem->setValue(atual.url[0] ? atual.url : TR("vazio", "empty"), !atual.url[0]);
+
+    brls::ListItem* userItem = new brls::ListItem(TR("Usuário", "Username"));
+    userItem->setValue(atual.user[0] ? atual.user : TR("vazio", "empty"), !atual.user[0]);
+
+    brls::ListItem* passItem = new brls::ListItem(TR("Senha", "Password"));
+    passItem->setValue(atual.pass[0] ? "••••••••" : TR("vazia", "empty"), !atual.pass[0]);
+
+    // Um lambda só pra reler do cartão e repintar as três linhas: qualquer
+    // campo que muda mexe no mesmo arquivo, e assim nenhuma linha fica
+    // mostrando o valor velho.
+    auto repinta = [urlItem, userItem, passItem]() {
+        WebdavConfig c;
+        webdav_get_config(&c);
+
+        urlItem->setValue(c.url[0] ? c.url : TR("vazio", "empty"), !c.url[0]);
+        userItem->setValue(c.user[0] ? c.user : TR("vazio", "empty"), !c.user[0]);
+        passItem->setValue(c.pass[0] ? "••••••••" : TR("vazia", "empty"), !c.pass[0]);
+
+        updateWebdavItem();
+        updateAccountViews();
+    };
+
+    urlItem->getClickEvent()->subscribe([repinta](brls::View* view) {
+        WebdavConfig c;
+        webdav_get_config(&c); // zera o struct quando não tem nada gravado
+
+        std::string texto;
+        if (!pedirTexto(TR("Endereço do servidor", "Server address"),
+                TR("Cole o endereço WebDAV inteiro, com https:// na frente",
+                    "Paste the whole WebDAV address, starting with https://"),
+                c.url, false, WEBDAV_URL_MAX - 1, texto))
+            return;
+
+        if (texto.empty())
+            return;
+
+        snprintf(c.url, sizeof(c.url), "%s", texto.c_str());
+        webdav_set_config(&c);
+        repinta();
+    });
+
+    userItem->getClickEvent()->subscribe([repinta](brls::View* view) {
+        WebdavConfig c;
+        webdav_get_config(&c);
+
+        std::string texto;
+        if (!pedirTexto(TR("Usuário", "Username"),
+                TR("O mesmo com que você entra no servidor",
+                    "The same one you sign in to the server with"),
+                c.user, false, WEBDAV_USER_MAX - 1, texto))
+            return;
+
+        if (texto.empty())
+            return;
+
+        snprintf(c.user, sizeof(c.user), "%s", texto.c_str());
+        webdav_set_config(&c);
+        repinta();
+    });
+
+    passItem->getClickEvent()->subscribe([repinta](brls::View* view) {
+        WebdavConfig c;
+        webdav_get_config(&c);
+
+        std::string texto;
+        if (!pedirTexto(TR("Senha", "Password"),
+                TR("De preferência uma senha de aplicativo, não a sua senha principal",
+                    "Preferably an app password, not your main one"),
+                "", true, WEBDAV_PASS_MAX - 1, texto))
+            return;
+
+        if (texto.empty())
+            return;
+
+        snprintf(c.pass, sizeof(c.pass), "%s", texto.c_str());
+        webdav_set_config(&c);
+        repinta();
+    });
+
+    list->addView(urlItem);
+    list->addView(userItem);
+    list->addView(passItem);
+
+    list->addView(new brls::Header(TR("Conferir", "Check"), false));
+
+    brls::ListItem* testar = new brls::ListItem(TR("Testar conexão", "Test the connection"),
+        TR("Pergunta ao servidor se ele está lá e se a senha serve. Não escreve nada.",
+            "Asks the server whether it's there and whether the password works. Writes "
+            "nothing."));
+    testar->getClickEvent()->subscribe([](brls::View* view) {
+        openJob(new Job(TR("Testar o servidor WebDAV", "Test the WebDAV server"), jobWebdavTest),
+            true);
+    });
+    list->addView(testar);
+
+    brls::ListItem* apagar = new brls::ListItem(TR("Apagar os dados de acesso",
+        "Delete the credentials"));
+    apagar->getClickEvent()->subscribe([repinta](brls::View* view) {
+        brls::Dialog* d = new brls::Dialog(TR("Apagar endereço, usuário e senha do cartão?\n\n"
+                                              "Não mexe em nada que já esteja no servidor.",
+            "Delete the address, username and password from the SD card?\n\n"
+            "Nothing already on the server is touched."));
+
+        d->addButton(TR("Apagar", "Delete"), [d, repinta](brls::View* v) {
+            d->close([repinta]() {
+                webdav_clear_config();
+                repinta();
+                brls::Application::notify(TR("Dados apagados", "Credentials deleted"));
+            });
+        });
+        d->addButton(TR("Deixa quieto", "Leave it"), [d](brls::View* v) { d->close(); });
+
+        d->setCancelable(true);
+        d->open();
+    });
+    list->addView(apagar);
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Duas coisas ditas na cara, porque as duas mordem:\n\n"
+           "A senha fica escrita em texto puro no cartão SD, igual ao token do Google. "
+           "Quem pegar o cartão lê. Por isso: crie uma senha de aplicativo no servidor e "
+           "use ela aqui — assim, se vazar, você revoga só ela.\n\n"
+           "Quando eu apago algo do servidor pra deixar igual ao console, mando um "
+           "DELETE. Nextcloud, ownCloud e Synology têm lixeira e seguram isso por uns "
+           "dias. Servidor WebDAV pelado apaga na hora, sem volta.",
+            "Two things said plainly, because both bite:\n\n"
+            "The password is stored in plain text on the SD card, same as the Google "
+            "token. Whoever gets the card can read it. So: create an app password on the "
+            "server and use that here — if it leaks, you revoke only that one.\n\n"
+            "When I delete something from the server to match the console, I send a "
+            "DELETE. Nextcloud, ownCloud and Synology have a trash bin and hold it for a "
+            "few days. A bare WebDAV server deletes on the spot, with no way back."),
+        true));
+
+    frame->setContentView(list);
+    brls::Application::pushView(frame);
+}
+
 static brls::List* createSettingsTab()
 {
     brls::List* list = new brls::List();
+
+    // ---- onde salvar ----
+    // Primeira coisa da aba porque é a que manda em todas as outras: sem
+    // escolher a nuvem, nada mais aqui tem efeito.
+    list->addView(new brls::Header(TR("Onde salvar", "Where to save"), false));
+
+    // A ordem da lista é a do enum CloudKind, então o índice que a borealis
+    // devolve já é o valor — mesmo arranjo do seletor de idioma, e pelo mesmo
+    // motivo: sem tabela de conversão no meio pra dessincronizar.
+    std::vector<std::string> nuvens;
+    for (int k = 0; k < CLOUD_COUNT; k++)
+        nuvens.push_back(cloud_name((CloudKind)k));
+
+    brls::SelectListItem* cloudItem = new brls::SelectListItem(TR("Nuvem", "Cloud"), nuvens,
+        (unsigned)cloud_current(),
+        TR("Onde os saves ficam guardados. Trocar aqui não move nada: cada nuvem fica "
+           "com a cópia que já tem, e a próxima sincronização usa a que estiver "
+           "escolhida.",
+            "Where the saves are kept. Switching here moves nothing: each cloud keeps "
+            "whatever copy it already has, and the next sync uses whichever one is "
+            "selected."));
+
+    cloudItem->getValueSelectedEvent()->subscribe([](int selected) {
+        if (selected < 0)
+            return; // fechou o dropdown sem escolher
+
+        CloudKind escolha = (CloudKind)selected;
+        cloud_set_current(escolha);
+        updateAccountViews();
+
+        const char* falta = cloud_setup_hint(escolha);
+        if (falta && falta[0])
+            brls::Application::notify(std::string(TR("Falta: ", "Missing: ")) + falta);
+        else
+            brls::Application::notify(std::string(cloud_name(escolha)) + " — "
+                + TR("pronto", "ready"));
+    });
+    list->addView(cloudItem);
+
+    g_webdav_item = new brls::ListItem(TR("Servidor WebDAV", "WebDAV server"),
+        TR("Endereço, usuário e senha do seu servidor. Vale pra Nextcloud, ownCloud, NAS "
+           "da Synology ou da QNAP, Box e qualquer servidor que fale WebDAV.",
+            "Address, username and password of your server. Works with Nextcloud, "
+            "ownCloud, a Synology or QNAP NAS, Box and any server that speaks WebDAV."));
+    g_webdav_item->getClickEvent()->subscribe([](brls::View* view) { openWebdavSetup(); });
+    list->addView(g_webdav_item);
+    updateWebdavItem();
+
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+        TR("Sobre as outras que você pediu, sem enrolação:\n\n"
+           "OneDrive e Dropbox dão pra fazer, mas os dois exigem registrar um "
+           "aplicativo no portal deles pra sair um código de acesso — de graça, só "
+           "chato. Enquanto não tiver esse código, não adianta pôr o botão na tela.\n\n"
+           "iCloud Drive não dá. A Apple não tem API pública pra outro programa mexer "
+           "no iCloud Drive de fora, e o caminho que existe (CloudKit Web Services) "
+           "cobra a assinatura anual de desenvolvedor. Fica de fora, e é definitivo.",
+            "About the others you asked for, plainly:\n\n"
+            "OneDrive and Dropbox are doable, but both require registering an app on "
+            "their portal to get an access key — free, just tedious. Until that key "
+            "exists, putting the button on screen would be pointless.\n\n"
+            "iCloud Drive can't be done. Apple has no public API for another program to "
+            "touch iCloud Drive from outside, and the one path that exists (CloudKit Web "
+            "Services) requires the paid yearly developer membership. It's out, and "
+            "that's final."),
+        true));
 
     list->addView(new brls::Header(TR("Conta do Google Drive", "Google Drive account"), false));
 
@@ -2316,7 +2660,7 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
-    drive_set_progress_cb(gui_progress_cb);
+    cloud_set_progress_cb(gui_progress_cb);
     oauth_set_device_cb(gui_device_cb);
     oauth_load_saved_login();
 
@@ -2334,24 +2678,40 @@ int main(int argc, char* argv[])
 
     brls::Application::pushView(g_root);
 
-    // Primeira vez no app (nenhuma conta salva): já oferece o login em vez de
-    // deixar ele descobrir sozinho que precisa ir na aba Ajustes.
-    if (!oauth_is_logged_in() && http_ok)
+    // Primeira vez no app (nenhuma nuvem configurada): já oferece os dois
+    // caminhos em vez de deixar ele descobrir sozinho que precisa ir na aba
+    // Ajustes. A pergunta olha pra nuvem escolhida, não só pro Google — quem
+    // já pôs o servidor WebDAV não é perguntado de novo.
+    if (!cloud_is_ready(cloud_current()) && http_ok)
     {
         brls::Dialog* welcome = new brls::Dialog(
-            TR("Pra sincronizar os saves, o app precisa de uma conta do Google Drive.\n\n"
-               "Você conecta pelo celular ou pelo PC: aparece um QR code aqui, você aponta "
-               "a câmera, e pronto. O Switch não pede senha em momento nenhum.",
-                "To sync saves, the app needs a Google Drive account.\n\nYou connect from "
-                "your phone or PC: a QR code shows up here, you point the camera at it, "
-                "and that's it. The Switch never asks for a password."));
+            TR("Pra sincronizar os saves, o app precisa de um lugar pra guardar. Tem dois:\n\n"
+               "Conta do Google Drive — você conecta pelo celular ou pelo PC: aparece um QR "
+               "code aqui, você aponta a câmera, e pronto. O Switch não pede senha em "
+               "momento nenhum.\n\n"
+               "Servidor seu (WebDAV) — Nextcloud, NAS da Synology ou da QNAP, o que você "
+               "já tiver. Aí é endereço, usuário e senha.",
+                "To sync saves, the app needs somewhere to keep them. There are two:\n\n"
+                "A Google Drive account — you connect from your phone or PC: a QR code "
+                "shows up here, you point the camera at it, and that's it. The Switch "
+                "never asks for a password.\n\n"
+                "Your own server (WebDAV) — Nextcloud, a Synology or QNAP NAS, whatever "
+                "you already have. That one takes an address, username and password."));
 
         welcome->addButton(TR("Agora não", "Not now"),
             [welcome](brls::View* view) { welcome->close(); });
-        welcome->addButton(TR("Conectar conta", "Connect account"), [welcome](brls::View* view) {
+        welcome->addButton(TR("Conta Google", "Google account"), [welcome](brls::View* view) {
             welcome->close([]() {
+                cloud_set_current(CLOUD_DRIVE);
                 openJob(new Job(TR("Entrar na conta Google", "Sign in to Google"), jobLogin), true,
                     [](bool success) { updateAccountViews(); });
+            });
+        });
+        welcome->addButton(TR("Servidor meu", "My own server"), [welcome](brls::View* view) {
+            welcome->close([]() {
+                cloud_set_current(CLOUD_WEBDAV);
+                updateAccountViews();
+                openWebdavSetup();
             });
         });
 

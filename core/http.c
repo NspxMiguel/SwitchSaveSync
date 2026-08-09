@@ -382,6 +382,169 @@ HttpResponse http_upload_multipart_related(const char *url, const char *bearer,
     return resp;
 }
 
+// --- o que não é Google -----------------------------------------------------
+
+// Igual ao auth_header de cima, mas com o valor do header vindo pronto de
+// fora ("Basic ..." em vez de "Bearer ...").
+static struct curl_slist *auth_header_raw(const char *auth_raw, struct curl_slist *headers) {
+    if (!auth_raw) return headers;
+    char line[700];
+    snprintf(line, sizeof(line), "Authorization: %s", auth_raw);
+    return curl_slist_append(headers, line);
+}
+
+static void no_handle(HttpResponse *resp) {
+    resp->ok = false;
+    snprintf(resp->error, sizeof(resp->error),
+             http_is_ready() ? "curl_easy_init falhou" : "rede nao iniciou nesta sessao");
+}
+
+HttpResponse http_request_raw(const char *method, const char *url,
+                               const char *auth_raw, const char *content_type,
+                               const char *body, size_t body_len,
+                               const char *extra_header) {
+    HttpResponse resp = {0};
+    MemBuf buf = {0};
+
+    CURL *curl = make_easy_handle();
+    if (!curl) { no_handle(&resp); return resp; }
+
+    struct curl_slist *headers = NULL;
+    if (content_type) {
+        char line[160];
+        snprintf(line, sizeof(line), "Content-Type: %s", content_type);
+        headers = curl_slist_append(headers, line);
+    }
+    if (extra_header) headers = curl_slist_append(headers, extra_header);
+    headers = auth_header_raw(auth_raw, headers);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    if (body) {
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_len);
+    }
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_membuf);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        fill_error(&resp, rc);
+    } else {
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        resp.ok = true;
+        resp.status = status;
+        resp.body = buf.data ? buf.data : strdup("");
+        resp.size = buf.size;
+        buf.data = NULL;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    free(buf.data);
+    return resp;
+}
+
+HttpResponse http_put_file_raw(const char *url, const char *auth_raw,
+                                const char *local_path, const char *content_type) {
+    HttpResponse resp = {0};
+    MemBuf buf = {0};
+
+    FILE *in = fopen(local_path, "rb");
+    if (!in) {
+        resp.ok = false;
+        snprintf(resp.error, sizeof(resp.error), "não abriu %s pra leitura", local_path);
+        return resp;
+    }
+    fseek(in, 0, SEEK_END);
+    long fsize = ftell(in);
+    rewind(in);
+    if (fsize < 0) {
+        fclose(in);
+        resp.ok = false;
+        snprintf(resp.error, sizeof(resp.error), "ftell falhou em %s", local_path);
+        return resp;
+    }
+
+    CURL *curl = make_easy_handle();
+    if (!curl) { fclose(in); no_handle(&resp); return resp; }
+
+    struct curl_slist *headers = NULL;
+    if (content_type) {
+        char line[160];
+        snprintf(line, sizeof(line), "Content-Type: %s", content_type);
+        headers = curl_slist_append(headers, line);
+    }
+    // Alguns servidores WebDAV respondem 417 se o curl mandar "Expect:
+    // 100-continue" — que ele manda sozinho em upload grande. Desliga.
+    headers = curl_slist_append(headers, "Expect:");
+    headers = auth_header_raw(auth_raw, headers);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);          // manda PUT e lê do READDATA
+    curl_easy_setopt(curl, CURLOPT_READDATA, in);
+    curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)fsize);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_membuf);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+    // Upload não tem timeout fixo: save grande em rede lenta estoura os 30s
+    // do handle. O LOW_SPEED cobre o caso que importa (a transferência
+    // travou de vez) sem punir quem tem link ruim.
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
+
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        fill_error(&resp, rc);
+    } else {
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        resp.ok = true;
+        resp.status = status;
+        resp.body = buf.data ? buf.data : strdup("");
+        resp.size = buf.size;
+        buf.data = NULL;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    fclose(in);
+    free(buf.data);
+    return resp;
+}
+
+bool http_download_to_file_raw(const char *url, const char *auth_raw,
+                                const char *local_file_path) {
+    FILE *out = fopen(local_file_path, "wb");
+    if (!out) return false;
+
+    CURL *curl = make_easy_handle();
+    if (!curl) { fclose(out); return false; }
+
+    struct curl_slist *headers = auth_header_raw(auth_raw, NULL);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
+
+    CURLcode rc = curl_easy_perform(curl);
+    long status = 0;
+    if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    fclose(out);
+
+    return rc == CURLE_OK && status >= 200 && status < 300;
+}
+
 bool http_download_to_file(const char *url, const char *bearer, const char *local_file_path) {
     FILE *out = fopen(local_file_path, "wb");
     if (!out) return false;
