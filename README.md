@@ -72,6 +72,14 @@ nuvem não é uma opção.
 
 ## Também tem
 
+- **Sincronizar tudo de uma vez** — uma linha no topo da lista passa por todos os saves,
+  decidindo pra que lado cada um vai. Quando os dois lados mudaram ele **não** escolhe:
+  aquele jogo fica de fora e sai listado no fim, pra você resolver um a um.
+- **Tudo num arquivo só** — opcional: junta todos os saves num `.sss`, um formato nosso que
+  não é zip e que só este app lê. Serve pra levar tudo de uma vez. *É disfarce, não
+  cadeado* — o código é aberto, então quem quiser de verdade lê. Por isso o modo normal
+  (uma pasta por jogo no Drive) continua sendo o recomendado: save preso num formato que só
+  um programa lê é save que morre junto com o programa.
 - **Login por QR code** — aponta o celular, digita o código, pronto. Sem teclado de tela.
 - **Controle parental** — senha de 4 a 8 dígitos na abertura do app, guardada como hash.
   Trocar ou tirar a senha exige a atual.
@@ -89,6 +97,29 @@ nuvem não é uma opção.
 > *modo applet*: ganha ~448 MB de memória e a pilha de rede às vezes não sobe — o app avisa
 > isso na aba Conta, em Diagnóstico. Segurando **R** ao abrir um jogo instalado, ele roda
 > como aplicação, com a memória e a rede inteiras.
+
+### Com cara de jogo, na tela inicial
+
+Dá pra ter um ícone do app na tela inicial do console, do lado dos jogos, e abrir dali. O
+[Sphaira](https://github.com/ITotalJustice/sphaira) faz isso sozinho, **no próprio
+console** — não precisa de PC, nem de `hacbrewpack`, nem da sua `prod.keys`: ele deriva a
+chave direto do console.
+
+1. Abra o Sphaira e ache o `SwitchSaveSync` na lista de homebrew.
+2. Abra as opções e escolha **Install Forwarder**.
+3. Instalar vem desligado de fábrica no Sphaira; ele pergunta se pode ligar — responda que
+   sim.
+
+O atalho nasce com o nome e o ícone que estão dentro do `.nro`, então aparece como
+**SwitchSaveSync**, de *Miguel*, com o mesmo ícone daqui de cima.
+
+E resolve o parágrafo anterior de quebra: o atalho é instalado como *aplicação*, então
+abrir por ele já dá a memória e a rede inteiras. O truque do **R** deixa de ser necessário.
+
+> **Não mude o `.nro` de lugar depois.** O atalho guarda o caminho do arquivo, e o Sphaira
+> tira o ID do título de um hash desse caminho. Movido o arquivo, o atalho aponta pro vazio
+> — e refazer o atalho a partir do caminho novo cria um segundo ícone em vez de consertar o
+> primeiro. Deixe em `sdmc:/switch/SwitchSaveSync.nro` e pronto.
 
 ## Configurar o Google Drive
 
