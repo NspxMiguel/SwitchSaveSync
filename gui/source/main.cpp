@@ -53,6 +53,11 @@ static brls::ListItem* g_logout_item  = nullptr;
 static brls::ListItem* g_pin_item     = nullptr;
 static brls::ListItem* g_webdav_item  = nullptr;
 
+// A lista da aba "Tudo de uma vez". Guardada porque os textos dela dizem o
+// nome da nuvem, e trocar de nuvem tem que repintar ela na hora — senão fica
+// oferecendo "subir pro Google Drive" com o WebDAV escolhido.
+static brls::List* g_bulk_list = nullptr;
+
 // Caminho deste .nro, guardado do argv[0] — é o que envSetNextLoad precisa pra
 // reabrir o app quando ele troca de idioma.
 static std::string g_nro_path;
@@ -157,6 +162,16 @@ static void updateWebdavItem()
         g_webdav_item->setValue(cfg.url);
     else
         g_webdav_item->setValue(TR("não configurado", "not set up"), true);
+}
+
+// O nome da nuvem que está valendo: "Google Drive", "Servidor WebDAV".
+//
+// Existe porque as telas e os logs diziam "Drive" escrito na mão, e desde que
+// dá pra escolher onde salvar isso vira mentira metade das vezes. Mesmo
+// motivo do nuvem() lá no core/syncjob.c.
+static const char* nuvem()
+{
+    return cloud_name(cloud_current());
 }
 
 // Teclado de texto do console.
@@ -551,19 +566,21 @@ static bool jobSync(Job* job, TitleEntry title)
     if (!ensureLogin(job))
         return false;
 
-    job->setStatus(TR("Comparando o save do console com o do Drive...",
-        "Comparing the console's save with the one on Drive..."));
+    job->setStatus(std::string(TR("Comparando o save do console com o de ",
+                       "Comparing the console's save with the one on "))
+        + nuvem() + "...");
 
     switch (syncjob_sync_title(&title, jobLogLine))
     {
         case SYNCJOB_SYNC_UPLOADED:
-            job->setStatus(TR("Pronto. O save daqui está guardado no Drive.",
-                "Done. This console's save is stored on Drive."));
+            job->setStatus(std::string(TR("Pronto. O save daqui está guardado em ",
+                               "Done. This console's save is stored on "))
+                + nuvem() + ".");
             return true;
 
         case SYNCJOB_SYNC_DOWNLOADED:
-            job->setStatus(TR("Pronto. O save do Drive está no console.",
-                "Done. The save from Drive is on the console."));
+            job->setStatus(std::string(TR("Pronto. O save de ", "Done. The save from "))
+                + nuvem() + TR(" está no console.", " is on the console."));
             return true;
 
         case SYNCJOB_SYNC_EQUAL:
@@ -584,23 +601,26 @@ static bool jobSync(Job* job, TitleEntry title)
 
             // A ordem importa: a primeira é a que recebe o foco, e o caso que
             // leva ao conflito quase sempre é jogo reinstalado com o save de
-            // verdade no Drive. Nada é escrito até ele apertar A.
-            job->offerChoice(TR("Trazer o save do Drive pro console",
-                                   "Bring the save from Drive to the console"),
-                TR("Apaga o save que está no console e põe o do Drive no lugar. É o que "
-                   "você quer se reinstalou o jogo.",
-                    "Erases the console's save and puts the one from Drive in its place. "
-                    "This is what you want if you reinstalled the game."),
+            // verdade na nuvem. Nada é escrito até ele apertar A.
+            job->offerChoice(std::string(TR("Trazer o save de ", "Bring the save from "))
+                    + nuvem() + TR(" pro console", " to the console"),
+                std::string(TR("Apaga o save que está no console e põe o de ",
+                    "Erases the console's save and puts the one from "))
+                    + nuvem()
+                    + TR(" no lugar. É o que você quer se reinstalou o jogo.",
+                        " in its place. This is what you want if you reinstalled the game."),
                 [title] {
                     openJob(new Job(std::string(TR("Restaurar — ", "Restore — ")) + titleWithOwner(title),
                                 [title](Job* j) { return jobRestore(j, title); }),
                         false);
                 });
 
-            job->offerChoice(TR("Mandar o save do console pro Drive",
-                                   "Send the console's save to Drive"),
-                TR("Substitui o que está no Drive pelo save deste console.",
-                    "Replaces what's on Drive with this console's save."),
+            job->offerChoice(std::string(TR("Mandar o save do console pro ",
+                                 "Send the console's save to "))
+                    + nuvem(),
+                std::string(TR("Substitui o que está em ", "Replaces what's on "))
+                    + nuvem()
+                    + TR(" pelo save deste console.", " with this console's save."),
                 [title] {
                     openJob(new Job(std::string(TR("Backup — ", "Backup — ")) + titleWithOwner(title),
                                 [title](Job* j) { return jobBackup(j, title); }),
@@ -622,7 +642,8 @@ static bool jobBackup(Job* job, TitleEntry title)
     if (!ensureLogin(job))
         return false;
 
-    job->setStatus(TR("Enviando o save pro Drive...", "Uploading the save to Drive..."));
+    job->setStatus(std::string(TR("Enviando o save pro ", "Uploading the save to ")) + nuvem()
+        + "...");
     if (!syncjob_backup_title(&title, jobLogLine))
     {
         job->setStatus(TR("O backup não terminou. Nada foi alterado no console.",
@@ -631,8 +652,7 @@ static bool jobBackup(Job* job, TitleEntry title)
     }
 
     job->setStatus(std::string(TR("Backup concluído. Está em ", "Backup done. It's in "))
-        + DRIVE_APP_FOLDER_NAME + "/" + title.name
-        + TR("/ no seu Drive.", "/ on your Drive."));
+        + DRIVE_APP_FOLDER_NAME + "/" + title.name + TR("/ em ", "/ on ") + nuvem() + ".");
     return true;
 }
 
@@ -672,7 +692,8 @@ static bool jobRestore(Job* job, TitleEntry title)
     if (!ensureLogin(job))
         return false;
 
-    job->setStatus(TR("Trazendo o save do Drive...", "Fetching the save from Drive..."));
+    job->setStatus(std::string(TR("Trazendo o save de ", "Fetching the save from ")) + nuvem()
+        + "...");
     if (!syncjob_restore_title(&title, jobLogLine))
     {
         job->setStatus(TR("Não restaurei nada. Se falhou no meio da gravação, o save do "
@@ -682,7 +703,7 @@ static bool jobRestore(Job* job, TitleEntry title)
         return false;
     }
 
-    job->setStatus(TR("Save restaurado do Drive.", "Save restored from Drive."));
+    job->setStatus(std::string(TR("Save restaurado de ", "Save restored from ")) + nuvem() + ".");
     return true;
 }
 
@@ -724,12 +745,12 @@ static bool jobSyncAll(Job* job, std::vector<TitleEntry> titles)
         {
             case SYNCJOB_SYNC_UPLOADED:
                 subiram++;
-                job->log(quantos + nome + TR(" — subiu pro Drive", " — uploaded to Drive"));
+                job->log(quantos + nome + TR(" — subiu pro ", " — uploaded to ") + nuvem());
                 break;
 
             case SYNCJOB_SYNC_DOWNLOADED:
                 desceram++;
-                job->log(quantos + nome + TR(" — veio do Drive", " — pulled from Drive"));
+                job->log(quantos + nome + TR(" — veio de ", " — pulled from ") + nuvem());
                 break;
 
             case SYNCJOB_SYNC_EQUAL:
@@ -829,17 +850,20 @@ static bool jobArchiveAll(Job* job, std::vector<TitleEntry> titles, bool subir)
         return true;
     }
 
-    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    job->setStatus(std::string(TR("Subindo o arquivo pro ", "Uploading the file to ")) + nuvem()
+        + "...");
     if (!syncjob_archive_upload(jobLogLine))
     {
-        job->setStatus(TR("O arquivo ficou pronto no cartão, mas não subiu pro Drive.",
-            "The file is ready on the SD card, but it didn't upload to Drive."));
+        job->setStatus(std::string(TR("O arquivo ficou pronto no cartão, mas não subiu pro ",
+                           "The file is ready on the SD card, but it didn't upload to "))
+            + nuvem() + ".");
         return false;
     }
 
     job->setStatus(std::to_string(quantos)
-        + TR(" saves num arquivo só, no cartão e no seu Drive.",
-            " saves in a single file, on the SD card and on your Drive."));
+        + TR(" saves num arquivo só, no cartão e em ",
+            " saves in a single file, on the SD card and on ")
+        + nuvem() + ".");
     return true;
 }
 
@@ -848,14 +872,15 @@ static bool jobArchiveUpload(Job* job)
     if (!ensureLogin(job))
         return false;
 
-    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    job->setStatus(std::string(TR("Subindo o arquivo pro ", "Uploading the file to ")) + nuvem()
+        + "...");
     if (!syncjob_archive_upload(jobLogLine))
     {
         job->setStatus(TR("Não consegui subir o arquivo.", "Couldn't upload the file."));
         return false;
     }
 
-    job->setStatus(TR("O arquivo está no seu Drive.", "The file is on your Drive."));
+    job->setStatus(std::string(TR("O arquivo está em ", "The file is on ")) + nuvem() + ".");
     return true;
 }
 
@@ -864,7 +889,8 @@ static bool jobArchiveDownload(Job* job)
     if (!ensureLogin(job))
         return false;
 
-    job->setStatus(TR("Baixando o arquivo do Drive...", "Downloading the file from Drive..."));
+    job->setStatus(std::string(TR("Baixando o arquivo de ", "Downloading the file from ")) + nuvem()
+        + "...");
     if (!syncjob_archive_download(jobLogLine))
     {
         job->setStatus(TR("Não consegui baixar o arquivo. Nada no console foi alterado.",
@@ -936,17 +962,19 @@ static bool jobGameArchive(Job* job, std::vector<TitleEntry> saves, bool subir)
         return true;
     }
 
-    job->setStatus(TR("Subindo o arquivo pro Drive...", "Uploading the file to Drive..."));
+    job->setStatus(std::string(TR("Subindo o arquivo pro ", "Uploading the file to ")) + nuvem()
+        + "...");
     if (!syncjob_archive_upload_path(caminho, jobLogLine))
     {
-        job->setStatus(TR("O arquivo ficou pronto no cartão, mas não subiu pro Drive.",
-            "The file is ready on the SD card, but it didn't upload to Drive."));
+        job->setStatus(std::string(TR("O arquivo ficou pronto no cartão, mas não subiu pro ",
+                           "The file is ready on the SD card, but it didn't upload to "))
+            + nuvem() + ".");
         return false;
     }
 
     job->setStatus(std::to_string(quantos)
         + TR(" contas em ", " accounts in ") + nome
-        + TR(", no cartão e no seu Drive.", ", on the SD card and on your Drive."));
+        + TR(", no cartão e em ", ", on the SD card and on ") + nuvem() + ".");
     return true;
 }
 
@@ -1042,7 +1070,8 @@ static void perguntarArquivoDoJogo(std::vector<TitleEntry> saves)
                 true);
         });
     });
-    dialog->addButton(TR("Cartão e Drive", "SD card and Drive"), [dialog, saves](brls::View* view) {
+    dialog->addButton(std::string(TR("Cartão e ", "SD card and ")) + nuvem(),
+        [dialog, saves](brls::View* view) {
         dialog->close([saves]() {
             openJob(new Job(std::string(saves[0].name) + TR(" — todas as contas", " — every account"),
                         [saves](Job* job) { return jobGameArchive(job, saves, true); }),
@@ -1082,11 +1111,10 @@ static void openGamePage(const TitleEntry& title)
     std::vector<TitleEntry> saves = savesOf(title.application_id);
 
     brls::ListItem* backupItem = new brls::ListItem(
-        TR("No Google Drive", "On Google Drive"),
-        TR("Lê o save que está no console e sobe pro Google Drive. Não altera nada no "
-           "console.",
-            "Reads the console's save and uploads it to Google Drive. Nothing on the "
-            "console is changed."));
+        std::string(TR("Em ", "On ")) + nuvem(),
+        std::string(TR("Lê o save que está no console e sobe pro ",
+            "Reads the console's save and uploads it to "))
+            + nuvem() + TR(". Não altera nada no console.", ". Nothing on the console is changed."));
     backupItem->getClickEvent()->subscribe([title](brls::View* view) {
         openJob(new Job(std::string(TR("Backup — ", "Backup — ")) + titleWithOwner(title),
                     [title](Job* job) { return jobBackup(job, title); }),
@@ -1094,17 +1122,18 @@ static void openGamePage(const TitleEntry& title)
     });
 
     brls::ListItem* restoreItem = new brls::ListItem(
-        TR("Do Google Drive", "From Google Drive"),
-        TR("Substitui o save que está no console pelo que está no Drive.",
-            "Replaces the console's save with the one on Drive."));
+        std::string(TR("De ", "From ")) + nuvem(),
+        std::string(TR("Substitui o save que está no console pelo que está em ",
+            "Replaces the console's save with the one on "))
+            + nuvem() + ".");
     restoreItem->getClickEvent()->subscribe([title](brls::View* view) {
         brls::Dialog* dialog = new brls::Dialog(
             TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
-                    + "\" que está no console e põe no lugar o que está no Drive. O save "
-                      "atual se perde.\n\nContinuar?",
+                    + "\" que está no console e põe no lugar o que está em " + nuvem()
+                    + ". O save atual se perde.\n\nContinuar?",
                 std::string("This erases the \"") + titleWithOwner(title)
-                    + "\" save on the console and puts the one from Drive in its place. "
-                      "The current save is lost.\n\nContinue?"));
+                    + "\" save on the console and puts the one from " + nuvem()
+                    + " in its place. The current save is lost.\n\nContinue?"));
 
         dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
         dialog->addButton(TR("Restaurar", "Restore"), [dialog, title](brls::View* view) {
@@ -1302,9 +1331,9 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
     }
 
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
-        TR("Cada save destes é separado: tem a sua pasta no Drive e no cartão, e "
+        TR("Cada save destes é separado: tem a sua pasta na nuvem e no cartão, e "
            "sincronizar um não encosta no outro.",
-            "Each of these saves is separate: it has its own folder on Drive and on the "
+            "Each of these saves is separate: it has its own folder in the cloud and on the "
             "SD card, and syncing one doesn't touch the other."),
         true));
 
@@ -1875,9 +1904,10 @@ static void fillBulkList(brls::List* list)
     list->addView(new brls::Header(TR("Guardar tudo num arquivo", "Store everything in one file")));
 
     brls::ListItem* fazerESubir = new brls::ListItem(
-        TR("Juntar tudo e subir pro Drive", "Pack everything and upload to Drive"),
-        TR("Junta o save de todos os jogos num arquivo só e manda pro seu Drive.",
-            "Packs every game's save into a single file and sends it to your Drive."));
+        std::string(TR("Juntar tudo e subir pro ", "Pack everything and upload to ")) + nuvem(),
+        std::string(TR("Junta o save de todos os jogos num arquivo só e manda pro ",
+            "Packs every game's save into a single file and sends it to "))
+            + nuvem() + ".");
     fazerESubir->getClickEvent()->subscribe([todos](brls::View* view) {
         openJob(new Job(TR("Tudo num arquivo só", "Everything in one file"),
                     [todos](Job* job) { return jobArchiveAll(job, todos, true); }),
@@ -1900,8 +1930,8 @@ static void fillBulkList(brls::List* list)
     {
         brls::ListItem* subir = new brls::ListItem(
             TR("Subir o arquivo que já está no cartão", "Upload the file already on the SD card"),
-            TR("Manda pro Drive o arquivo de agora, sem refazer.",
-                "Sends the current file to Drive without rebuilding it."));
+            std::string(TR("Manda pro ", "Sends the current file to ")) + nuvem()
+                + TR(" o arquivo de agora, sem refazer.", " without rebuilding it."));
         subir->getClickEvent()->subscribe([](brls::View* view) {
             openJob(new Job(TR("Subir o arquivo", "Upload the file"), jobArchiveUpload), false);
         });
@@ -1911,7 +1941,7 @@ static void fillBulkList(brls::List* list)
     list->addView(new brls::Header(TR("Trazer de volta", "Bring it back")));
 
     brls::ListItem* baixar = new brls::ListItem(
-        TR("Baixar o arquivo do Drive", "Download the file from Drive"),
+        std::string(TR("Baixar o arquivo de ", "Download the file from ")) + nuvem(),
         TR("Traz o arquivo pro cartão. Não escreve em save nenhum — isso é escolha sua, "
            "save por save.",
             "Brings the file to the SD card. Doesn't write to any save — that's your call, "
@@ -1951,14 +1981,14 @@ static void fillBulkList(brls::List* list)
            "no computador, e só este app lê. Quem topar com ele não vê save de ninguém — "
            "mas isso é disfarce, não cadeado: o código do app é aberto, então quem quiser "
            "de verdade consegue ler.\n\n"
-           "O modo normal — uma pasta por jogo no Drive — continua sendo o recomendado, e "
+           "O modo normal — uma pasta por jogo na nuvem — continua sendo o recomendado, e "
            "os dois podem conviver. Um arquivo só é prático pra levar tudo de uma vez; uma "
            "pasta por jogo é o que continua servindo se um dia este app sumir.",
             "The file uses a format of ours (.ssaves): it isn't a zip, it doesn't open with a "
             "double-click on a computer, and only this app reads it. Anyone who stumbles on "
             "it sees nobody's save — but that's a disguise, not a lock: the app's code is "
             "open, so anyone determined enough can read it.\n\n"
-            "The normal mode — one folder per game on Drive — is still the recommended one, "
+            "The normal mode — one folder per game in the cloud — is still the recommended one, "
             "and the two can coexist. A single file is handy for taking everything at once; "
             "one folder per game is what still works if this app ever disappears."),
         true));
@@ -2058,6 +2088,7 @@ static brls::List* createGamesTab()
 static brls::List* createBulkTab()
 {
     brls::List* list = new brls::List();
+    g_bulk_list      = list;
     fillBulkList(list);
 
     // Mesmo X da aba dos jogos. Aqui ele importa por outro motivo: depois de
@@ -2328,6 +2359,12 @@ static brls::List* createSettingsTab()
         cloud_set_current(escolha);
         updateAccountViews();
 
+        // A aba "Tudo de uma vez" tem o nome da nuvem escrito nos botões, e
+        // ela só se refaz no X. Sem isto ficaria dizendo o nome da nuvem
+        // antiga até ele atualizar na mão.
+        if (g_bulk_list)
+            fillBulkList(g_bulk_list);
+
         const char* falta = cloud_setup_hint(escolha);
         if (falta && falta[0])
             brls::Application::notify(std::string(TR("Falta: ", "Missing: ")) + falta);
@@ -2515,12 +2552,18 @@ static brls::List* createAboutTab()
     list->addView(versionItem);
 
     list->addView(new brls::ListItem(TR("O que este app faz", "What this app does"),
-        TR("Sincroniza os saves dos seus jogos com o Google Drive, na pasta \"" DRIVE_APP_FOLDER_NAME
-           "\". Cada jogo vira uma subpasta com o nome dele, e os arquivos ficam soltos lá "
-           "dentro — dá pra baixar pelo site do Drive normalmente.",
-            "Syncs your games' saves with Google Drive, in the \"" DRIVE_APP_FOLDER_NAME
-            "\" folder. Each game becomes a subfolder named after it, with the files "
-            "loose inside — you can download them from the Drive website normally.")));
+        TR("Sincroniza os saves dos seus jogos com a nuvem que você escolher, na pasta \""
+               DRIVE_APP_FOLDER_NAME "\". Cada jogo vira uma subpasta com o nome dele, e os "
+           "arquivos ficam soltos lá dentro — dá pra baixar pelo site da nuvem normalmente.\n\n"
+           "Dá pra escolher entre a conta do Google Drive e um servidor seu que fale WebDAV "
+           "(Nextcloud, NAS da Synology ou da QNAP, e afins). Em Ajustes, Onde salvar.",
+            "Syncs your games' saves with whichever cloud you pick, in the \""
+                DRIVE_APP_FOLDER_NAME "\" folder. Each game becomes a subfolder named after "
+            "it, with the files loose inside — you can download them from the cloud's "
+            "website normally.\n\n"
+            "You can pick between a Google Drive account and your own server that speaks "
+            "WebDAV (Nextcloud, a Synology or QNAP NAS, and the like). In Settings, under "
+            "Where to save.")));
 
     list->addView(new brls::ListItem(TR("Como sincronizar", "How to sync"),
         TR("Na lista de jogos, A sincroniza sozinho: ele compara o save do console com o "
@@ -2535,14 +2578,21 @@ static brls::List* createAboutTab()
             "leaves the choice on screen. Only games installed on the console show up.")));
 
     list->addView(new brls::ListItem(TR("Privacidade", "Privacy"),
-        TR("O app fala direto com o Google, sem servidor no meio. O acesso pedido é o "
-           "\"drive.file\": o app só enxerga os arquivos que ele mesmo criou, não o resto "
-           "do seu Drive. O login fica só no cartão, em "
-           "/switch/SwitchSaveSync/token.txt, e sai de vez com o Sair da conta.",
-            "The app talks straight to Google, with no server in between. The scope it "
-            "asks for is \"drive.file\": it only sees the files it created itself, not "
-            "the rest of your Drive. The login stays on the SD card only, in "
-            "/switch/SwitchSaveSync/token.txt, and Sign out removes it for good.")));
+        TR("O app fala direto com a nuvem, sem servidor meu no meio.\n\n"
+           "No Google Drive, o acesso pedido é o \"drive.file\": o app só enxerga os "
+           "arquivos que ele mesmo criou, não o resto do seu Drive. O login fica só no "
+           "cartão, em /switch/SwitchSaveSync/token.txt, e sai de vez com o Sair da conta.\n\n"
+           "No WebDAV, o endereço, o usuário e a senha ficam em "
+           "/switch/SwitchSaveSync/webdav.cfg, em texto puro — por isso a tela pede uma "
+           "senha de aplicativo, não a sua principal.",
+            "The app talks straight to the cloud, with no server of mine in between.\n\n"
+            "On Google Drive, the scope it asks for is \"drive.file\": it only sees the "
+            "files it created itself, not the rest of your Drive. The login stays on the SD "
+            "card only, in /switch/SwitchSaveSync/token.txt, and Sign out removes it for "
+            "good.\n\n"
+            "On WebDAV, the address, username and password live in "
+            "/switch/SwitchSaveSync/webdav.cfg, in plain text — which is why the screen "
+            "asks for an app password, not your main one.")));
 
     list->addView(new brls::ListItem(TR("Em que pé está o projeto", "Where the project stands"),
         TR("Esta é a versão avulsa, em que você abre o app e sincroniza na mão. O próximo "
