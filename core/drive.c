@@ -294,6 +294,55 @@ bool drive_upload_tree(const char *access_token, const char *parent_folder_id,
     return all_ok;
 }
 
+bool drive_trash_by_id(const char *access_token, const char *file_id) {
+    char url[300];
+    snprintf(url, sizeof(url), "https://www.googleapis.com/drive/v3/files/%s", file_id);
+
+    // PATCH {"trashed":true} e não DELETE: o DELETE da API v3 apaga na hora,
+    // sem passar pela lixeira. Isso aqui mexe em save de jogo — se eu errar a
+    // conta de quem está mais novo, o arquivo tem que ter volta.
+    HttpResponse r = http_patch_json(url, access_token, "{\"trashed\":true}");
+    // 404 conta como sucesso: o objetivo é "isso não está mais na pasta", e
+    // não estar lá já satisfaz.
+    bool ok = r.ok && (r.status == 200 || r.status == 204 || r.status == 404);
+    http_response_free(&r);
+    return ok;
+}
+
+typedef struct {
+    const char *access_token;
+    const char *local_dir;
+    bool ok;
+} PruneCtx;
+
+static void prune_item_cb(const char *id, const char *name, bool is_folder, void *userdata) {
+    PruneCtx *ctx = (PruneCtx *)userdata;
+    if (aborted()) { ctx->ok = false; return; }
+
+    char child_path[700];
+    snprintf(child_path, sizeof(child_path), "%s/%s", ctx->local_dir, name);
+
+    struct stat st;
+    bool aqui  = stat(child_path, &st) == 0;
+    bool pasta = aqui && S_ISDIR(st.st_mode);
+
+    if (!aqui || pasta != is_folder) {
+        bool ok = drive_trash_by_id(ctx->access_token, id);
+        report("del", name, ok);
+        if (!ok) ctx->ok = false;
+        return;
+    }
+
+    if (is_folder && !drive_prune_extras(ctx->access_token, id, child_path)) ctx->ok = false;
+}
+
+bool drive_prune_extras(const char *access_token, const char *folder_id,
+                         const char *local_dir) {
+    PruneCtx ctx = { access_token, local_dir, true };
+    if (!drive_list_children(access_token, folder_id, prune_item_cb, &ctx)) return false;
+    return ctx.ok;
+}
+
 typedef struct {
     const char *access_token;
     const char *local_dir;

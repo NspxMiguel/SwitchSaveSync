@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "config.h"
 #include "drive.h"
@@ -14,6 +15,8 @@
 #include "syncstate.h"
 
 #define MAX_TITLES 128
+
+static void clear_dir(const char *dir); // definida junto com dir_is_empty
 
 static void say(syncjob_log_cb log, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static void say(syncjob_log_cb log, const char *fmt, ...)
@@ -65,6 +68,11 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
         return false;
     }
 
+    // Esta pasta de staging é a MESMA que o restore usa pra baixar da nuvem.
+    // Sem limpar, um restore anterior deixa arquivo dele aqui e o backup sobe
+    // o save de agora misturado com o que veio da nuvem antes.
+    clear_dir(staging);
+
     bool copied = savemount_copy_tree("save:/", staging);
     savemount_unmount(false);
 
@@ -103,6 +111,10 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
         say(log, "Upload falhou");
         return false;
     }
+
+    // Subir só escreve. O que o save não tem mais precisa sair da nuvem, senão
+    // volta no próximo restore. Vai pra lixeira do Drive, não some.
+    drive_prune_extras(token, game_id, staging);
 
     say(log, "Backup de %s concluido", title->name);
     return true;
@@ -156,6 +168,44 @@ static bool dir_is_empty(const char *dir)
     return !dir_has_any_file(dir);
 }
 
+// Esvazia a pasta de staging (mantém a pasta em si).
+//
+// O staging tem nome de jogo, então o lixo que sobra ali é do download
+// ANTERIOR do mesmo jogo. Se a nuvem tiver perdido um arquivo desde então, sem
+// isso o arquivo velho continuaria no staging e seria copiado pra dentro do
+// save junto com o resto — restaurar o save de ontem misturado com o de hoje.
+static void clear_dir(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d)
+        return;
+
+    struct dirent *ent;
+    while ((ent = readdir(d)))
+    {
+        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+            continue;
+
+        char path[0x300];
+        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+
+        struct stat st;
+        if (stat(path, &st) != 0)
+            continue;
+
+        if (S_ISDIR(st.st_mode))
+        {
+            clear_dir(path);
+            rmdir(path);
+        }
+        else
+        {
+            unlink(path);
+        }
+    }
+    closedir(d);
+}
+
 bool syncjob_has_local_backup(const TitleEntry *title)
 {
     char dir[0x280];
@@ -196,6 +246,10 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
         return false;
     }
 
+    // Backup novo não herda sobra do antigo: sem isso, arquivo que o jogo
+    // apagou continuaria aqui e voltaria pro save no restore do cartão.
+    clear_dir(dir);
+
     bool copied = savemount_copy_tree("save:/", dir);
     savemount_unmount(false);
 
@@ -207,6 +261,39 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
 
     say(log, "Backup de %s guardado em %s", title->name, dir);
     return true;
+}
+
+// Escreve src_dir por cima do save do jogo, deixando o save IGUAL a src_dir:
+// o que estava lá e não está em src_dir sai fora.
+//
+// Apagar antes de escrever parece pior do que é: nada disso persiste sem o
+// fsdevCommitDevice, que só acontece no fim e só se tudo deu certo. Se falhar
+// no meio — rede, bateria, crash — o save de antes continua inteiro.
+//
+// Sem apagar, restaurar um save que tem MENOS arquivos que o de agora deixa os
+// velhos no meio dos novos: save metade de ontem, metade de hoje. É assim que
+// um jogo abre e diz que os dados estão corrompidos.
+static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjob_log_cb log)
+{
+    if (!savemount_mount(title->application_id, title->uid, false))
+    {
+        say(log, "Nao consegui montar o save pra escrita");
+        return false;
+    }
+
+    if (!savemount_wipe_contents())
+    {
+        savemount_unmount(false); // sem commit: nada do que apaguei valeu
+        say(log, "Nao consegui limpar o save antes de gravar");
+        return false;
+    }
+
+    bool copied = savemount_copy_tree(src_dir, "save:/");
+    savemount_unmount(copied); // commit só se a cópia deu certo
+
+    if (!copied)
+        say(log, "Falhou ao gravar o save");
+    return copied;
 }
 
 bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
@@ -221,20 +308,8 @@ bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
     }
 
     say(log, "Gravando no save do console...");
-    if (!savemount_mount(title->application_id, title->uid, false))
-    {
-        say(log, "Nao consegui montar o save pra escrita");
+    if (!write_over_save(title, dir, log))
         return false;
-    }
-
-    bool copied = savemount_copy_tree(dir, "save:/");
-    savemount_unmount(copied); // commit so se a copia deu certo
-
-    if (!copied)
-    {
-        say(log, "Falhou ao gravar o save");
-        return false;
-    }
 
     say(log, "Save de %s restaurado do cartao", title->name);
     return true;
@@ -244,6 +319,14 @@ bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
 // Impressão digital do save
 // ---------------------------------------------------------------------------
 
+// Impressão digital de nome + tamanho + CONTEÚDO. O mtime ficou de fora de
+// propósito: ele serve pra comparar dois momentos do mesmo cartão, mas aqui a
+// comparação é entre o save do console e o save que veio do Drive — e arquivo
+// baixado nasce com mtime de agora. Com mtime na conta, os dois lados NUNCA
+// batiam, e "iguais" seria reportado como "diferentes" toda vez.
+//
+// Ler o conteúdo inteiro é barato aqui: save de Switch é pequeno (o do Mario 3D
+// World tem 64 KB), e neste ponto o save da nuvem já foi baixado mesmo.
 static void fingerprint_dir(const char *dir, u64 *acc)
 {
     DIR *d = opendir(dir);
@@ -269,8 +352,6 @@ static void fingerprint_dir(const char *dir, u64 *acc)
             continue;
         }
 
-        // Mistura nome, tamanho e mtime. Não precisa ser criptográfico: só
-        // precisa mudar quando o save muda.
         u64 h = 1469598103934665603ULL; // FNV-1a
         for (const char *p = ent->d_name; *p; p++)
         {
@@ -278,7 +359,26 @@ static void fingerprint_dir(const char *dir, u64 *acc)
             h *= 1099511628211ULL;
         }
         h ^= (u64)st.st_size * 0x9E3779B97F4A7C15ULL;
-        h ^= (u64)st.st_mtime * 0xC2B2AE3D27D4EB4FULL;
+
+        FILE *f = fopen(path, "rb");
+        if (f)
+        {
+            unsigned char buf[4096];
+            size_t n;
+            while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+                for (size_t i = 0; i < n; i++)
+                {
+                    h ^= buf[i];
+                    h *= 1099511628211ULL;
+                }
+            fclose(f);
+        }
+        else
+        {
+            // Não deu pra ler: marca como "desconhecido" em vez de deixar o
+            // hash igual ao de um arquivo vazio, que seria uma igualdade falsa.
+            h ^= 0xDEADBEEFDEADBEEFULL;
+        }
 
         *acc += h; // soma: não depende da ordem que o readdir devolveu
     }
@@ -380,6 +480,7 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     }
 
     say(log, "Baixando da nuvem...");
+    clear_dir(staging); // ver clear_dir(): sobra de download antigo ia junto
     if (!drive_download_tree(token, game_id, staging))
     {
         say(log, "Download falhou");
@@ -398,21 +499,188 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     // Só aqui monta pra escrita, e só depois do download ter dado certo: se a
     // rede cair no meio, o save local não foi tocado.
     say(log, "Gravando no save do console...");
-    if (!savemount_mount(title->application_id, title->uid, false))
-    {
-        say(log, "Nao consegui montar o save pra escrita");
+    if (!write_over_save(title, staging, log))
         return false;
-    }
-
-    bool copied = savemount_copy_tree(staging, "save:/");
-    savemount_unmount(copied); // commit só se a cópia deu certo
-
-    if (!copied)
-    {
-        say(log, "Falhou ao gravar o save");
-        return false;
-    }
 
     say(log, "Save de %s veio da nuvem", title->name);
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// Sync de um clique
+// ---------------------------------------------------------------------------
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// vai — esta função decide.
+//
+// Pra decidir sem chutar são precisos TRÊS números, não dois: o save de agora
+// no console, o save de agora na nuvem, e o save de quando os dois estavam
+// iguais pela última vez (o marcador rev-<id>.txt, gravado só depois de uma
+// sync que deu certo). Com "console" e "nuvem" só dá pra saber que estão
+// diferentes; é o terceiro que diz QUEM mudou.
+//
+//   nuvem vazia/inexistente          -> sobe
+//   console == nuvem                 -> nada a fazer
+//   só a nuvem mudou desde a última  -> desce
+//   só o console mudou desde a última-> sobe
+//   os dois mudaram (ou sem marcador)-> CONFLITO, não escreve nada
+//
+// O caso "os dois mudaram" é o único que importa de verdade: é jogar no Switch
+// e jogar em outro lugar sem sincronizar no meio. Escolher sozinho aí apaga
+// progresso de um dos lados, então ele escolhe, pelo menu do Y.
+//
+// Tudo que envolve o save do console é feito em cópia no cartão: o save é
+// montado read-only uma vez, copiado, e desmontado. Daí em diante é arquivo
+// comum. A única escrita em save é o passo final do ramo "desce".
+SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log)
+{
+    char safe[0x201];
+    syncstate_sanitize_name(title->name, safe, sizeof(safe));
+
+    char cloud_dir[0x2A0], console_dir[0x2A0];
+    snprintf(cloud_dir, sizeof(cloud_dir), "%s/%s", SYNC_STAGING_DIR, safe);
+    snprintf(console_dir, sizeof(console_dir), "%s/%s.console", SYNC_STAGING_DIR, safe);
+
+    syncstate_ensure_dirs();
+    mkdir(SYNC_STAGING_DIR, 0777);
+    mkdir(cloud_dir, 0777);
+    mkdir(console_dir, 0777);
+
+    // 1) o que tem no console, agora
+    say(log, "Lendo o save de %s...", title->name);
+    if (!savemount_mount(title->application_id, title->uid, true))
+    {
+        say(log, "Nao consegui montar o save (o jogo esta aberto?)");
+        return SYNCJOB_SYNC_FAILED;
+    }
+    clear_dir(console_dir);
+    bool got_console = savemount_copy_tree("save:/", console_dir);
+    savemount_unmount(false);
+
+    if (!got_console)
+    {
+        say(log, "Falhou ao copiar o save pro cartao");
+        return SYNCJOB_SYNC_FAILED;
+    }
+
+    u64 local_fp = 0;
+    fingerprint_dir(console_dir, &local_fp);
+    bool local_vazio = dir_is_empty(console_dir);
+
+    // 2) o que tem na nuvem, agora
+    say(log, "Pegando token do Google...");
+    char token[2048];
+    if (!oauth_get_fresh_access_token(token, sizeof(token)))
+    {
+        say(log, "Sem token valido — precisa entrar na conta pelo app");
+        return SYNCJOB_SYNC_FAILED;
+    }
+
+    char root_id[128];
+    if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
+    {
+        say(log, "Nao achei/criei a pasta \"%s\" no Drive", DRIVE_APP_FOLDER_NAME);
+        return SYNCJOB_SYNC_FAILED;
+    }
+
+    // find, não ensure: procurar não pode criar pasta. Ver syncjob_restore_title.
+    char game_id[128];
+    bool tem_na_nuvem = drive_find_subfolder(token, root_id, safe, game_id, sizeof(game_id));
+
+    u64 cloud_fp = 0;
+    bool cloud_vazio = true;
+
+    if (tem_na_nuvem)
+    {
+        say(log, "Baixando o save da nuvem pra comparar...");
+        clear_dir(cloud_dir);
+        if (!drive_download_tree(token, game_id, cloud_dir))
+        {
+            say(log, "Download falhou");
+            return SYNCJOB_SYNC_FAILED;
+        }
+        fingerprint_dir(cloud_dir, &cloud_fp);
+        cloud_vazio = dir_is_empty(cloud_dir);
+    }
+
+    // 3) decidir
+    if (local_vazio && cloud_vazio)
+    {
+        say(log, "Esse jogo nao tem save nem aqui nem na nuvem");
+        return SYNCJOB_SYNC_NOTHING;
+    }
+
+    // Nuvem vazia (ou nem existe) e save aqui: primeira sync desse jogo.
+    if (cloud_vazio)
+    {
+        say(log, "Primeira sync desse jogo — subindo o save do console");
+        if (!drive_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)) ||
+            !drive_upload_tree(token, game_id, console_dir))
+        {
+            say(log, "Upload falhou");
+            return SYNCJOB_SYNC_FAILED;
+        }
+        drive_prune_extras(token, game_id, console_dir);
+        syncjob_mark_synced(title->application_id, local_fp);
+        say(log, "Save de %s guardado na nuvem", title->name);
+        return SYNCJOB_SYNC_UPLOADED;
+    }
+
+    if (!local_vazio && local_fp == cloud_fp)
+    {
+        // Grava o marcador mesmo sem transferir nada: os dois lados estão
+        // iguais AGORA, e é exatamente isso que o marcador significa. Sem
+        // esta linha, a primeira sync depois de uma instalação nova cairia
+        // em conflito na próxima vez que qualquer um dos lados mudasse.
+        syncjob_mark_synced(title->application_id, local_fp);
+        say(log, "Ja estava sincronizado — nao mexi em nada");
+        return SYNCJOB_SYNC_EQUAL;
+    }
+
+    u64 ultima = 0;
+    bool tem_marcador = syncjob_last_synced(title->application_id, &ultima);
+
+    if (!tem_marcador)
+    {
+        say(log, "Os dois lados tem save e nunca sincronizaram por aqui —");
+        say(log, "nao da pra saber qual e o mais novo. Escolha no botao Y.");
+        return SYNCJOB_SYNC_CONFLICT;
+    }
+
+    bool console_mudou = (local_fp != ultima);
+    bool nuvem_mudou   = (cloud_fp != ultima);
+
+    if (console_mudou && nuvem_mudou)
+    {
+        say(log, "Mudou dos DOIS lados desde a ultima sync.");
+        say(log, "Escolher sozinho apagaria progresso — escolha no botao Y.");
+        return SYNCJOB_SYNC_CONFLICT;
+    }
+
+    if (nuvem_mudou)
+    {
+        // O save daqui é o mesmo de quando sincronizou; quem andou foi a nuvem.
+        // O console_dir continua no cartão: se der ruim, o save de antes de
+        // escrever está ali inteiro.
+        say(log, "A nuvem esta mais nova — trazendo pro console...");
+        if (!write_over_save(title, cloud_dir, log))
+            return SYNCJOB_SYNC_FAILED;
+
+        syncjob_mark_synced(title->application_id, cloud_fp);
+        say(log, "Save de %s veio da nuvem", title->name);
+        return SYNCJOB_SYNC_DOWNLOADED;
+    }
+
+    // Sobrou: só o console mudou.
+    say(log, "O save daqui esta mais novo — subindo...");
+    if (!drive_upload_tree(token, game_id, console_dir))
+    {
+        say(log, "Upload falhou");
+        return SYNCJOB_SYNC_FAILED;
+    }
+    drive_prune_extras(token, game_id, console_dir);
+    syncjob_mark_synced(title->application_id, local_fp);
+    say(log, "Save de %s subiu pra nuvem", title->name);
+    return SYNCJOB_SYNC_UPLOADED;
 }
