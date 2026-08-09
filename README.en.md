@@ -31,6 +31,24 @@ It **never interprets save contents**. It copies the file tree byte for byte, bo
 That's why it works on games nobody ever tested it against — including games that aren't
 out yet — with no supported-games list to maintain.
 
+## Before anything else
+
+Look... this was made by **one person**. One. No test team, no QA, nobody looking over my
+shoulder going *"you sure about that?"*. It was tested on my console, with my games, my way.
+
+So yes, it can have bugs. It probably does, and I have no idea which ones yet — I'll only
+find out the worst way possible, which is someone telling me it broke.
+
+**If you find one, will you tell me?** Please. It doesn't have to be pretty or technical: a
+*"it froze when I did this"* helps more than you'd think. It's right there in
+[Issues](https://github.com/NspxMiguel/SwitchSaveSync/issues).
+
+I'll fix it. I'll cry a little first, but I'll fix it.
+
+And before anything goes wrong: **keep a copy of the saves you can't afford to lose.** Not
+because I think it'll break — but a save is a save, and I'd sleep a lot better knowing you
+have one.
+
 ## The single press
 
 **A** does the right thing on its own, comparing a fingerprint of both sides against the

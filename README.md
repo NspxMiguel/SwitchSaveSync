@@ -31,6 +31,25 @@ Ele **nunca interpreta o conteúdo do save**. Copia a árvore de arquivos byte a
 dois sentidos. Por isso funciona em jogo que nunca foi testado — inclusive jogo que ainda
 nem saiu — sem precisar de lista de jogos suportados.
 
+## Antes de mais nada
+
+Olha... isso aqui foi feito por **uma pessoa só**. Uma. Sem equipe de testes, sem QA, sem
+ninguém pra olhar por cima do meu ombro e dizer *"tem certeza disso?"*. Foi testado no meu
+console, com os meus jogos, do meu jeito.
+
+Então sim, pode ter bug. Provavelmente tem, e eu ainda não faço ideia de qual — só vou
+descobrir do pior jeito possível, que é alguém me contando que quebrou.
+
+**Se você achar algum, me conta?** Por favor mesmo. Não precisa ser bonito nem técnico: um
+*"travou quando eu fiz tal coisa"* já me ajuda mais do que você imagina. É logo ali nas
+[Issues](https://github.com/NspxMiguel/SwitchSaveSync/issues).
+
+Eu conserto. Choro um pouquinho antes, mas conserto.
+
+E antes que dê ruim: **guarda uma cópia dos saves que você não pode perder.** Não porque eu
+ache que vai dar errado — mas porque save é save, e eu ia dormir bem melhor sabendo que
+você tem uma.
+
 ## O clique único
 
 O botão **A** faz a coisa certa sozinho, comparando uma impressão digital do save dos dois
