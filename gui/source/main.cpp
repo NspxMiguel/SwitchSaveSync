@@ -126,6 +126,22 @@ static void updateAccountViews()
             "v" APP_VERSION_STRING);
 }
 
+// "De quem e' este save?" — string vazia quando nao ha' com o que confundir.
+//
+// So aparece quando o jogo tem mais de um save neste console. E a mesma regra
+// que decide o nome da pasta no Drive (save_folder_name, no syncjob.c): tem que
+// bater, senao a tela diz uma coisa e a nuvem guarda outra.
+static std::string saveOwnerLabel(const TitleEntry& title)
+{
+    if (!title.shared_game)
+        return "";
+    if (title.device_save)
+        return "console (vale pra todas as contas)";
+    if (title.account[0])
+        return title.account;
+    return "";
+}
+
 static void updatePinItem()
 {
     if (!g_pin_item)
@@ -497,9 +513,8 @@ static bool jobRestore(Job* job, TitleEntry title)
 static void openGamePage(const TitleEntry& title)
 {
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
-    frame->setTitle((title.shared_game && title.account[0])
-            ? title.name + std::string(" — ") + title.account
-            : title.name);
+    std::string dono = saveOwnerLabel(title);
+    frame->setTitle(dono.empty() ? title.name : title.name + std::string(" — ") + dono);
 
     size_t iconLen = 0;
     if (titles_get_icon(title.application_id, g_icon_buffer, sizeof(g_icon_buffer), &iconLen))
@@ -593,13 +608,14 @@ static void fillGamesList(brls::List* list)
     {
         TitleEntry title = g_titles[i];
 
-        // O apelido da conta só aparece quando o jogo TEM save de mais de uma
+        // O dono do save só aparece quando o jogo TEM mais de um save neste
         // conversa privada removida do historico
         // conversa privada removida do historico
-        // toda linha só faria barulho: é sempre ele.
-        brls::ListItem* item = (title.shared_game && title.account[0])
-            ? new brls::ListItem(title.name, "", title.account)
-            : new brls::ListItem(title.name);
+        // faria barulho: é sempre ele.
+        std::string dono = saveOwnerLabel(title);
+        brls::ListItem* item = dono.empty()
+            ? new brls::ListItem(title.name)
+            : new brls::ListItem(title.name, "", dono);
 
         size_t iconLen = 0;
         if (titles_get_icon(title.application_id, g_icon_buffer, sizeof(g_icon_buffer), &iconLen))

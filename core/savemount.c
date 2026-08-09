@@ -17,18 +17,31 @@
 
 static bool g_mounted = false;
 
-bool savemount_mount(u64 application_id, AccountUid uid, bool read_only) {
+bool savemount_mount_typed(u64 application_id, AccountUid uid, bool device, bool read_only) {
     if (g_mounted) return false; // já tem um save montado, evita mount duplo
 
-    // read_only no backup: o jogo continua dono do save e nada que a gente
-    // faça consegue escrever nele por acidente.
-    Result rc = read_only
-        ? fsdevMountSaveDataReadOnly(SAVE_DEVICE_NAME, application_id, uid)
-        : fsdevMountSaveData(SAVE_DEVICE_NAME, application_id, uid);
+    Result rc;
+    if (device) {
+        // Save do console, sem dono — não passa uid. E não existe variante
+        // somente-leitura na libnx: read_only é ignorado aqui de propósito, e
+        // está avisado no savemount.h pra ninguém achar que está protegido.
+        (void)read_only;
+        rc = fsdevMountDeviceSaveData(SAVE_DEVICE_NAME, application_id);
+    } else {
+        // read_only no backup: o jogo continua dono do save e nada que a gente
+        // faça consegue escrever nele por acidente.
+        rc = read_only
+            ? fsdevMountSaveDataReadOnly(SAVE_DEVICE_NAME, application_id, uid)
+            : fsdevMountSaveData(SAVE_DEVICE_NAME, application_id, uid);
+    }
     if (R_FAILED(rc)) return false;
 
     g_mounted = true;
     return true;
+}
+
+bool savemount_mount(u64 application_id, AccountUid uid, bool read_only) {
+    return savemount_mount_typed(application_id, uid, false, read_only);
 }
 
 void savemount_unmount(bool should_commit) {

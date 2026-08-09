@@ -18,6 +18,21 @@ extern "C" {
 // leitura — use isso pro backup, é impossível corromper save assim.
 bool savemount_mount(u64 application_id, AccountUid uid, bool read_only);
 
+// Igual, mas escolhendo o TIPO de save data.
+//
+// Nem todo save do Switch pertence a uma conta. Existe o "device save", que é
+// do console inteiro e não tem dono — é onde Animal Crossing guarda a ilha e
+// onde Pokémon Sword/Shield guarda parte das coisas. Um app que só olha save
+// de conta simplesmente não enxerga esses jogos (o JKSV tem o mesmo furo, com
+// issue aberta). Pior: no Animal Crossing o save de conta é quase vazio, então
+// dava pra "fazer backup" e não levar a ilha junto.
+//
+// Aviso que vale a pena saber: a libnx NÃO tem versão somente-leitura do mount
+// de device save (só existe fsdevMountDeviceSaveData). Com device=true o
+// read_only é ignorado e o mount sai read-write mesmo no backup — a proteção
+// aqui passa a ser só o código não escrever nada, em vez de o sistema impedir.
+bool savemount_mount_typed(u64 application_id, AccountUid uid, bool device, bool read_only);
+
 // Desmonta o save. should_commit=true chama fsdevCommitDevice antes
 // (obrigatório depois de ESCREVER, senão a escrita não persiste).
 void savemount_unmount(bool should_commit);

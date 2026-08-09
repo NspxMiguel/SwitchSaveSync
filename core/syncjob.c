@@ -55,25 +55,31 @@ bool syncjob_find_title(u64 application_id, TitleEntry *out)
 
 // O nome da pasta desse save — no Drive, no staging e no backup do cartão.
 //
-// A conta só entra quando o console TEM save de mais de uma conta pra esse
-// jogo. Não é preguiça: incluir a conta sempre renomearia a pasta de todo
-// mundo, e save que já está no Drive numa pasta com o nome antigo viraria
-// órfão — o app não acharia mais e trataria como "primeira sync", pronto pra
-// subir o save de estreia por cima. Do jeito que está, jogo de conta única
-// mantém exatamente o nome de sempre e nada se perde.
+// O dono do save só entra no nome quando o console TEM mais de um save pra
+// esse jogo (duas contas, ou uma conta e o console). Não é preguiça: incluir
+// sempre renomearia a pasta de todo mundo, e save que já está no Drive numa
+// pasta com o nome antigo viraria órfão — o app não acharia mais e trataria
+// como "primeira sync", pronto pra subir o save de estreia por cima. Do jeito
+// que está, jogo de save único mantém exatamente o nome de sempre.
 static void save_folder_name(const TitleEntry *title, char *out, size_t outsz)
 {
-    if (!title->shared_game || title->account[0] == '\0')
+    // Sem sufixo quando não há com o que confundir; e sem sufixo também quando
+    // é save de conta e o apelido não veio (nome chutado viraria pasta órfã na
+    // próxima versão).
+    if (!title->shared_game || (!title->device_save && title->account[0] == '\0'))
     {
         syncstate_sanitize_name(title->name, out, outsz);
         return;
     }
 
-    // O sufixo da conta é justamente o que separa um save do outro, então não
-    // pode ser ele a sobrar da truncagem. Reservo o espaço dele primeiro; quem
-    // encurta, se precisar, é o nome do jogo.
+    // O sufixo é justamente o que separa um save do outro, então não pode ser
+    // ele a sobrar da truncagem. Reservo o espaço dele primeiro; quem encurta,
+    // se precisar, é o nome do jogo.
     char sufixo[0x28];
-    snprintf(sufixo, sizeof(sufixo), " (%s)", title->account);
+    if (title->device_save)
+        snprintf(sufixo, sizeof(sufixo), " (console)");
+    else
+        snprintf(sufixo, sizeof(sufixo), " (%s)", title->account);
 
     char junto[0x201];
     size_t espaco = sizeof(junto) - strlen(sufixo) - 1;
@@ -96,7 +102,7 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 
     // 1) save -> staging. Read-only: impossível estragar o save do jogo aqui.
     say(log, "Montando o save de %s...", title->name);
-    if (!savemount_mount(title->application_id, title->uid, true))
+    if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
         say(log, "Nao consegui montar o save (jogo aberto? conta errada?)");
         return false;
@@ -325,7 +331,7 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
     mkdir(dir, 0777);
 
     say(log, "Copiando o save de %s pro cartao...", title->name);
-    if (!savemount_mount(title->application_id, title->uid, true))
+    if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
         say(log, "Nao consegui montar o save (jogo aberto? conta errada?)");
         return false;
@@ -360,7 +366,7 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
 // um jogo abre e diz que os dados estão corrompidos.
 static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjob_log_cb log)
 {
-    if (!savemount_mount(title->application_id, title->uid, false))
+    if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, false))
     {
         say(log, "Nao consegui montar o save pra escrita");
         return false;
@@ -473,7 +479,7 @@ static void fingerprint_dir(const char *dir, u64 *acc)
 
 bool syncjob_fingerprint(const TitleEntry *title, u64 *out)
 {
-    if (!savemount_mount(title->application_id, title->uid, true))
+    if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
         return false;
 
     u64 acc = 0;
@@ -645,7 +651,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     // 1) o que tem no console, agora
     say(log, "Lendo o save de %s...", title->name);
-    if (!savemount_mount(title->application_id, title->uid, true))
+    if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
         // Duas causas bem diferentes caem aqui, e a mensagem antiga só citava
         // uma: o jogo aberto agora, e o jogo que nunca foi aberto (aí o save
