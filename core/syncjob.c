@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "drive.h"
+#include "lang.h"
 #include "oauth.h"
 #include "savemount.h"
 #include "syncstate.h"
@@ -101,10 +102,10 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
     mkdir(staging, 0777);
 
     // 1) save -> staging. Read-only: impossível estragar o save do jogo aqui.
-    say(log, "Montando o save de %s...", title->name);
+    say(log, TR("Montando o save de %s...", "Mounting %s's save..."), title->name);
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
-        say(log, "Nao consegui montar o save (jogo aberto? conta errada?)");
+        say(log, TR("Não consegui montar o save (jogo aberto? conta errada?)", "Couldn't mount the save (game running? wrong account?)"));
         return false;
     }
 
@@ -118,37 +119,37 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 
     if (!copied)
     {
-        say(log, "Falhou ao copiar o save pro cartao");
+        say(log, TR("Falhou ao copiar o save pro cartão", "Failed to copy the save to the SD card"));
         return false;
     }
 
     // 2) staging -> Drive
-    say(log, "Pegando token do Google...");
+    say(log, TR("Pegando token do Google...", "Getting a Google token..."));
     char token[2048];
     if (!oauth_get_fresh_access_token(token, sizeof(token)))
     {
-        say(log, "Sem token valido — precisa entrar na conta pelo app");
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
     char root_id[128];
     if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, "Nao achei/criei a pasta \"%s\" no Drive", DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
         return false;
     }
 
     char game_id[128];
     if (!drive_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
     {
-        say(log, "Nao criei a pasta do jogo no Drive");
+        say(log, TR("Não criei a pasta do jogo no Drive", "Couldn't create the game's folder on Drive"));
         return false;
     }
 
-    say(log, "Subindo pro Drive...");
+    say(log, TR("Subindo pro Drive...", "Uploading to Drive..."));
     if (!drive_upload_tree(token, game_id, staging))
     {
-        say(log, "Upload falhou");
+        say(log, TR("Upload falhou", "Upload failed"));
         return false;
     }
 
@@ -156,7 +157,7 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
     // volta no próximo restore. Vai pra lixeira do Drive, não some.
     drive_prune_extras(token, game_id, staging);
 
-    say(log, "Backup de %s concluido", title->name);
+    say(log, TR("Backup de %s concluído", "Backup of %s done"), title->name);
     return true;
 }
 
@@ -253,9 +254,9 @@ static void say_dois_lados(syncjob_log_cb log, const char *console_dir, const ch
     dir_stats(console_dir, &cf, &cb);
     dir_stats(cloud_dir, &nf, &nb);
 
-    say(log, "  no console: %d arquivo%s, %llu KB", cf, cf == 1 ? "" : "s",
+    say(log, TR("  no console: %d arquivo%s, %llu KB", "  on the console: %d file%s, %llu KB"), cf, cf == 1 ? "" : "s",
         (unsigned long long)((cb + 1023) / 1024));
-    say(log, "  na nuvem:   %d arquivo%s, %llu KB", nf, nf == 1 ? "" : "s",
+    say(log, TR("  na nuvem:   %d arquivo%s, %llu KB", "  in the cloud:  %d file%s, %llu KB"), nf, nf == 1 ? "" : "s",
         (unsigned long long)((nb + 1023) / 1024));
 }
 
@@ -330,10 +331,10 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
     mkdir(SYNC_LOCAL_DIR, 0777);
     mkdir(dir, 0777);
 
-    say(log, "Copiando o save de %s pro cartao...", title->name);
+    say(log, TR("Copiando o save de %s pro cartão...", "Copying %s's save to the SD card..."), title->name);
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
-        say(log, "Nao consegui montar o save (jogo aberto? conta errada?)");
+        say(log, TR("Não consegui montar o save (jogo aberto? conta errada?)", "Couldn't mount the save (game running? wrong account?)"));
         return false;
     }
 
@@ -346,11 +347,11 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
 
     if (!copied)
     {
-        say(log, "Falhou ao copiar pro cartao");
+        say(log, TR("Falhou ao copiar pro cartão", "Failed to copy to the SD card"));
         return false;
     }
 
-    say(log, "Backup de %s guardado em %s", title->name, dir);
+    say(log, TR("Backup de %s guardado em %s", "Backup of %s stored in %s"), title->name, dir);
     return true;
 }
 
@@ -368,14 +369,14 @@ static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjo
 {
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, false))
     {
-        say(log, "Nao consegui montar o save pra escrita");
+        say(log, TR("Não consegui montar o save pra escrita", "Couldn't mount the save for writing"));
         return false;
     }
 
     if (!savemount_wipe_contents())
     {
         savemount_unmount(false); // sem commit: nada do que apaguei valeu
-        say(log, "Nao consegui limpar o save antes de gravar");
+        say(log, TR("Não consegui limpar o save antes de gravar", "Couldn't clear the save before writing"));
         return false;
     }
 
@@ -383,7 +384,7 @@ static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjo
     savemount_unmount(copied); // commit só se a cópia deu certo
 
     if (!copied)
-        say(log, "Falhou ao gravar o save");
+        say(log, TR("Falhou ao gravar o save", "Failed to write the save"));
     return copied;
 }
 
@@ -394,15 +395,15 @@ bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
 
     if (!syncjob_has_local_backup(title))
     {
-        say(log, "Esse jogo nao tem backup no cartao");
+        say(log, TR("Esse jogo não tem backup no cartão", "This game has no backup on the SD card"));
         return false;
     }
 
-    say(log, "Gravando no save do console...");
+    say(log, TR("Gravando no save do console...", "Writing to the console's save..."));
     if (!write_over_save(title, dir, log))
         return false;
 
-    say(log, "Save de %s restaurado do cartao", title->name);
+    say(log, TR("Save de %s restaurado do cartão", "%s's save restored from the SD card"), title->name);
     return true;
 }
 
@@ -556,18 +557,18 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     mkdir(SYNC_STAGING_DIR, 0777);
     mkdir(staging, 0777);
 
-    say(log, "Pegando token do Google...");
+    say(log, TR("Pegando token do Google...", "Getting a Google token..."));
     char token[2048];
     if (!oauth_get_fresh_access_token(token, sizeof(token)))
     {
-        say(log, "Sem token valido — precisa entrar na conta pelo app");
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return false;
     }
 
     char root_id[128];
     if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, "Nao achei a pasta \"%s\" no Drive", DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei a pasta \"%s\" no Drive", "Couldn't find the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
         return false;
     }
 
@@ -577,15 +578,15 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     char game_id[128];
     if (!drive_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
     {
-        say(log, "Esse jogo nao tem backup no Drive");
+        say(log, TR("Esse jogo não tem backup no Drive", "This game has no backup on Drive"));
         return false;
     }
 
-    say(log, "Baixando da nuvem...");
+    say(log, TR("Baixando da nuvem...", "Downloading from the cloud..."));
     clear_dir(staging); // ver clear_dir(): sobra de download antigo ia junto
     if (!drive_download_tree(token, game_id, staging))
     {
-        say(log, "Download falhou");
+        say(log, TR("Download falhou", "Download failed"));
         return false;
     }
 
@@ -594,17 +595,17 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     // de um save bom, commitando, é exatamente o caminho da corrupção.
     if (dir_is_empty(staging))
     {
-        say(log, "O backup na nuvem esta vazio — nao vou gravar nada por cima");
+        say(log, TR("O backup na nuvem está vazio — não vou gravar nada por cima", "The cloud backup is empty — nothing will be written over your save"));
         return false;
     }
 
     // Só aqui monta pra escrita, e só depois do download ter dado certo: se a
     // rede cair no meio, o save local não foi tocado.
-    say(log, "Gravando no save do console...");
+    say(log, TR("Gravando no save do console...", "Writing to the console's save..."));
     if (!write_over_save(title, staging, log))
         return false;
 
-    say(log, "Save de %s veio da nuvem", title->name);
+    say(log, TR("Save de %s veio da nuvem", "%s's save came from the cloud"), title->name);
     return true;
 }
 
@@ -650,14 +651,14 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     mkdir(console_dir, 0777);
 
     // 1) o que tem no console, agora
-    say(log, "Lendo o save de %s...", title->name);
+    say(log, TR("Lendo o save de %s...", "Reading %s's save..."), title->name);
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
         // Duas causas bem diferentes caem aqui, e a mensagem antiga só citava
         // uma: o jogo aberto agora, e o jogo que nunca foi aberto (aí o save
         // sequer existe pra ser montado).
-        say(log, "Nao consegui abrir o save. O jogo esta rodando agora, ou");
-        say(log, "nunca foi aberto neste console — abra ele uma vez e volte.");
+        say(log, TR("Não consegui abrir o save. O jogo está rodando agora, ou", "Couldn't open the save. The game is running right now, or"));
+        say(log, TR("nunca foi aberto neste console — abra ele uma vez e volte.", "it was never opened on this console — open it once and come back."));
         return SYNCJOB_SYNC_FAILED;
     }
     clear_dir(console_dir);
@@ -666,7 +667,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     if (!got_console)
     {
-        say(log, "Falhou ao copiar o save pro cartao");
+        say(log, TR("Falhou ao copiar o save pro cartão", "Failed to copy the save to the SD card"));
         return SYNCJOB_SYNC_FAILED;
     }
 
@@ -675,18 +676,18 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     bool local_vazio = dir_is_empty(console_dir);
 
     // 2) o que tem na nuvem, agora
-    say(log, "Pegando token do Google...");
+    say(log, TR("Pegando token do Google...", "Getting a Google token..."));
     char token[2048];
     if (!oauth_get_fresh_access_token(token, sizeof(token)))
     {
-        say(log, "Sem token valido — precisa entrar na conta pelo app");
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
         return SYNCJOB_SYNC_FAILED;
     }
 
     char root_id[128];
     if (!drive_ensure_app_folder(token, root_id, sizeof(root_id)))
     {
-        say(log, "Nao achei/criei a pasta \"%s\" no Drive", DRIVE_APP_FOLDER_NAME);
+        say(log, TR("Não achei/criei a pasta \"%s\" no Drive", "Couldn't find/create the \"%s\" folder on Drive"), DRIVE_APP_FOLDER_NAME);
         return SYNCJOB_SYNC_FAILED;
     }
 
@@ -699,11 +700,11 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     if (tem_na_nuvem)
     {
-        say(log, "Baixando o save da nuvem pra comparar...");
+        say(log, TR("Baixando o save da nuvem pra comparar...", "Downloading the cloud save to compare..."));
         clear_dir(cloud_dir);
         if (!drive_download_tree(token, game_id, cloud_dir))
         {
-            say(log, "Download falhou");
+            say(log, TR("Download falhou", "Download failed"));
             return SYNCJOB_SYNC_FAILED;
         }
         fingerprint_dir(cloud_dir, &cloud_fp);
@@ -713,23 +714,23 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     // 3) decidir
     if (local_vazio && cloud_vazio)
     {
-        say(log, "Esse jogo nao tem save nem aqui nem na nuvem");
+        say(log, TR("Esse jogo não tem save nem aqui nem na nuvem", "This game has no save here and none in the cloud"));
         return SYNCJOB_SYNC_NOTHING;
     }
 
     // Nuvem vazia (ou nem existe) e save aqui: primeira sync desse jogo.
     if (cloud_vazio)
     {
-        say(log, "Primeira sync desse jogo — subindo o save do console");
+        say(log, TR("Primeira sync desse jogo — subindo o save do console", "First sync for this game — uploading the console's save"));
         if (!drive_ensure_subfolder(token, root_id, safe, game_id, sizeof(game_id)) ||
             !drive_upload_tree(token, game_id, console_dir))
         {
-            say(log, "Upload falhou");
+            say(log, TR("Upload falhou", "Upload failed"));
             return SYNCJOB_SYNC_FAILED;
         }
         drive_prune_extras(token, game_id, console_dir);
         syncjob_mark_synced(title, local_fp);
-        say(log, "Save de %s guardado na nuvem", title->name);
+        say(log, TR("Save de %s guardado na nuvem", "%s's save stored in the cloud"), title->name);
         return SYNCJOB_SYNC_UPLOADED;
     }
 
@@ -740,12 +741,12 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     // pra escolher entre um save e o nada.
     if (local_vazio)
     {
-        say(log, "Nao tem save aqui e tem na nuvem — trazendo pro console...");
+        say(log, TR("Não tem save aqui e tem na nuvem — trazendo pro console...", "No save here but there is one in the cloud — bringing it over..."));
         if (!write_over_save(title, cloud_dir, log))
             return SYNCJOB_SYNC_FAILED;
 
         syncjob_mark_synced(title, cloud_fp);
-        say(log, "Save de %s veio da nuvem", title->name);
+        say(log, TR("Save de %s veio da nuvem", "%s's save came from the cloud"), title->name);
         return SYNCJOB_SYNC_DOWNLOADED;
     }
 
@@ -756,7 +757,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         // esta linha, a primeira sync depois de uma instalação nova cairia
         // em conflito na próxima vez que qualquer um dos lados mudasse.
         syncjob_mark_synced(title, local_fp);
-        say(log, "Ja estava sincronizado — nao mexi em nada");
+        say(log, TR("Já estava sincronizado — não mexi em nada", "Already in sync — nothing was touched"));
         return SYNCJOB_SYNC_EQUAL;
     }
 
@@ -765,11 +766,11 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     if (!tem_marcador)
     {
-        say(log, "Primeira sync deste jogo por aqui, e ja tem save dos dois");
-        say(log, "lados. Sem uma sync anterior nao da pra saber qual andou.");
+        say(log, TR("Primeira sync deste jogo por aqui, e já tem save dos dois", "First sync for this game here, and there is already a save on both"));
+        say(log, TR("lados. Sem uma sync anterior não dá pra saber qual andou.", "sides. With no earlier sync there is no way to tell which one moved."));
         say_dois_lados(log, console_dir, cloud_dir);
-        say(log, "Se voce reinstalou o jogo e abriu uma vez, o do console e o");
-        say(log, "save de estreia — nesse caso e o da nuvem que voce quer.");
+        say(log, TR("Se você reinstalou o jogo e abriu uma vez, o do console é o", "If you reinstalled the game and opened it once, the console's is the"));
+        say(log, TR("save de estreia — nesse caso é o da nuvem que você quer.", "brand-new save — in that case the cloud one is what you want."));
         return SYNCJOB_SYNC_CONFLICT;
     }
 
@@ -778,7 +779,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     if (console_mudou && nuvem_mudou)
     {
-        say(log, "Mudou dos DOIS lados desde a ultima sync.");
+        say(log, TR("Mudou dos DOIS lados desde a última sync.", "BOTH sides changed since the last sync."));
         say_dois_lados(log, console_dir, cloud_dir);
         return SYNCJOB_SYNC_CONFLICT;
     }
@@ -788,24 +789,24 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         // O save daqui é o mesmo de quando sincronizou; quem andou foi a nuvem.
         // O console_dir continua no cartão: se der ruim, o save de antes de
         // escrever está ali inteiro.
-        say(log, "A nuvem esta mais nova — trazendo pro console...");
+        say(log, TR("A nuvem está mais nova — trazendo pro console...", "The cloud one is newer — bringing it to the console..."));
         if (!write_over_save(title, cloud_dir, log))
             return SYNCJOB_SYNC_FAILED;
 
         syncjob_mark_synced(title, cloud_fp);
-        say(log, "Save de %s veio da nuvem", title->name);
+        say(log, TR("Save de %s veio da nuvem", "%s's save came from the cloud"), title->name);
         return SYNCJOB_SYNC_DOWNLOADED;
     }
 
     // Sobrou: só o console mudou.
-    say(log, "O save daqui esta mais novo — subindo...");
+    say(log, TR("O save daqui está mais novo — subindo...", "This console's save is newer — uploading..."));
     if (!drive_upload_tree(token, game_id, console_dir))
     {
-        say(log, "Upload falhou");
+        say(log, TR("Upload falhou", "Upload failed"));
         return SYNCJOB_SYNC_FAILED;
     }
     drive_prune_extras(token, game_id, console_dir);
     syncjob_mark_synced(title, local_fp);
-    say(log, "Save de %s subiu pra nuvem", title->name);
+    say(log, TR("Save de %s subiu pra nuvem", "%s's save went up to the cloud"), title->name);
     return SYNCJOB_SYNC_UPLOADED;
 }

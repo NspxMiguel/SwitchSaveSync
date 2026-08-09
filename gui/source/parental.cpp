@@ -6,6 +6,7 @@
 #include <cstring>
 
 extern "C" {
+#include "lang.h"
 #include "syncstate.h"
 }
 
@@ -133,11 +134,15 @@ bool Parental::unlockAtStartup()
         std::string pin;
         char sub[128];
         if (tentativa == 1)
-            snprintf(sub, sizeof(sub), "Digite a senha pra abrir o SwitchSaveSync");
+            snprintf(sub, sizeof(sub), "%s",
+                TR("Digite a senha pra abrir o SwitchSaveSync",
+                    "Type the password to open SwitchSaveSync"));
         else
-            snprintf(sub, sizeof(sub), "Senha errada. Tentativa %d de 3", tentativa);
+            snprintf(sub, sizeof(sub),
+                TR("Senha errada. Tentativa %d de 3", "Wrong password. Attempt %d of 3"),
+                tentativa);
 
-        if (!Parental::prompt("SwitchSaveSync — senha", sub, pin))
+        if (!Parental::prompt(TR("SwitchSaveSync — senha", "SwitchSaveSync — password"), sub, pin))
             return false; // cancelou de propósito: o app fecha, sem drama
 
         if (Parental::matches(pin))
