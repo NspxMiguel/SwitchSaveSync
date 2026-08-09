@@ -102,6 +102,14 @@ bool cloud_upload(const char *auth, const char *folder_id, const char *remote_na
 bool cloud_download(const char *auth, const char *folder_id, const char *remote_name,
                      const char *local_path);
 
+// Tira um arquivo (não pasta) de dentro de uma pasta. Devolve true também
+// quando não achou: o que se queria era "esse arquivo não está mais lá", e ele
+// não está. Só dá false se a nuvem recusou de verdade.
+//
+// Existe pro teste de conexão limpar o arquivinho que ele mesmo sobe. Não é
+// pra apagar backup — pra isso tem o prune_extras, que sabe o que é sobra.
+bool cloud_delete_file(const char *auth, const char *folder_id, const char *remote_name);
+
 // Uma pasta local inteira, recriando as subpastas do outro lado.
 //
 // upload_tree só ESCREVE: arquivo que sumiu do save continua na nuvem. Quem

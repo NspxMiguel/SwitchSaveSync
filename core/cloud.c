@@ -171,6 +171,16 @@ bool cloud_download(const char *auth, const char *folder_id, const char *remote_
     return b->get_file(auth, id, local_path);
 }
 
+bool cloud_delete_file(const char *auth, const char *folder_id, const char *remote_name)
+{
+    const CloudBackend *b = atual();
+
+    char id[CLOUD_ID_MAX];
+    // Não achou = já não está lá = o que se queria. Ver o cloud.h.
+    if (!b->find_child(auth, folder_id, remote_name, false, id, sizeof(id))) return true;
+    return b->remove(auth, id);
+}
+
 bool cloud_list_children(const char *auth, const char *folder_id,
                           cloud_item_cb cb, void *userdata)
 {
