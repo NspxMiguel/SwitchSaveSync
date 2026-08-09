@@ -124,16 +124,82 @@ become a real list.
 
 ## Install
 
-1. A console on CFW (**Atmosphère**) with the homebrew menu working.
-2. Copy `SwitchSaveSync.nro` to `sdmc:/switch/`.
-3. Launch it from the homebrew menu.
+**First of all:** the console needs CFW (**Atmosphère**) with the homebrew menu working. If
+that isn't in place yet, sort it out first — that's someone else's tutorial, not this one.
 
-> **Open it by holding R on a game, not from the Album.** Launched from the Album, homebrew
-> runs in *applet mode*: it gets ~448 MB of memory and the network stack sometimes fails to
-> come up — the app says so in the Account tab, under Diagnostics. Holding **R** while
-> opening an installed game runs it as an application, with full memory and networking.
+> ### There's no ready-made `.nro` to download. Why?
+>
+> Because the Google credentials are **compiled into the binary**. If I published my build
+> here, I'd be publishing the ID and secret of *my* developer account along with it —
+> anyone could burn through my quota and I'd carry the blame for whatever they did with it.
+>
+> So the way in is to build it with yours. Ten minutes, once in your life, free of charge —
+> and it's exactly what keeps this app costing nothing, with no server of mine in between.
+>
+> If someone already handed you a built `SwitchSaveSync.nro`, skip straight to **step 3**.
 
-### As a game, on the home screen
+### 1. Your Google credentials
+
+```bash
+cp core/config.h.example core/config.h
+```
+
+`config.h.example` walks through it screen by screen: create a project at
+[console.cloud.google.com](https://console.cloud.google.com), enable the **Google Drive
+API**, fill in the consent screen, and generate an OAuth client of the **"TVs and Limited
+Input devices"** type (that type specifically — it's the one that allows the code-based
+login, with no keyboard).
+
+Paste the ID and the secret into `config.h`. It's in `.gitignore` and never reaches a
+commit.
+
+### 2. Build
+
+Needs [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the `switch-dev` group,
+plus `switch-curl`, `switch-mbedtls` and `switch-zlib`.
+
+```bash
+export DEVKITPRO=/opt/devkitpro
+export DEVKITA64=$DEVKITPRO/devkitA64
+export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
+make -C gui
+```
+
+Out comes `gui/SwitchSaveSync.nro`.
+
+### 3. Copy it to the SD card
+
+Put `SwitchSaveSync.nro` in `sdmc:/switch/`. Either pull the card and use a PC, or send it
+over FTP if you already run one.
+
+### 4. Launch it
+
+From the homebrew menu — but **holding R on a game, not from the Album**.
+
+> Launched from the Album, homebrew runs in *applet mode*: it gets only ~448 MB of memory
+> and the network stack sometimes fails to come up at all. Holding **R** while opening an
+> installed game makes the homebrew menu take the game's place and run as an application,
+> with full memory and networking. If you're unsure which mode you're in, the app itself
+> tells you: **Settings** tab, under Diagnostics.
+
+### 5. Sign in
+
+The first time, the app shows a **code** and an address (and a QR code, if you'd rather use
+your phone's camera). You open that address on your phone or PC, type the code and approve
+it — the console never asks for a password; you sign in yourself, on Google's own page.
+
+The scope requested is **`drive.file`**: the app only ever sees files it created itself. The
+rest of your Drive is invisible to it — that's not a promise from us, it's Google refusing.
+
+The login is stored on the SD card only, in `/switch/SwitchSaveSync/token.txt`, and Sign out
+removes it for good.
+
+> Rather not use Google? Under **Settings → Where to save** you can point it at your own
+> **WebDAV** server (Nextcloud, a Synology or QNAP NAS). Then step 1 doesn't really apply —
+> but the Google credentials are still required to compile, so leave anything in
+> `config.h`.
+
+### 6. As a game, on the home screen
 
 You can have an icon for the app on the console's home screen, next to your games, and open
 it from there. [Sphaira](https://github.com/ITotalJustice/sphaira) does it by itself, **on
@@ -156,37 +222,22 @@ being necessary.
 > nothing — and rebuilding it from the new path creates a second icon instead of fixing the
 > first. Leave it at `sdmc:/switch/SwitchSaveSync.nro` and be done.
 
-## Setting up Google Drive
+## Where the saves end up
 
-The app ships with no built-in credentials — everyone uses their own Google Cloud project,
-free of charge. That's what keeps the cost at zero and the access restricted to you.
+In a `Nintendo Switch Saves/` folder at the root of your Drive (or your WebDAV), one
+subfolder per game with the files loose inside. No closed format: you can open the cloud's
+website and pull a single save by hand whenever you want.
 
-```bash
-cp core/config.h.example core/config.h
-```
+When a game has saves from more than one account, the nickname goes into the folder name —
+*Mario Kart 8 Deluxe (Player 1)*. Just the name, though: what actually identifies it is the
+game + account pair, recorded in `/switch/SwitchSaveSync/pastas.txt`. That's why you can
+rename the console account freely without the app losing sight of the backup.
 
-`config.h.example` walks through the whole thing (create the project, enable the Drive API,
-generate an OAuth client of the *TVs and Limited Input devices* type). `config.h` is in
-`.gitignore` and never gets committed.
+## Building the other parts
 
-The scope requested is **`drive.file`**: the app only ever sees files it created itself. The
-rest of your Drive is invisible to it — that's not a promise from us, it's Google refusing.
-
-Saves land in a `Nintendo Switch Saves/` folder, one subfolder per game.
-
-## Building
-
-Needs [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the `switch-dev` group,
-plus `switch-curl`, `switch-mbedtls` and `switch-zlib`.
-
-```bash
-export DEVKITPRO=/opt/devkitpro
-export DEVKITA64=$DEVKITPRO/devkitA64
-export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
-make -C gui
-```
-
-Out comes `gui/SwitchSaveSync.nro`.
+The `make -C gui` in step 2 builds the app, which is the part in use. The other folders
+build the same way (`make -C app`, `make -C sysmodule`), but check the
+[project status](#project-status) first — they're parked on purpose.
 
 ## What it doesn't do
 

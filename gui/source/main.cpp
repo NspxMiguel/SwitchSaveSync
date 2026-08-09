@@ -2771,6 +2771,49 @@ static brls::List* createAboutTab()
             "both sides changed since last time, it won't choose for you — it stops and "
             "leaves the choice on screen. Only games installed on the console show up.")));
 
+    // O resto do "como instalar" mora no README, porque quem está lendo esta
+    // tela já instalou. Este passo é a exceção: é o único que se faz DEPOIS,
+    // com o app na mão, e é justamente o que ninguém descobre sozinho.
+    list->addView(new brls::ListItem(TR("Deixar com cara de jogo, na tela inicial",
+                                        "Putting it on the home screen, like a game"),
+        TR("Dá pra ter um ícone deste app na tela inicial do console, do lado "
+           "dos jogos, e abrir por ali. Quem faz isso é o Sphaira, no próprio "
+           "console — não precisa de PC, nem de hacbrewpack, nem da sua "
+           "prod.keys.\n\n"
+           "1. Abra o Sphaira e ache o SwitchSaveSync na lista de homebrew.\n"
+           "2. Abra as opções e escolha \"Install Forwarder\".\n"
+           "3. Instalar vem desligado de fábrica no Sphaira; ele pergunta se "
+           "pode ligar — responda que sim.\n\n"
+           "Vale a pena por um motivo além da beleza: o atalho é instalado "
+           "como APLICAÇÃO. Aberto pelo Álbum, o homebrew fica com uns 448 MB "
+           "e a rede às vezes nem sobe; aberto pelo atalho, ele tem a memória "
+           "e a rede inteiras. É o mesmo que o truque de segurar R num jogo, "
+           "só que sem truque nenhum.\n\n"
+           "Depois disso, não mude o .nro de lugar. O atalho guarda o caminho "
+           "do arquivo, e o Sphaira tira o ID do título de um hash desse "
+           "caminho — movido o arquivo, o atalho aponta pro vazio, e refazer a "
+           "partir do caminho novo cria um segundo ícone em vez de consertar o "
+           "primeiro. Deixe em /switch/SwitchSaveSync.nro e pronto.",
+
+            "You can have an icon for this app on the console's home screen, "
+            "next to your games, and open it from there. Sphaira does it, on "
+            "the console itself — no PC, no hacbrewpack, no prod.keys of "
+            "yours.\n\n"
+            "1. Open Sphaira and find SwitchSaveSync in the homebrew list.\n"
+            "2. Open the options and pick \"Install Forwarder\".\n"
+            "3. Installing ships disabled in Sphaira; it asks whether it may "
+            "turn it on — say yes.\n\n"
+            "It's worth it for more than the looks: the shortcut is installed "
+            "as an APPLICATION. Launched from the Album, homebrew gets around "
+            "448 MB and the network sometimes fails to come up at all; "
+            "launched from the shortcut, it has full memory and networking. "
+            "Same as the hold-R-on-a-game trick, minus the trick.\n\n"
+            "After that, don't move the .nro. The shortcut stores the file's "
+            "path, and Sphaira derives the title ID from a hash of that path — "
+            "move the file and the shortcut points at nothing, and rebuilding "
+            "it from the new path creates a second icon instead of fixing the "
+            "first. Leave it at /switch/SwitchSaveSync.nro and be done.")));
+
     list->addView(new brls::ListItem(TR("Privacidade", "Privacy"),
         TR("O app fala direto com a nuvem, sem servidor meu no meio.\n\n"
            "No Google Drive, o acesso pedido é o \"drive.file\": o app só enxerga os "
