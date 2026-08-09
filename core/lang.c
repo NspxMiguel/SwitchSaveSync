@@ -8,11 +8,15 @@
 
 #define LANG_PATH SYNC_APP_DIR "/idioma.txt"
 
-// Português por padrão. O app nasceu em português e o dono é brasileiro; e se
-// lang_load() nunca for chamado — o sysmodule não chama, o log dele não vai pra
-// tela de ninguém — é esse valor que vale.
+// Inglês por padrão. O app nasceu em português, mas quem chega nele vem do
+// GitHub, de qualquer lugar do mundo — então o idioma que não presume nada é o
+// inglês, e o português é escolha, não imposição. Quem tem o console em
+// português continua caindo nele sozinho, pelo LANG_AUTO.
+//
+// Este valor aqui vale quando lang_load() nunca é chamado — o sysmodule não
+// chama, porque o log dele não vai pra tela de ninguém.
 static LangChoice g_choice = LANG_AUTO;
-static bool g_is_pt        = true;
+static bool g_is_pt        = false;
 
 bool lang_is_pt(void) { return g_is_pt; }
 LangChoice lang_choice(void) { return g_choice; }
@@ -25,14 +29,14 @@ LangChoice lang_choice(void) { return g_choice; }
 static bool console_is_pt(void)
 {
     if (R_FAILED(setInitialize()))
-        return true; // sem o serviço, fica no padrão
+        return false; // sem o serviço, cai no inglês, que é o padrão do projeto
 
     u64 code  = 0;
     Result rc = setGetSystemLanguage(&code);
     setExit();
 
     if (R_FAILED(rc))
-        return true;
+        return false;
 
     // O LanguageCode é uma string curta empacotada dentro de um u64
     // ("en-US", "pt-BR"), sem garantia de terminar em zero se ocupar os 8
