@@ -92,6 +92,25 @@ extern "C" void gui_progress_cb(const char* action, const char* name, bool ok)
         job->log(std::string(TR("falhou: ", "failed: ")) + name, true);
 }
 
+// O "cancelar" chegando na nuvem.
+//
+// Sem isto, apertar B só era visto ENTRE um jogo e o outro: o download ou o
+// upload do jogo atual ia até o fim, e com save grande isso é dezenas de
+// conversa privada removida do historico
+// conversa privada removida do historico
+//
+// Parar no meio é seguro, e o motivo está no cloud.h: o download vai pro
+// staging no cartão, e quem escreve no save é o syncjob DEPOIS, só se o
+// download inteiro tiver dado certo. Abortado, o cloud_download_tree devolve
+// false e ninguém encosta no save. No upload, o pior caso é uma pasta pela
+// metade na nuvem — que não é marcada como sincronizada, então a próxima sync
+// refaz. É o mesmo que acontece quando a internet cai no meio.
+extern "C" bool gui_abort_cb(void)
+{
+    Job* job = Job::current;
+    return job && job->cancelRequested();
+}
+
 extern "C" void gui_oauth_status(const char* msg)
 {
     if (!Job::current)
@@ -2963,6 +2982,7 @@ int main(int argc, char* argv[])
     }
 
     cloud_set_progress_cb(gui_progress_cb);
+    cloud_set_abort_cb(gui_abort_cb);
     oauth_set_device_cb(gui_device_cb);
     oauth_load_saved_login();
 
@@ -2987,18 +3007,21 @@ int main(int argc, char* argv[])
     if (!cloud_is_ready(cloud_current()) && http_ok)
     {
         brls::Dialog* welcome = new brls::Dialog(
-            TR("Pra sincronizar os saves, o app precisa de um lugar pra guardar. Tem dois:\n\n"
-               "Conta do Google Drive — você conecta pelo celular ou pelo PC: aparece um QR "
-               "code aqui, você aponta a câmera, e pronto. O Switch não pede senha em "
-               "momento nenhum.\n\n"
-               "Servidor seu (WebDAV) — Nextcloud, NAS da Synology ou da QNAP, o que você "
-               "já tiver. Aí é endereço, usuário e senha.",
-                "To sync saves, the app needs somewhere to keep them. There are two:\n\n"
-                "A Google Drive account — you connect from your phone or PC: a QR code "
-                "shows up here, you point the camera at it, and that's it. The Switch "
-                "never asks for a password.\n\n"
-                "Your own server (WebDAV) — Nextcloud, a Synology or QNAP NAS, whatever "
-                "you already have. That one takes an address, username and password."));
+            // Doze linhas viraram quatro. O texto antigo empurrava os três
+            // botões pra fora da tela — mandaram a foto, com o
+            // diálogo inteiro de texto e nenhum botão à vista, só o B pra sair.
+            // A causa de raiz está consertada no dialog.cpp da borealis, mas
+            // três parágrafos numa tela de primeira vez estavam errados de
+            // qualquer jeito: os próprios botões já dizem quais são as opções.
+            TR("Pra sincronizar, o app precisa de um lugar pra guardar os saves.\n\n"
+               "Google Drive — você entra pelo celular, com um QR code. O Switch "
+               "nunca pede senha.\n\n"
+               "Servidor seu (WebDAV) — Nextcloud, NAS da Synology ou da QNAP.",
+
+                "To sync, the app needs somewhere to keep your saves.\n\n"
+                "Google Drive — you sign in from your phone, with a QR code. The "
+                "Switch never asks for a password.\n\n"
+                "Your own server (WebDAV) — Nextcloud, a Synology or QNAP NAS."));
 
         welcome->addButton(TR("Agora não", "Not now"),
             [welcome](brls::View* view) { welcome->close(); });
