@@ -221,8 +221,8 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
     return false;
 }
 
-bool oauth_get_fresh_access_token(char *out, size_t outsz) {
-    if (!oauth_is_logged_in()) return false;
+OauthResult oauth_refresh_access_token(char *out, size_t outsz) {
+    if (!oauth_is_logged_in()) return OAUTH_FAIL_LOGGED_OUT;
 
     char fields[900];
     snprintf(fields, sizeof(fields),
@@ -230,12 +230,28 @@ bool oauth_get_fresh_access_token(char *out, size_t outsz) {
              GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, g_refresh_token);
 
     HttpResponse r = http_post_form("https://oauth2.googleapis.com/token", fields);
+
+    // "invalid_grant" é o Google dizendo que esse refresh token morreu e não
+    // vai ressuscitar: conta desconectada em myaccount.google.com, senha
+    // trocada, ou as chaves do projeto resetadas. Guardar ele no cartão faz
+    // toda sincronização daqui pra frente falhar igualzinho a uma queda de
+    // rede — e o dono nunca descobre que era só refazer o login. Some com ele.
+    if (r.ok && r.status == 400 && r.body && strstr(r.body, "invalid_grant")) {
+        http_response_free(&r);
+        oauth_logout();
+        return OAUTH_FAIL_LOGGED_OUT;
+    }
+
     if (!r.ok || r.status != 200) {
         http_response_free(&r);
-        return false;
+        return OAUTH_FAIL_NETWORK;
     }
 
     bool got = json_get_string(r.body, "access_token", out, outsz);
     http_response_free(&r);
-    return got;
+    return got ? OAUTH_OK : OAUTH_FAIL_NETWORK;
+}
+
+bool oauth_get_fresh_access_token(char *out, size_t outsz) {
+    return oauth_refresh_access_token(out, outsz) == OAUTH_OK;
 }

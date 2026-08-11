@@ -42,11 +42,31 @@ typedef void (*oauth_device_cb)(const char *verification_url,
                                 const char *url_with_code);
 void oauth_set_device_cb(oauth_device_cb cb);
 
+// Por que o token não veio.
+//
+// Rede caindo e conta revogada davam os dois `false`, e isso custou uma sessão
+// de teste inteira: o `token.txt` no cartão tinha um refresh
+// token morto (as chaves do projeto tinham sido resetadas), toda sincronização
+// falhava, e a tela dizia só "nuvem FALHOU" — que é exatamente o que ela diz
+// quando o Wi-Fi cai. Uma passa sozinha, a outra só o dono resolve.
+typedef enum {
+    OAUTH_OK = 0,
+    OAUTH_FAIL_NETWORK,    // deu ruim agora; tentar de novo depois faz sentido
+    OAUTH_FAIL_LOGGED_OUT, // o Google recusou o refresh token: tem que entrar de novo
+} OauthResult;
+
 // Troca o refresh_token salvo por um access_token novo (o Google não deixa
 // reusar um access_token por muito tempo, então é mais simples pedir um
 // novo antes de cada chamada à Drive API do que ficar controlando expiração
 // e relógio do console, que pode estar errado).
 // 'out' recebe o access_token; outsz é o tamanho do buffer.
+//
+// Quando devolve OAUTH_FAIL_LOGGED_OUT, o token salvo JÁ FOI APAGADO — não
+// adianta guardar um token que o Google não aceita mais.
+OauthResult oauth_refresh_access_token(char *out, size_t outsz);
+
+// Igual à de cima, sem o motivo. Continua aqui porque metade do projeto só
+// quer saber se deu ou não deu.
 bool oauth_get_fresh_access_token(char *out, size_t outsz);
 
 #ifdef __cplusplus
