@@ -56,6 +56,21 @@ typedef struct {
 // (registro de uso do serviço pdm). Jogo sem registro de uso vai pro fim.
 size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries);
 
+// O apelido da conta que está usando o console agora.
+//
+// Existe pro caso do save cujo dono não deu pra ler: tendo um save só, o dono é
+// conversa privada removida do historico
+// conversa privada removida do historico
+//
+// Vale igual no app e no sysmodule — accountGetLastOpenedUser é do serviço
+// account, não do applet, e os dois já abrem esse serviço. Importa que os dois
+// respondam a mesma coisa: se divergissem, um escreveria numa pasta e o outro
+// procuraria em outra.
+//
+// false quando não deu pra ler. Não inventa nome, pelo motivo de sempre: nome
+// chutado vira pasta órfã na versão seguinte.
+bool titles_current_account_name(char *out, size_t outsz);
+
 // Copia o ícone do jogo (JPEG, o mesmo que aparece no menu do console) pra
 // out, escrevendo o tamanho real em out_len. Precisa de um buffer grande:
 // o ícone vem dentro de NsApplicationControlData e o campo tem 0x20000

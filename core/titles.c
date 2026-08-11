@@ -59,6 +59,21 @@ static void resolve_account_name(AccountUid uid, char *out, size_t outsz) {
     accountProfileClose(&profile);
 }
 
+bool titles_current_account_name(char *out, size_t outsz) {
+    out[0] = '\0';
+
+    AccountUid uid = {0};
+    if (R_FAILED(accountGetLastOpenedUser(&uid))) return false;
+
+    // Uid zerado é "nenhuma conta aberta ainda" — console recém-ligado que foi
+    // direto pro homebrew. Ler o perfil de um uid zerado não falha em todo
+    // firmware; comparar aqui evita depender disso.
+    if (uid.uid[0] == 0 && uid.uid[1] == 0) return false;
+
+    resolve_account_name(uid, out, outsz);
+    return out[0] != '\0';
+}
+
 static bool resolve_title_name(uint64_t application_id, char *out, size_t outsz) {
     // NsApplicationControlData tem um icon[0x20000] embutido — é grande
     // demais pra stack do Switch (crash certo), por isso aqui embaixo tem
