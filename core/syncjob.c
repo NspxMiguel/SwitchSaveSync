@@ -111,13 +111,120 @@ void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz)
 //
 // O staging e o backup do cartão continuam com o nome calculado, de propósito:
 // são pastas nossas e descartáveis, e renomear elas não perde nada.
-static void cloud_folder_name(const TitleEntry *title, char *out, size_t outsz)
-{
-    if (syncstate_recall_folder(title->application_id, title->uid, out, outsz)
-        && out[0] != '\0')
-        return;
+// ---------------------------------------------------------------------------
+// O layout na nuvem: <raiz>/<Jogo>[/<Dono>]
+//
+// conversa privada removida do historico
+// Rayman Legends ("(Player 1)", "(Convidado)", "(Convidado)", "(Convidado)"): "Vai ter o
+// jogo com o nome normal. ai dentro vai ter uma subpasta com os usuarios CASO,
+// tenha mais usuarios, se nao taca direto nessa pasta."
+//
+// O apelido saiu do nome da pasta e virou subpasta. Quem tem save único não
+// ganha nível nenhum a mais — a pasta do jogo continua sendo o destino, e o
+// nome dela é o mesmo de antes, então backup antigo de jogo de save único
+// continua sendo achado sem migrar nada.
+// ---------------------------------------------------------------------------
 
-    save_folder_name(title, out, outsz);
+// Só o nome do jogo. Nunca leva apelido: quem separa um dono do outro é a
+// subpasta.
+static void cloud_game_folder_name(const TitleEntry *title, char *out, size_t outsz)
+{
+    syncstate_sanitize_name(title->name, out, outsz);
+}
+
+// O nome da subpasta do dono, ou vazio quando não há o que separar. Mesma
+// condição do save_folder_name: sem apelido vindo do console, não inventa nome
+// (nome chutado hoje vira pasta órfã na próxima versão).
+static void cloud_user_folder_name(const TitleEntry *title, char *out, size_t outsz)
+{
+    if (!title->shared_game || (!title->device_save && title->account[0] == '\0'))
+    {
+        out[0] = '\0';
+        return;
+    }
+
+    if (title->device_save)
+        syncstate_sanitize_name("console", out, outsz);
+    else
+        syncstate_sanitize_name(title->account, out, outsz);
+}
+
+// O caminho relativo à raiz do app, com '/' entre os níveis.
+static void cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
+{
+    char dono[0x201];
+    cloud_user_folder_name(title, dono, sizeof(dono));
+
+    char rec[0x220];
+    if (syncstate_recall_folder(title->application_id, title->uid, rec, sizeof(rec))
+        && rec[0] != '\0')
+    {
+        // Registro com barra é do layout novo: vale. Registro sem barra pode
+        // ser das duas eras — e só continua valendo pra save único, onde o nome
+        // gravado é igualzinho ao nome da pasta do jogo de hoje.
+        //
+        // Pra jogo com mais de um dono, registro sem barra é do layout velho
+        // ("Rayman Legends_ Definitive Edition (Player 1)"): obedecer ele
+        // recriaria exatamente a bagunça que mandaram desfazer.
+        if (strchr(rec, '/') != NULL || dono[0] == '\0')
+        {
+            snprintf(out, outsz, "%s", rec);
+            return;
+        }
+    }
+
+    char jogo[0x201];
+    cloud_game_folder_name(title, jogo, sizeof(jogo));
+
+    if (dono[0] != '\0')
+        snprintf(out, outsz, "%s/%s", jogo, dono);
+    else
+        snprintf(out, outsz, "%s", jogo);
+}
+
+// Desce o caminho nível a nível e devolve o id da pasta que recebe o save.
+//
+// 'create' separa quem escreve de quem lê, e a diferença não é estilo: o
+// restore NÃO pode criar. Criando, ele recebe uma pasta vazia recém-nascida em
+// vez de "não tem backup", e segue em frente escrevendo o nada por cima de um
+// save bom — está contado no cloud.h, já aconteceu.
+//
+// 'path_out' devolve o caminho usado, que é o que vai pro pastas.txt.
+static bool cloud_title_folder(const char *token, const char *root_id,
+                                const TitleEntry *title, bool create,
+                                char *id_out, size_t outsz,
+                                char *path_out, size_t path_sz)
+{
+    char caminho[0x220];
+    cloud_folder_path(title, caminho, sizeof(caminho));
+
+    if (path_out)
+        snprintf(path_out, path_sz, "%s", caminho);
+
+    char atual[CLOUD_ID_MAX];
+    snprintf(atual, sizeof(atual), "%s", root_id);
+
+    char resto[0x220];
+    snprintf(resto, sizeof(resto), "%s", caminho);
+
+    // strtok_r e não strtok: o app roda o job numa thread e o sysmodule na
+    // dele, e o estado interno do strtok é global.
+    char *ctx = NULL;
+    for (char *seg = strtok_r(resto, "/", &ctx); seg; seg = strtok_r(NULL, "/", &ctx))
+    {
+        char filho[CLOUD_ID_MAX];
+        bool ok = create
+            ? cloud_ensure_subfolder(token, atual, seg, filho, sizeof(filho))
+            : cloud_find_subfolder(token, atual, seg, filho, sizeof(filho));
+
+        if (!ok)
+            return false;
+
+        snprintf(atual, sizeof(atual), "%s", filho);
+    }
+
+    snprintf(id_out, outsz, "%s", atual);
+    return true;
 }
 
 // Gravar só depois que a pasta existe de verdade na nuvem. Guardar antes
@@ -178,11 +285,10 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
         return false;
     }
 
-    char pasta_nuvem[0x201];
-    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
-
+    char pasta_nuvem[0x220];
     char game_id[CLOUD_ID_MAX];
-    if (!cloud_ensure_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id)))
+    if (!cloud_title_folder(token, root_id, title, true,
+            game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem)))
     {
         say(log, TR("Não criei a pasta do jogo em %s", "Couldn't create the game's folder on %s"), nuvem());
         return false;
@@ -625,11 +731,15 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     // dois lados: quem renomeou a conta depois do backup (vale a registrada) e
     // quem apagou o pastas.txt ou trouxe o cartão de outro console (vale a
     // calculada, que é o que sempre valeu).
+    // A terceira tentativa é o layout achatado antigo ("Jogo (Dono)" na raiz),
+    // que é onde mora o backup de quem sincronizou antes. Nada é
+    // migrado: só continua sendo lido, o que não custa nada e evita que backup
+    // bom vire inalcançável de uma versão pra outra.
     char game_id[CLOUD_ID_MAX];
-    char pasta_nuvem[0x201];
-    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
+    char pasta_nuvem[0x220];
 
-    if (!cloud_find_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id))
+    if (!cloud_title_folder(token, root_id, title, false,
+            game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem))
         && (strcmp(pasta_nuvem, safe) == 0
             || !cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id))))
     {
@@ -753,10 +863,10 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     // nova e deixa o backup antigo órfão. Por isso as duas tentativas, igual ao
     // restore — a pasta registrada e a calculada.
     char game_id[CLOUD_ID_MAX];
-    char pasta_nuvem[0x201];
-    cloud_folder_name(title, pasta_nuvem, sizeof(pasta_nuvem));
+    char pasta_nuvem[0x220];
 
-    bool tem_na_nuvem = cloud_find_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id));
+    bool tem_na_nuvem = cloud_title_folder(token, root_id, title, false,
+        game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem));
     if (!tem_na_nuvem && strcmp(pasta_nuvem, safe) != 0
         && cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
     {
@@ -1068,6 +1178,63 @@ bool syncjob_archive_upload(syncjob_log_cb log)
     char path[0x300];
     syncjob_archive_path(path, sizeof(path));
     return syncjob_archive_upload_path(path, log);
+}
+
+// O arquivo de UM jogo vai pra dentro da pasta daquele jogo, não pra raiz.
+//
+// conversa privada removida do historico
+// conversa privada removida do historico
+// raiz junto com o global, onde não dá pra saber de quem é olhando.
+//
+// O global (SwitchSaveSync.nxsaves, todos os jogos) continua na raiz, que é o
+// lugar dele: não é de jogo nenhum em particular.
+bool syncjob_game_archive_upload(const TitleEntry *title, const char *path,
+                                  syncjob_log_cb log)
+{
+    const char *nome_remoto = strrchr(path, '/');
+    nome_remoto = nome_remoto ? nome_remoto + 1 : path;
+
+    if (!nxsaves_is_box(path))
+    {
+        say(log, TR("Não tem arquivo único no cartão pra subir", "There's no single file on the SD card to upload"));
+        return false;
+    }
+
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
+    {
+        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
+        return false;
+    }
+
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
+    {
+        say(log, TR("Não achei/criei a pasta \"%s\" em %s", "Couldn't find/create the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
+        return false;
+    }
+
+    // A pasta do JOGO, sem descer pro dono: o arquivo já tem todos os donos
+    // dentro dele, então pendurar num deles seria mentira.
+    char jogo[0x201];
+    cloud_game_folder_name(title, jogo, sizeof(jogo));
+
+    char game_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_subfolder(token, root_id, jogo, game_id, sizeof(game_id)))
+    {
+        say(log, TR("Não criei a pasta do jogo em %s", "Couldn't create the game's folder on %s"), nuvem());
+        return false;
+    }
+
+    say(log, TR("Subindo o arquivo pro %s...", "Uploading the file to %s..."), nuvem());
+    if (!cloud_upload(token, game_id, nome_remoto, path, "application/octet-stream"))
+    {
+        say(log, TR("Upload falhou", "Upload failed"));
+        return false;
+    }
+
+    say(log, TR("%s está em %s/%s", "%s is in %s/%s"), nome_remoto, DRIVE_APP_FOLDER_NAME, jogo);
+    return true;
 }
 
 bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log)
