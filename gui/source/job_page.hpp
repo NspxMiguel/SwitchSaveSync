@@ -23,6 +23,9 @@ class JobPage : public brls::AppletFrame
 
     bool onCancel() override;
 
+    // Só existe pra tomar o + de volta da borealis. Ver o corpo dela.
+    void willAppear(bool resetState = false) override;
+
     // Chamado quando o job termina bem — usado pra atualizar a tela de
     // trás (ex: o item "Conta Google" depois do login).
     void setOnFinished(std::function<void(bool success)> cb) { this->onFinished = cb; }

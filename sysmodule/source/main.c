@@ -25,6 +25,7 @@
 #include "oauth.h"
 #include "savemount.h"
 #include "syncjob.h"
+#include "lang.h"
 #include "syncstate.h"
 #include "titles.h"
 
@@ -104,7 +105,14 @@ void __appInit(void)
     // dizer "nunca rodou". Com um marcador por etapa, o arquivo de status vira
     // o ponto exato onde ele parou.
     syncstate_ensure_dirs();
-    syncstate_set_status("Ligando: cartao montado");
+
+    // Antes do primeiro TR: o idioma mora em idioma.txt, no cartão que acabou
+    // de ser montado. Sem esta chamada o sysmodule escreve tudo em inglês
+    // (é o padrão do lang.c) enquanto o app aparece em português — foi o que
+    // conversa privada removida do historico
+    lang_load();
+
+    syncstate_set_status(TR("Ligando: cartao montado", "Starting: SD card mounted"));
 
     // Relógio: o TLS precisa saber a data pra validar a validade do
     // certificado do Google. Sem isso todo handshake falha.
@@ -112,11 +120,11 @@ void __appInit(void)
     if (R_SUCCEEDED(rc))
         __libnx_init_time();
 
-    syncstate_set_status("Ligando: pm");
+    syncstate_set_status(TR("Ligando: pm", "Starting: pm"));
     pmdmntInitialize();
     pminfoInitialize();
 
-    syncstate_set_status("Ligando: vi/pl/hid");
+    syncstate_set_status(TR("Ligando: vi/pl/hid", "Starting: vi/pl/hid"));
 
     // Pra tela de "Puxando save da nuvem": vi:m cria a camada por cima do
     // jogo, pl da a fonte do console, hid le o controle. Nenhum dos tres e
@@ -125,11 +133,11 @@ void __appInit(void)
     plInitialize(hosversionAtLeast(16, 0, 0) ? PlServiceType_User : PlServiceType_System);
     hidInitialize();
 
-    syncstate_set_status("Ligando: ns/account");
+    syncstate_set_status(TR("Ligando: ns/account", "Starting: ns/account"));
     nsInitialize();   // nome do jogo via NACP
     accountInitialize(AccountServiceType_System);
 
-    syncstate_set_status("Ligando: rede");
+    syncstate_set_status(TR("Ligando: rede", "Starting: network"));
 
     // Buffers enxutos: aqui não tem streaming de vídeo, são requisições
     // pequenas e um upload de poucos MB. Cada KB a mais sai da heap acima.
@@ -271,17 +279,27 @@ static void progress_cb(const char *action, const char *name, bool ok)
         return;
 
     g_files_done++;
-    syncstate_set_status("Puxando save da nuvem... (%d arquivos)", g_files_done);
+    syncstate_set_status(TR("Puxando save da nuvem... (%d arquivos)", "Downloading save from the cloud... (%d files)"), g_files_done);
 
     snprintf(g_pull_line, sizeof(g_pull_line), "Baixando %s", name);
     pull_pump_input(false);
     pull_redraw(false);
 }
 
+// A última linha que o job escreveu, guardada pro resumo lá embaixo.
+//
+// Sem isto,: o refresh token no cartão estava revogado, o job
+// escreveu "Sem token válido — precisa entrar na conta pelo app" no status, e
+// meio segundo depois o resumo passou por cima com "cartao OK, nuvem FALHOU".
+// Ele olhou a tela e não tinha como saber que era só refazer o login — a
+// palavra "FALHOU" é a mesma que aparece quando o Wi-Fi cai.
+static char g_last_log[160];
+
 static void log_line(const char *msg)
 {
     syncstate_log("%s", msg);
     syncstate_set_status("%s", msg);
+    snprintf(g_last_log, sizeof(g_last_log), "%s", msg);
 }
 
 // Devolve o title id do jogo em primeiro plano, ou 0 se não tem nenhum.
@@ -327,10 +345,14 @@ static u64 foreground_title_id(u64 *pid_out)
 
 static void backup_now(u64 application_id)
 {
+    // Zera antes de começar: motivo velho de um jogo anterior não pode ser
+    // apresentado como explicação do backup de agora.
+    g_last_log[0] = '\0';
+
     if (syncstate_is_excluded(application_id))
     {
-        syncstate_log("%016lX esta na lista de excluidos — nao subi", application_id);
-        syncstate_set_status("Ultimo jogo esta excluido do sync");
+        syncstate_log(TR("%016lX esta na lista de excluidos — nao subi", "%016lX is on the excluded list — did not upload"), application_id);
+        syncstate_set_status(TR("Ultimo jogo esta excluido do sync", "Last game is excluded from syncing"));
         return;
     }
 
@@ -341,19 +363,19 @@ static void backup_now(u64 application_id)
 
     if (!want_local && !want_cloud)
     {
-        syncstate_set_status("Nenhum destino ligado (cartao/nuvem)");
+        syncstate_set_status(TR("Nenhum destino ligado (cartao/nuvem)", "No destination turned on (SD card/cloud)"));
         return;
     }
 
     TitleEntry title;
     if (!syncjob_find_title(application_id, &title))
     {
-        syncstate_log("%016lX nao tem save data de usuario — nada a subir", application_id);
-        syncstate_set_status("Ultimo jogo nao tem save pra subir");
+        syncstate_log(TR("%016lX nao tem save data de usuario — nada a subir", "%016lX has no user save data — nothing to upload"), application_id);
+        syncstate_set_status(TR("Ultimo jogo nao tem save pra subir", "Last game has no save to upload"));
         return;
     }
 
-    syncstate_log("Jogo fechou: %s", title.name);
+    syncstate_log(TR("Jogo fechou: %s", "Game closed: %s"), title.name);
 
     bool local_ok = false, cloud_ok = false;
 
@@ -363,17 +385,17 @@ static void backup_now(u64 application_id)
     {
         local_ok = syncjob_backup_title_local(&title, log_line);
         if (!local_ok)
-            syncstate_log("%s: backup no cartao falhou", title.name);
+            syncstate_log(TR("%s: backup no cartao falhou", "%s: backup to the SD card failed"), title.name);
     }
 
     if (want_cloud)
     {
         if (!oauth_load_saved_login())
         {
-            syncstate_log("Sem conta Google salva — abra o app e faca login");
+            syncstate_log(TR("Sem conta Google salva — abra o app e faca login", "No Google account saved — open the app and sign in"));
             if (!want_local)
             {
-                syncstate_set_status("Sem conta Google — faca login no app");
+                syncstate_set_status(TR("Sem conta Google — faca login no app", "No Google account — sign in from the app"));
                 return;
             }
         }
@@ -389,13 +411,29 @@ static void backup_now(u64 application_id)
         }
     }
 
-    if (want_local && want_cloud)
-        syncstate_set_status("%s: cartao %s, nuvem %s", title.name,
-            local_ok ? "OK" : "FALHOU", cloud_ok ? "OK" : "FALHOU");
+    const char *ok   = TR("OK", "OK");
+    const char *fail = TR("FALHOU", "FAILED");
+
+    // Quando a nuvem falha, o motivo vale mais que a palavra "FALHOU" — e ele
+    // acabou de passar pelo log_line. O nome do jogo sai fora nesse caso: ele
+    // está no log, e a faixa do overlay é estreita demais pras duas coisas.
+    if (want_cloud && !cloud_ok && g_last_log[0])
+    {
+        if (want_local)
+            syncstate_set_status(TR("Cartao %s, nuvem: %s", "SD card %s, cloud: %s"),
+                local_ok ? ok : fail, g_last_log);
+        else
+            syncstate_set_status(TR("Nuvem: %s", "Cloud: %s"), g_last_log);
+    }
+    else if (want_local && want_cloud)
+        syncstate_set_status(TR("%s: cartao %s, nuvem %s", "%s: SD card %s, cloud %s"),
+            title.name, local_ok ? ok : fail, cloud_ok ? ok : fail);
     else if (want_local)
-        syncstate_set_status("%s: cartao %s", title.name, local_ok ? "OK" : "FALHOU");
+        syncstate_set_status(TR("%s: cartao %s", "%s: SD card %s"),
+            title.name, local_ok ? ok : fail);
     else
-        syncstate_set_status("%s: nuvem %s", title.name, cloud_ok ? "OK" : "FALHOU");
+        syncstate_set_status(TR("%s: nuvem %s", "%s: cloud %s"),
+            title.name, cloud_ok ? ok : fail);
 }
 
 // Puxa o save da nuvem com o console PARADO — nenhum jogo rodando. Quem chama
@@ -413,7 +451,7 @@ static void pull_title_idle(u64 application_id)
 
     if (!oauth_load_saved_login())
     {
-        syncstate_set_status("Sem conta Google — jogo abriu com save local");
+        syncstate_set_status(TR("Sem conta Google — jogo abriu com save local", "No Google account — game opened with the local save"));
         return;
     }
 
@@ -437,15 +475,15 @@ static void pull_title_idle(u64 application_id)
 
     if (!have_synced)
     {
-        syncstate_log("%s: nunca subiu pra nuvem por aqui — nao puxei", title.name);
+        syncstate_log(TR("%s: nunca subiu pra nuvem por aqui — nao puxei", "%s: never uploaded from here — did not download"), title.name);
         return;
     }
 
     if (have_now && now_fp != synced_fp)
     {
-        syncstate_log("%s: save local mudou desde o ultimo upload — nao puxei",
+        syncstate_log(TR("%s: save local mudou desde o ultimo upload — nao puxei", "%s: local save changed since the last upload — did not download"),
             title.name);
-        syncstate_set_status("Save local mais novo que a nuvem — mantive o local");
+        syncstate_set_status(TR("Save local mais novo que a nuvem — mantive o local", "Local save is newer than the cloud — kept the local one"));
         return;
     }
 
@@ -454,9 +492,9 @@ static void pull_title_idle(u64 application_id)
     // pelo app. Sem isso, "restaurar" é uma operação sem volta.
     if (!syncjob_backup_title_local(&title, NULL))
     {
-        syncstate_log("%s: nao consegui salvar copia local antes de puxar — abortei",
+        syncstate_log(TR("%s: nao consegui salvar copia local antes de puxar — abortei", "%s: could not save a local copy before downloading — aborted"),
             title.name);
-        syncstate_set_status("Sem copia de seguranca — nao puxei %s", title.name);
+        syncstate_set_status(TR("Sem copia de seguranca — nao puxei %s", "No safety copy — did not download %s"), title.name);
         return;
     }
 
@@ -468,8 +506,8 @@ static void pull_title_idle(u64 application_id)
     snprintf(g_pull_game, sizeof(g_pull_game), "%s", title.name);
     snprintf(g_pull_line, sizeof(g_pull_line), "Conectando...");
 
-    syncstate_log("Console parado: %s — puxando save da nuvem", title.name);
-    syncstate_set_status("Puxando save da nuvem...");
+    syncstate_log(TR("Console parado: %s — puxando save da nuvem", "Console idle: %s — downloading save from the cloud"), title.name);
+    syncstate_set_status(TR("Puxando save da nuvem...", "Downloading save from the cloud..."));
 
     // A tela por cima do menu. Se o compositor recusar a camada, o pull
     // continua sem tela — melhor puxar calado do que nao puxar.
@@ -492,8 +530,8 @@ static void pull_title_idle(u64 application_id)
         // "Nao puxar save da nuvem nesse jogo" — vale pra sempre, e da pra
         // conversa privada removida do historico
         syncstate_set_excluded(application_id, true);
-        syncstate_log("%s: mandaram nao puxar — jogo marcado como excluido", title.name);
-        syncstate_set_status("Nao vou mais puxar save de %s", title.name);
+        syncstate_log(TR("%s: mandaram nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), title.name);
+        syncstate_set_status(TR("Nao vou mais puxar save de %s", "Will not download saves for %s anymore"), title.name);
         snprintf(g_pull_line, sizeof(g_pull_line), "Cancelado. Esse jogo nao puxa mais.");
         ok = false;
     }
@@ -505,13 +543,13 @@ static void pull_title_idle(u64 application_id)
         if (syncjob_fingerprint(&title, &fp))
             syncjob_mark_synced(&title, fp);
 
-        syncstate_set_status("Save da nuvem carregado: %s", title.name);
+        syncstate_set_status(TR("Save da nuvem carregado: %s", "Cloud save loaded: %s"), title.name);
         snprintf(g_pull_line, sizeof(g_pull_line), "Save carregado. Bom jogo.");
     }
     else
     {
         // Falhou: fica o save local, do jeito que estava. Nada foi commitado.
-        syncstate_set_status("Nao consegui puxar — save local mantido");
+        syncstate_set_status(TR("Nao consegui puxar — save local mantido", "Could not download — kept the local save"));
         snprintf(g_pull_line, sizeof(g_pull_line), "Nao consegui puxar — o save local ficou como estava");
     }
 
@@ -616,18 +654,18 @@ int main(int argc, char *argv[])
     {
         // Sem rede não dá pra fazer nada, mas morrer aqui só deixaria o
         // usuário sem pista nenhuma. Fica vivo escrevendo o motivo.
-        syncstate_set_status("Rede nao subiu — sysmodule sem funcao");
-        syncstate_log("socketInitialize falhou; nada de upload nessa sessao");
+        syncstate_set_status(TR("Rede nao subiu — sysmodule sem funcao", "Network did not come up — sysmodule has nothing to do"));
+        syncstate_log(TR("socketInitialize falhou; nada de upload nessa sessao", "socketInitialize failed; no uploads this session"));
     }
     else if (!http_init())
     {
         g_socket_ok = false;
-        syncstate_set_status("curl nao iniciou — sysmodule sem funcao");
-        syncstate_log("http_init falhou");
+        syncstate_set_status(TR("curl nao iniciou — sysmodule sem funcao", "curl did not start — sysmodule has nothing to do"));
+        syncstate_log(TR("http_init falhou", "http_init failed"));
     }
     else
     {
-        syncstate_set_status("Ativo");
+        syncstate_set_status(TR("Ativo", "Active"));
     }
 
     u64 last_tid    = 0;   // jogo que estava aberto na última volta
@@ -638,6 +676,12 @@ int main(int argc, char *argv[])
 
     while (true)
     {
+        // Relê o idioma a cada volta. É um fopen de um arquivo de três bytes a
+        // cada POLL_INTERVAL — barato — e evita a armadilha de trocar o idioma
+        // no app e o overlay continuar no idioma antigo até alguém lembrar de
+        // desligar e religar o sysmodule.
+        lang_load();
+
         u64 pid = 0;
         u64 tid = foreground_title_id(&pid);
 
@@ -650,7 +694,7 @@ int main(int argc, char *argv[])
                 // gravado de verdade no commit que acontece nesse fim.
                 pending_tid = last_tid;
                 pending_at  = armGetSystemTick();
-                syncstate_set_status("Jogo fechou, preparando backup...");
+                syncstate_set_status(TR("Jogo fechou, preparando backup...", "Game closed, preparing backup..."));
             }
             else if (tid != 0)
             {
@@ -675,10 +719,10 @@ int main(int argc, char *argv[])
                 {
                     // Abriu outro jogo antes de eu subir o anterior. O upload
                     // fica pendente; save com jogo aberto sai pela metade.
-                    syncstate_log("Backup de %016lX ficou pendente", pending_tid);
+                    syncstate_log(TR("Backup de %016lX ficou pendente", "Backup of %016lX left pending"), pending_tid);
                 }
 
-                syncstate_set_status("Jogando — sync so quando fechar");
+                syncstate_set_status(TR("Jogando — sync so quando fechar", "Playing — sync only once it closes"));
 
                 svcSleepThread(POLL_INTERVAL_NS);
                 continue;
@@ -694,8 +738,8 @@ int main(int argc, char *argv[])
         {
             if (tid != 0)
             {
-                syncstate_set_status("Feche o jogo primeiro — pedido ignorado");
-                syncstate_log("Pedido manual com jogo aberto: ignorado");
+                syncstate_set_status(TR("Feche o jogo primeiro — pedido ignorado", "Close the game first — request ignored"));
+                syncstate_log(TR("Pedido manual com jogo aberto: ignorado", "Manual request with a game open: ignored"));
             }
             else
             {
@@ -710,7 +754,7 @@ int main(int argc, char *argv[])
             if (syncstate_autosync_enabled())
                 backup_now(pending_tid);
             else
-                syncstate_set_status("Autosync desligado no overlay");
+                syncstate_set_status(TR("Autosync desligado no overlay", "Autosync turned off in the overlay"));
             pending_tid = 0;
         }
 

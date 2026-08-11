@@ -32,7 +32,7 @@ DATA     := data
 INCLUDES := source lib/libtesla/include ../core
 
 # Do ../core so esses dois entram. O resto (drive/oauth/http) puxaria curl.
-CORE_SRC := ../core/syncstate.c ../core/titles.c
+CORE_SRC := ../core/syncstate.c ../core/titles.c ../core/lang.c
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE -ffunction-sections
 

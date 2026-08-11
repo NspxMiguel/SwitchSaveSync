@@ -24,7 +24,12 @@
 extern "C" {
 #include "syncstate.h"
 #include "titles.h"
+#include "lang.h"
 }
+
+// Sem acento de propósito, dos dois lados. A fonte que a libtesla carrega é a
+// do sistema, mas o overlay desenha numa faixa estreita e caractere composto
+// já apareceu cortado aqui — não vale o risco por uma cedilha.
 
 // Esse id NÃO pode cair na faixa de aplicação do Atmosphère (>= 0100000000010000).
 // O primeiro id que usei, 0100000000535953, caía — e lá dentro
@@ -105,10 +110,10 @@ class GuiGames : public tsl::Gui
 public:
     virtual tsl::elm::Element* createUI() override
     {
-        auto* frame = new tsl::elm::OverlayFrame("SwitchSaveSync", "jogos");
+        auto* frame = new tsl::elm::OverlayFrame("SwitchSaveSync", TR("jogos", "games"));
         auto* list  = new tsl::elm::List();
 
-        list->addItem(new tsl::elm::CategoryHeader("Off = nao sobe save nem puxa da nuvem", true));
+        list->addItem(new tsl::elm::CategoryHeader(TR("Off = nao sobe save nem puxa da nuvem", "Off = no upload, no download"), true));
 
         // Estático: a lista de TitleEntry é grande demais pra pilha do overlay.
         static TitleEntry entries[MAX_TITLES];
@@ -116,7 +121,7 @@ public:
 
         if (count == 0)
         {
-            list->addItem(new tsl::elm::ListItem("Nenhum jogo com save encontrado"));
+            list->addItem(new tsl::elm::ListItem(TR("Nenhum jogo com save encontrado", "No games with save data found")));
         }
 
         for (size_t i = 0; i < count; i++)
@@ -156,11 +161,11 @@ public:
         this->statusItem->setValue("");
         list->addItem(this->statusItem);
 
-        list->addItem(new tsl::elm::CategoryHeader("Controle", true));
+        list->addItem(new tsl::elm::CategoryHeader(TR("Controle", "Controls"), true));
 
         // O sysmodule não sobe no boot: quem liga é este botão.
         this->moduleItem = new tsl::elm::ToggleListItem(
-            "Sysmodule", sysmoduleRunning(), "Ligado", "Desligado");
+            "Sysmodule", sysmoduleRunning(), TR("Ligado", "On"), TR("Desligado", "Off"));
         this->moduleItem->setStateChangedListener([this](bool on) {
             bool ok = on ? sysmoduleStart() : sysmoduleStop();
             if (!ok)
@@ -172,8 +177,10 @@ public:
                 // do quadro seguinte já apagava, escrevendo "Sem status" por
                 // cima — o motivo aparecia por 1/60 de segundo e sumia.
                 snprintf(this->failMsg, sizeof(this->failMsg),
-                    "%s falhou: %08X (mod %d, desc %d)",
-                    on ? "Ligar" : "Desligar", (unsigned)g_lastRc,
+                    TR("%s falhou: %08X (mod %d, desc %d)",
+                       "%s failed: %08X (mod %d, desc %d)"),
+                    on ? TR("Ligar", "Turning on") : TR("Desligar", "Turning off"),
+                    (unsigned)g_lastRc,
                     R_MODULE(g_lastRc), R_DESCRIPTION(g_lastRc));
             }
             else
@@ -184,31 +191,31 @@ public:
         list->addItem(this->moduleItem);
 
         auto* autosyncItem = new tsl::elm::ToggleListItem(
-            "Backup ao fechar jogo", syncstate_autosync_enabled(), "Ligado", "Desligado");
+            TR("Backup ao fechar jogo", "Back up when a game closes"), syncstate_autosync_enabled(), TR("Ligado", "On"), TR("Desligado", "Off"));
         autosyncItem->setStateChangedListener([](bool on) {
             syncstate_set_autosync_enabled(on);
         });
         list->addItem(autosyncItem);
 
-        list->addItem(new tsl::elm::CategoryHeader("Onde salvar", true));
+        list->addItem(new tsl::elm::CategoryHeader(TR("Onde salvar", "Where to save"), true));
 
         // conversa privada removida do historico
         // conversa privada removida do historico
         auto* localItem = new tsl::elm::ToggleListItem(
-            "Cartao SD", syncstate_dest_local(), "Ligado", "Desligado");
+            TR("Cartao SD", "SD card"), syncstate_dest_local(), TR("Ligado", "On"), TR("Desligado", "Off"));
         localItem->setStateChangedListener([](bool on) {
             syncstate_set_dest(on, syncstate_dest_cloud());
         });
         list->addItem(localItem);
 
         auto* cloudItem = new tsl::elm::ToggleListItem(
-            "Google Drive", syncstate_dest_cloud(), "Ligado", "Desligado");
+            "Google Drive", syncstate_dest_cloud(), TR("Ligado", "On"), TR("Desligado", "Off"));
         cloudItem->setStateChangedListener([](bool on) {
             syncstate_set_dest(syncstate_dest_local(), on);
         });
         list->addItem(cloudItem);
 
-        auto* gamesItem = new tsl::elm::ListItem("Jogos", "▶");
+        auto* gamesItem = new tsl::elm::ListItem(TR("Jogos", "Games"), "▶");
         gamesItem->setClickListener([](u64 keys) {
             if (keys & HidNpadButton_A)
             {
@@ -219,12 +226,12 @@ public:
         });
         list->addItem(gamesItem);
 
-        list->addItem(new tsl::elm::CategoryHeader("Agora", true));
+        list->addItem(new tsl::elm::CategoryHeader(TR("Agora", "Now"), true));
 
         // Backup sob demanda: o overlay só deixa o pedido escrito, quem faz é
         // o sysmodule — e só com o jogo fechado, senão o save no cartão pode
         // estar pela metade.
-        this->backupItem = new tsl::elm::ListItem("Fazer backup do ultimo jogado");
+        this->backupItem = new tsl::elm::ListItem(TR("Fazer backup do ultimo jogado", "Back up the last game played"));
         this->backupItem->setClickListener([this](u64 keys) {
             if (!(keys & HidNpadButton_A))
                 return false;
@@ -233,13 +240,13 @@ public:
             size_t count = titles_list_with_savedata(entries, 1); // [0] = mais recente
 
             if (count == 0)
-                this->backupItem->setValue("sem jogos", true);
+                this->backupItem->setValue(TR("sem jogos", "no games"), true);
             else if (!sysmoduleRunning())
-                this->backupItem->setValue("ligue o sysmodule", true);
+                this->backupItem->setValue(TR("ligue o sysmodule", "turn the sysmodule on"), true);
             else
             {
                 syncstate_request_backup(entries[0].application_id);
-                this->backupItem->setValue("pedido enviado");
+                this->backupItem->setValue(TR("pedido enviado", "request sent"));
             }
             return true;
         });
@@ -264,9 +271,9 @@ public:
         if (syncstate_get_status(status, sizeof(status)))
             this->statusItem->setText(status);
         else if (sysmoduleRunning())
-            this->statusItem->setText("Rodando, mas sem status ainda");
+            this->statusItem->setText(TR("Rodando, mas sem status ainda", "Running, no status yet"));
         else
-            this->statusItem->setText("Desligado (nunca escreveu status)");
+            this->statusItem->setText(TR("Desligado (nunca escreveu status)", "Off (never wrote a status)"));
     }
 
 private:
@@ -293,6 +300,12 @@ public:
         // pra lista de jogos excluídos, que ele marcava e não gravava.
         // ( — fsInitialize já foi feito pelo __appInit da tesla.)
         fsdevMountSdmc();
+
+        // Depois do fsdevMountSdmc, nunca antes: o idioma mora num arquivo no
+        // cartão (idioma.txt), então chamar isto acima da montagem lê nada e
+        // cai calado no inglês. É o mesmo idioma que o app usa — quem troca lá
+        // troca aqui, sem tela de configuração própria.
+        lang_load();
 
         // pm:shell é o que lança o sysmodule. Se o loader do overlay não tiver
         // esse acesso, tudo falha aqui e não adianta culpar o sysmodule — por

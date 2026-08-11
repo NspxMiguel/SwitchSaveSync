@@ -84,6 +84,35 @@ JobPage::JobPage(Job* job, bool cancellable)
     this->job->start();
 }
 
+// O + mata o app na hora, e aqui isso é uma bomba.
+//
+// A borealis registra "+ = Application::quit()" em TODA view que entra na
+// pilha (application.cpp, dentro do pushView). Numa tela de trabalho isso é
+// derrubar o processo com a thread de sync no meio do caminho — e ela pode
+// estar com um savedata MONTADO pra escrita. É o mesmo caminho que já corrompeu
+// dois jogos de quem usa. "cliquei o botao + e crashou o switch"
+//.
+//
+// Dá pra tomar a tecla de volta porque registerAction SUBSTITUI a ação da mesma
+// tecla (view.cpp:359) e o willAppear roda DEPOIS do registro da borealis, no
+// fim do pushView. Terminado o trabalho, o + volta a sair normalmente.
+void JobPage::willAppear(bool resetState)
+{
+    brls::AppletFrame::willAppear(resetState);
+
+    this->registerAction(TR("Sair", "Exit"), brls::Key::PLUS, [this] {
+        if (this->job->isFinished())
+        {
+            brls::Application::quit();
+            return true;
+        }
+
+        brls::Application::notify(TR("Espere terminar — sair agora pode corromper o save",
+            "Wait for it to finish — leaving now can corrupt the save"));
+        return true;
+    });
+}
+
 // Um caminho só pro B e pro clique no botão — assim os dois nunca discordam.
 void JobPage::onBackPressed()
 {
@@ -97,6 +126,13 @@ void JobPage::onBackPressed()
     {
         this->job->requestCancel();
         this->backItem->setLabel(TR("Cancelando...", "Cancelling..."));
+
+        // conversa privada removida do historico
+        // olhando pra tela grande, onde continuava escrito "Sincronizando
+        // fulano..." — do lado de fora, cancelar não tinha acontecido. O rodapé
+        // é o único texto que nada mais sobrescreve enquanto o trabalho roda.
+        this->setFooterText(TR("Cancelando — parando assim que der",
+            "Cancelling — stopping as soon as it can"));
         brls::Application::notify(TR("Cancelando...", "Cancelling..."));
     }
     else
