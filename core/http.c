@@ -122,7 +122,10 @@ HttpResponse http_post_form(const char *url, const char *fields) {
 
 static struct curl_slist *auth_header(const char *bearer, struct curl_slist *headers) {
     if (!bearer) return headers;
-    char line[600];
+    // 2600 e nao 600: cabe o CLOUD_AUTH_MAX (2048) mais o "Authorization: Bearer ".
+    // Com 600 um token grande era truncado em silencio pelo snprintf, e o que
+    // chegava no servidor era um header pela metade.
+    char line[2600];
     snprintf(line, sizeof(line), "Authorization: Bearer %s", bearer);
     return curl_slist_append(headers, line);
 }
@@ -388,7 +391,8 @@ HttpResponse http_upload_multipart_related(const char *url, const char *bearer,
 // fora ("Basic ..." em vez de "Bearer ...").
 static struct curl_slist *auth_header_raw(const char *auth_raw, struct curl_slist *headers) {
     if (!auth_raw) return headers;
-    char line[700];
+    char line[2600]; // mesmo motivo do auth_header()
+
     snprintf(line, sizeof(line), "Authorization: %s", auth_raw);
     return curl_slist_append(headers, line);
 }
@@ -425,6 +429,79 @@ HttpResponse http_request_raw(const char *method, const char *url,
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_len);
     }
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_membuf);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
+
+    CURLcode rc = curl_easy_perform(curl);
+    if (rc != CURLE_OK) {
+        fill_error(&resp, rc);
+    } else {
+        long status = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+        resp.ok = true;
+        resp.status = status;
+        resp.body = buf.data ? buf.data : strdup("");
+        resp.size = buf.size;
+        buf.data = NULL;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    free(buf.data);
+    return resp;
+}
+
+// Cabecalho "Location:" da resposta — e por onde o Google devolve a URI de
+// sessao do upload resumivel. curl entrega cabecalho por cabecalho aqui.
+typedef struct { char *out; size_t sz; } LocationCap;
+
+static size_t capture_location(char *buffer, size_t size, size_t nitems, void *userdata) {
+    LocationCap *cap = (LocationCap *)userdata;
+    size_t total = size * nitems;
+
+    // Comparacao sem diferenciar maiuscula: o HTTP nao garante a grafia.
+    const char *pref = "location:";
+    if (total > 9 && cap->out) {
+        size_t i = 0;
+        while (i < 9 && (buffer[i] | 0x20) == pref[i]) i++;
+        if (i == 9) {
+            const char *v = buffer + 9;
+            size_t n = total - 9;
+            while (n > 0 && (*v == ' ' || *v == '\t')) { v++; n--; }
+            while (n > 0 && (v[n - 1] == '\r' || v[n - 1] == '\n')) n--;
+            if (n >= cap->sz) n = cap->sz - 1;
+            memcpy(cap->out, v, n);
+            cap->out[n] = '\0';
+        }
+    }
+    return total;
+}
+
+// POST/PATCH com corpo JSON que devolve o Location. E o passo 1 do upload
+// resumivel: manda so o metadado e recebe a URI pra onde os bytes vao.
+HttpResponse http_json_get_location(const char *method, const char *url,
+                                     const char *bearer, const char *json_body,
+                                     char *location_out, size_t location_sz) {
+    HttpResponse resp = {0};
+    MemBuf buf = {0};
+
+    if (location_out && location_sz) location_out[0] = '\0';
+
+    CURL *curl = make_easy_handle();
+    if (!curl) { no_handle(&resp); return resp; }
+
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json; charset=UTF-8");
+    headers = auth_header(bearer, headers);
+
+    LocationCap cap = { location_out, location_sz };
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_body);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, capture_location);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &cap);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_to_membuf);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buf);
 
