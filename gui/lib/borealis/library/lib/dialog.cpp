@@ -218,6 +218,29 @@ void Dialog::layout(NVGcontext* vg, Style* style, FontStash* stash)
         if (difference < 0)
         {
             this->frameHeight += -difference;
+
+            // PATCH SwitchSaveSync: recentrar depois de crescer.
+            //
+            // O frameY foi calculado lá em cima com a altura ANTES de o texto
+            // caber. Crescer sem recentrar faz o diálogo crescer só pra baixo —
+            // e como os botões são desenhados em (frameY + frameHeight -
+            // buttonsHeight), eles saem pela borda de baixo da tela. Num
+            // diálogo de três parágrafos, os três botões sumiram por completo e
+            // só sobrou o B pra sair.
+            //
+            // Isso é bug da borealis, não do app: qualquer diálogo com texto
+            // longo perde os botões. Recentrando, o diálogo cresce pros dois
+            // lados e os botões voltam pra dentro.
+            this->frameY = getHeight() / 2 - this->frameHeight / 2;
+
+            // O conteúdo tinha sido posicionado com o frameY velho; sem isto
+            // ele fica deslocado do quadro que acabou de se mover.
+            this->contentView->setBoundaries(
+                contentX,
+                this->frameY + style->Dialog.paddingTopBottom,
+                contentWidth,
+                newContentHeight);
+            this->contentView->invalidate();
         }
         else
         {
