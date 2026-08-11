@@ -366,8 +366,25 @@ static void openJob(Job* job, bool cancellable,
     std::function<void(bool)> onFinished = nullptr)
 {
     JobPage* page = new JobPage(job, cancellable);
-    if (onFinished)
-        page->setOnFinished(onFinished);
+
+    // Todo job repinta a conta ao terminar, deu certo ou não.
+    //
+    // O motivo: "conectada" nesta tela sempre quis dizer só "existe token.txt
+    // com alguma coisa dentro" — ninguém perguntava ao Google se ele ainda
+    // aceita. Então um refresh token revogado deixava o app dizendo
+    // "conectada" enquanto o overlay dizia "sem token válido", e os dois
+    // conversa privada removida do historico
+    // e não tinha como decifrar.
+    //
+    // Agora um refresh recusado apaga o token (ver oauth_refresh_access_token),
+    // e é aqui que a tela toma conhecimento — senão a linha continuaria
+    // mentindo até alguém entrar na tela da conta por outro motivo.
+    page->setOnFinished([onFinished](bool success) {
+        updateAccountViews();
+        if (onFinished)
+            onFinished(success);
+    });
+
     brls::Application::pushView(page);
 }
 
