@@ -996,7 +996,7 @@ static bool jobGameArchive(Job* job, std::vector<TitleEntry> saves, bool subir)
 
     job->setStatus(std::string(TR("Subindo o arquivo pro ", "Uploading the file to ")) + nuvem()
         + "...");
-    if (!syncjob_archive_upload_path(caminho, jobLogLine))
+    if (!syncjob_game_archive_upload(&saves[0], caminho, jobLogLine))
     {
         job->setStatus(std::string(TR("O arquivo ficou pronto no cartão, mas não subiu pro ",
                            "The file is ready on the SD card, but it didn't upload to "))

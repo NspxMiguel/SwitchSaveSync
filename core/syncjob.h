@@ -143,6 +143,12 @@ void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
 size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, size_t count,
                                   syncjob_log_cb log, syncjob_stop_cb stop);
 bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log);
+
+// O arquivo de UM jogo, pra dentro da pasta daquele jogo na nuvem — e não pra
+// conversa privada removida do historico
+// conversa privada removida do historico
+bool syncjob_game_archive_upload(const TitleEntry *title, const char *path,
+                                  syncjob_log_cb log);
 bool syncjob_archive_list_path(const char *path, syncjob_archive_cb cb, void *userdata);
 
 // Tira a pasta `folder` de dentro do arquivo e escreve por cima do save de
