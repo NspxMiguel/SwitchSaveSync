@@ -597,27 +597,64 @@ static void pull_title_idle(u64 application_id)
 // "auto-download" do projeto — só que num momento em que não existe processo de
 // jogo pra atropelar.
 //
-// Um título por passada e no máximo uma passada por título por sessão: a lista
-// é lida do console, cada pull fala com o Drive, e não faz sentido varrer a
-// biblioteca inteira em looping.
+// Um título por passada, e cada título no máximo uma vez a cada meia hora: a
+// lista é lida do console, cada pull fala com o Drive, e não faz sentido varrer
+// a biblioteca inteira em looping.
 #define IDLE_QUIET_NS   30000000000ULL  // 30 s sem jogo antes de começar
 #define IDLE_GAP_NS     10000000000ULL  // respiro entre um título e o próximo
 
-static u64  g_idle_done[64];
-static int  g_idle_done_n = 0;
+// Quanto tempo uma varredura vale antes de o título poder ser olhado de novo.
+//
+// Isto era uma lista sem prazo, e o "no máximo uma passada por título por
+// sessão" acabava significando "por execução do sysmodule": jogo puxado uma vez
+// nunca mais era olhado até o console reiniciar. Quem joga no PC ou num segundo
+// Switch e volta pra este não recebia o save novo — o console tinha decidido,
+// horas antes, que aquele título já estava resolvido.
+//
+// Meia hora é longa o bastante pra não ficar batendo no Drive à toa e curta o
+// bastante pra que "fui almoçar e voltei" já traga o save de fora.
+#define IDLE_RECHECK_NS (30ULL * 60ULL * 1000000000ULL)
+
+typedef struct {
+    u64 tid;
+    u64 quando; // tick da última varredura deste título
+} IdleMark;
+
+static IdleMark g_idle_done[64];
+static int      g_idle_done_n = 0;
 
 static bool idle_already_did(u64 tid)
 {
+    u64 agora = armGetSystemTick();
+
     for (int i = 0; i < g_idle_done_n; i++)
-        if (g_idle_done[i] == tid)
-            return true;
+        if (g_idle_done[i].tid == tid)
+            return armTicksToNs(agora - g_idle_done[i].quando) < IDLE_RECHECK_NS;
+
     return false;
 }
 
 static void idle_mark_done(u64 tid)
 {
+    // Atualiza a entrada que já existe em vez de acrescentar outra. Sem isso a
+    // lista enchia e, cheia, parava de anotar — e título que não é anotado é
+    // varrido em TODA passada, que é o oposto do que esta lista existe pra
+    // fazer.
+    for (int i = 0; i < g_idle_done_n; i++)
+    {
+        if (g_idle_done[i].tid == tid)
+        {
+            g_idle_done[i].quando = armGetSystemTick();
+            return;
+        }
+    }
+
     if (g_idle_done_n < (int)(sizeof(g_idle_done) / sizeof(g_idle_done[0])))
-        g_idle_done[g_idle_done_n++] = tid;
+    {
+        g_idle_done[g_idle_done_n].tid    = tid;
+        g_idle_done[g_idle_done_n].quando = armGetSystemTick();
+        g_idle_done_n++;
+    }
 }
 
 // Devolve true se fez alguma coisa (pra quem chama espaçar a próxima).
