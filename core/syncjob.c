@@ -101,29 +101,27 @@ void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz)
     save_folder_name(title, out, outsz);
 }
 
-// O nome da pasta NA NUVEM — que nem sempre é o nome calculado acima.
-//
-// Ver o syncstate.h: o apelido da conta entra no nome, e o console deixa trocar
-// o apelido quando quiser. Se já existe registro de qual pasta este save usou,
-// é ela que vale. Sem isso, trocar o apelido faz o app procurar uma pasta que
-// não existe, tratar como primeira sync, e o backup antigo fica órfão na nuvem
-// — que é exatamente o "mudei d nome e foi nao" que ele relatou.
-//
-// O staging e o backup do cartão continuam com o nome calculado, de propósito:
-// são pastas nossas e descartáveis, e renomear elas não perde nada.
 // ---------------------------------------------------------------------------
-// O layout na nuvem: <raiz>/<Jogo>[/<Dono>]
+// O layout na nuvem: <raiz>/<Jogo>/<Dono>  — sempre os dois níveis
 //
 // conversa privada removida do historico
 // Rayman Legends ("(Player 1)", "(Convidado)", "(Convidado)", "(Convidado)"): "Vai ter o
-// jogo com o nome normal. ai dentro vai ter uma subpasta com os usuarios CASO,
-// tenha mais usuarios, se nao taca direto nessa pasta."
+// jogo com o nome normal. ai dentro vai ter uma subpasta com os usuarios".
 //
-// O apelido saiu do nome da pasta e virou subpasta. Quem tem save único não
-// ganha nível nenhum a mais — a pasta do jogo continua sendo o destino, e o
-// nome dela é o mesmo de antes, então backup antigo de jogo de save único
-// continua sendo achado sem migrar nada.
+// A primeira tentativa só criava a subpasta quando havia mais de um save, e ele
+// vetou no mesmo dia: "separa com contas de qualquer jeito, colar só na raiz do
+// jogo fica estranho". Então é sempre dois níveis, sem exceção — inclusive pro
+// device save, que fica em "console".
+//
+// O staging e o backup do cartão continuam com o nome achatado do
+// save_folder_name, de propósito: são pastas nossas e descartáveis, e mexer
+// nelas junto só orfanaria backup local sem ganhar nada.
 // ---------------------------------------------------------------------------
+
+// O maior nome de dono possível: apelido da conta (0x21), "console" (7) ou
+// "conta-" + 16 hexa (23). 0x41 sobra pra todos, e o sanitize nunca aumenta uma
+// string — só troca caractere por caractere ou encurta.
+#define CLOUD_OWNER_MAX 0x41
 
 // Só o nome do jogo. Nunca leva apelido: quem separa um dono do outro é a
 // subpasta.
@@ -132,54 +130,92 @@ static void cloud_game_folder_name(const TitleEntry *title, char *out, size_t ou
     syncstate_sanitize_name(title->name, out, outsz);
 }
 
-// O nome da subpasta do dono, ou vazio quando não há o que separar. Mesma
-// condição do save_folder_name: sem apelido vindo do console, não inventa nome
-// (nome chutado hoje vira pasta órfã na próxima versão).
+// O nome da subpasta do dono. SEMPRE devolve alguma coisa.
+//
+// A primeira versão disto só criava a subpasta quando o jogo tinha mais de um
+// conversa privada removida do historico
+// "separa com contas de qualquer jeito, colar só na raiz do jogo fica
+// estranho". E está certo — do lado de quem abre o Drive, um jogo com pasta de
+// conta e outro com arquivos soltos é a mesma bagunça de antes, só que
+// disfarçada.
+//
+// A ordem de quem dá nome à pasta:
+//   1. save do console (device save) — "console". Não é chute: esse save é do
+//      aparelho mesmo, não tem dono.
+//   2. o apelido da conta dona, quando o console soube dizer. É o caso normal.
+// conversa privada removida do historico
+// conversa privada removida do historico
+//      com um save porque aí não há dúvida de quem é; com dois, chutar o dono
+//      seria misturar save de gente diferente.
+//   4. o uid, em hexa. Feio, mas é o único que sobra, e é estável: a mesma
+//      conta cai sempre na mesma pasta, hoje e daqui a seis versões. Um nome
+//      inventado não teria essa propriedade, e é por isso que não invento.
 static void cloud_user_folder_name(const TitleEntry *title, char *out, size_t outsz)
 {
-    if (!title->shared_game || (!title->device_save && title->account[0] == '\0'))
+    if (title->device_save)
     {
-        out[0] = '\0';
+        syncstate_sanitize_name("console", out, outsz);
         return;
     }
 
-    if (title->device_save)
-        syncstate_sanitize_name("console", out, outsz);
-    else
+    if (title->account[0] != '\0')
+    {
         syncstate_sanitize_name(title->account, out, outsz);
+        return;
+    }
+
+    if (!title->shared_game)
+    {
+        char atual[0x21];
+        if (titles_current_account_name(atual, sizeof(atual)))
+        {
+            syncstate_sanitize_name(atual, out, outsz);
+            return;
+        }
+    }
+
+    char cru[0x40];
+    snprintf(cru, sizeof(cru), "conta-%016llX",
+        (unsigned long long)title->uid.uid[0]);
+    syncstate_sanitize_name(cru, out, outsz);
 }
 
 // O caminho relativo à raiz do app, com '/' entre os níveis.
 static void cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
 {
-    char dono[0x201];
+    char dono[CLOUD_OWNER_MAX];
     cloud_user_folder_name(title, dono, sizeof(dono));
 
     char rec[0x220];
     if (syncstate_recall_folder(title->application_id, title->uid, rec, sizeof(rec))
-        && rec[0] != '\0')
+        && rec[0] != '\0' && strchr(rec, '/') != NULL)
     {
-        // Registro com barra é do layout novo: vale. Registro sem barra pode
-        // ser das duas eras — e só continua valendo pra save único, onde o nome
-        // gravado é igualzinho ao nome da pasta do jogo de hoje.
+        // Só registro COM barra vale, e a razão é que agora todo save mora em
+        // <Jogo>/<Dono> — registro sem barra é necessariamente do layout velho,
+        // achatado, e obedecer ele recriaria a bagunça que mandaram desfazer.
         //
-        // Pra jogo com mais de um dono, registro sem barra é do layout velho
-        // ("Rayman Legends_ Definitive Edition (Player 1)"): obedecer ele
-        // recriaria exatamente a bagunça que mandaram desfazer.
-        if (strchr(rec, '/') != NULL || dono[0] == '\0')
-        {
-            snprintf(out, outsz, "%s", rec);
-            return;
-        }
+        // O que o registro salva continua sendo o mesmo de sempre: o apelido da
+        // conta pode mudar, e sem ele o app procuraria uma pasta que não existe,
+        // trataria como primeira sync e deixaria o backup antigo órfão — o
+        // "mudei d nome e foi nao".
+        snprintf(out, outsz, "%s", rec);
+        return;
     }
 
     char jogo[0x201];
     cloud_game_folder_name(title, jogo, sizeof(jogo));
 
-    if (dono[0] != '\0')
-        snprintf(out, outsz, "%s/%s", jogo, dono);
-    else
-        snprintf(out, outsz, "%s", jogo);
+    // Sempre dois níveis: o cloud_user_folder_name garante que 'dono' nunca sai
+    // vazio, justamente pra não existir save solto na pasta do jogo.
+    //
+    // O dono é o que separa um save do outro, então não pode ser ELE a sobrar da
+    // truncagem — se sobrasse, dois donos do mesmo jogo cairiam no mesmo
+    // caminho e um escreveria por cima do save do outro. Reservo o espaço dele
+    // primeiro; quem encurta, se precisar, é o nome do jogo. Mesma disciplina
+    // do save_folder_name, e pelo mesmo motivo.
+    size_t reservado = strlen(dono) + 2; // a barra e o \0
+    size_t espaco    = (outsz > reservado) ? outsz - reservado : 0;
+    snprintf(out, outsz, "%.*s/%s", (int)espaco, jogo, dono);
 }
 
 // Desce o caminho nível a nível e devolve o id da pasta que recebe o save.
@@ -190,6 +226,25 @@ static void cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
 // save bom — está contado no cloud.h, já aconteceu.
 //
 // 'path_out' devolve o caminho usado, que é o que vai pro pastas.txt.
+// Quantas subpastas tem aqui dentro, e qual é a primeira. O .nxsaves do jogo
+// também mora nesse nível, por isso o filtro por is_folder: arquivo não é conta.
+typedef struct {
+    char   id[CLOUD_ID_MAX];
+    size_t quantas;
+} UnicaSubpasta;
+
+static void conta_subpasta(const char *id, const char *name, bool is_folder, void *ud)
+{
+    (void)name;
+    if (!is_folder)
+        return;
+
+    UnicaSubpasta *u = (UnicaSubpasta *)ud;
+    if (u->quantas == 0)
+        snprintf(u->id, sizeof(u->id), "%s", id);
+    u->quantas++;
+}
+
 static bool cloud_title_folder(const char *token, const char *root_id,
                                 const TitleEntry *title, bool create,
                                 char *id_out, size_t outsz,
@@ -201,29 +256,75 @@ static bool cloud_title_folder(const char *token, const char *root_id,
     if (path_out)
         snprintf(path_out, path_sz, "%s", caminho);
 
-    char atual[CLOUD_ID_MAX];
-    snprintf(atual, sizeof(atual), "%s", root_id);
-
+    // Separa o último nível (o dono) do resto: só ele tem o resgate de baixo.
     char resto[0x220];
     snprintf(resto, sizeof(resto), "%s", caminho);
 
-    // strtok_r e não strtok: o app roda o job numa thread e o sysmodule na
-    // dele, e o estado interno do strtok é global.
+    char *dono = strrchr(resto, '/');
+    if (dono)
+        *dono++ = '\0';
+    else
+    {
+        // Caminho de um nível só não devia acontecer (todo save mora em
+        // <Jogo>/<Dono>), mas registro velho no pastas.txt pode ter um. Trata
+        // como pasta única, sem resgate.
+        dono  = resto;
+        resto[0] = '\0';
+    }
+
+    // Desce até a pasta do jogo. strtok_r e não strtok: o app roda o job numa
+    // thread e o sysmodule na dele, e o estado interno do strtok é global.
+    char pai[CLOUD_ID_MAX];
+    snprintf(pai, sizeof(pai), "%s", root_id);
+
     char *ctx = NULL;
     for (char *seg = strtok_r(resto, "/", &ctx); seg; seg = strtok_r(NULL, "/", &ctx))
     {
         char filho[CLOUD_ID_MAX];
         bool ok = create
-            ? cloud_ensure_subfolder(token, atual, seg, filho, sizeof(filho))
-            : cloud_find_subfolder(token, atual, seg, filho, sizeof(filho));
+            ? cloud_ensure_subfolder(token, pai, seg, filho, sizeof(filho))
+            : cloud_find_subfolder(token, pai, seg, filho, sizeof(filho));
 
         if (!ok)
             return false;
 
-        snprintf(atual, sizeof(atual), "%s", filho);
+        snprintf(pai, sizeof(pai), "%s", filho);
     }
 
-    snprintf(id_out, outsz, "%s", atual);
+    // O nível do dono.
+    char alvo[CLOUD_ID_MAX];
+    bool achou = create
+        ? cloud_ensure_subfolder(token, pai, dono, alvo, sizeof(alvo))
+        : cloud_find_subfolder(token, pai, dono, alvo, sizeof(alvo));
+
+    if (achou)
+    {
+        snprintf(id_out, outsz, "%s", alvo);
+        return true;
+    }
+
+    if (create)
+        return false;
+
+    // Resgate, só na leitura: a pasta do jogo existe, mas não tem uma conta com
+    // esse nome. Se lá dentro houver EXATAMENTE UMA conta, é ela.
+    //
+    // conversa privada removida do historico
+    // conversa privada removida do historico
+    // É o caso de restaurar num console onde o perfil tem outro apelido, ou de
+    // ter renomeado a conta depois do backup: o save está lá, com o nome de
+    // antes, e recusar por causa do nome seria esconder do dono um backup bom.
+    //
+    // Com DUAS ou mais contas lá dentro não existe palpite honesto: escolher uma
+    // seria entregar pra ele o save de outra pessoa, e isso o app não faz. Nada
+    // é criado aqui em nenhum caso — criar na leitura devolveria pasta vazia
+    // recém-nascida em vez de "não tem backup", que é como save bom vira save
+    // vazio (está contado no cloud.h).
+    UnicaSubpasta u = { .quantas = 0 };
+    if (!cloud_list_children(token, pai, conta_subpasta, &u) || u.quantas != 1)
+        return false;
+
+    snprintf(id_out, outsz, "%s", u.id);
     return true;
 }
 
