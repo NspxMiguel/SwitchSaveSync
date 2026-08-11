@@ -75,6 +75,13 @@ HttpResponse http_request_raw(const char *method, const char *url,
 // PUT com o conteúdo de um arquivo local. Vai em streaming (o curl lê do
 // FILE* conforme manda), não carrega o arquivo inteiro na RAM — save de jogo
 // pode ter dezenas de MB e o Switch não tem folga de memória.
+// Passo 1 do upload resumivel: manda so o metadado em JSON e captura o
+// cabecalho Location, que e a URI de sessao pra onde os bytes vao depois.
+// method e "POST" (arquivo novo) ou "PATCH" (substituindo um que ja existe).
+HttpResponse http_json_get_location(const char *method, const char *url,
+                                     const char *bearer, const char *json_body,
+                                     char *location_out, size_t location_sz);
+
 HttpResponse http_put_file_raw(const char *url, const char *auth_raw,
                                 const char *local_path, const char *content_type);
 

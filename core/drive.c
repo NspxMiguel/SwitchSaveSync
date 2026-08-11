@@ -1,6 +1,7 @@
 #include "drive.h"
 #include "cloud_backend.h"
 #include "oauth.h"
+#include "cloud.h"   // so pelo CLOUD_AUTH_MAX, no upload resumivel
 #include "http.h"
 #include "minijson.h"
 #include "config.h"
@@ -149,12 +150,87 @@ bool drive_find_subfolder(const char *access_token, const char *parent_id,
                         DRIVE_FOLDER_MIME, false, out, outsz);
 }
 
+// Acima disto, o multipart nao serve.
+//
+// O Google recusa uploadType=multipart passando de 5 MB, e o nosso multipart
+// ainda por cima monta o corpo inteiro na RAM (malloc do tamanho do arquivo) —
+// o que no sysmodule, que tem 8 MB de heap TOTAL dividida com curl e mbedtls,
+// e fatal bem antes dos 5 MB. Save de jogo grande batia nos dois limites.
+//
+// 4 MB, e nao 5, pra ter folga: o corpo multipart carrega o metadado e as
+// fronteiras junto com os bytes do arquivo.
+#define DRIVE_MULTIPART_MAX (4 * 1024 * 1024)
+
+// Upload resumivel: dois passos.
+//
+//   1. POST (ou PATCH) so com o metadado -> o Google devolve uma URI de sessao
+//      no cabecalho Location;
+//   2. PUT dos bytes nessa URI, lendo do disco em pedacos.
+//
+// O passo 2 e o http_put_file_raw, que ja transmite direto do FILE* via
+// CURLOPT_READDATA — memoria constante, nao importa se o arquivo tem 6 MB ou
+// 6 GB. Era o que o caminho do WebDAV sempre fez e o do Drive nao fazia.
+static bool drive_upload_resumable(const char *access_token, const char *folder_id,
+                                    const char *remote_name, const char *local_path,
+                                    const char *mime_type, bool updating,
+                                    const char *existing_id) {
+    char name_json[300];
+    json_escape(remote_name, name_json, sizeof(name_json));
+
+    char metadata[500];
+    char url[300];
+    if (updating) {
+        snprintf(metadata, sizeof(metadata), "{\"name\":\"%s\"}", name_json);
+        snprintf(url, sizeof(url),
+                 "https://www.googleapis.com/upload/drive/v3/files/%s?uploadType=resumable",
+                 existing_id);
+    } else {
+        snprintf(metadata, sizeof(metadata), "{\"name\":\"%s\",\"parents\":[\"%s\"]}",
+                 name_json, folder_id);
+        snprintf(url, sizeof(url),
+                 "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable");
+    }
+
+    char session[1200] = {0};
+    HttpResponse r = http_json_get_location(updating ? "PATCH" : "POST", url,
+                                             access_token, metadata,
+                                             session, sizeof(session));
+    bool abriu = r.ok && r.status == 200 && session[0] != '\0';
+    http_response_free(&r);
+    if (!abriu) return false;
+
+    // O bearer vai como header cru porque o http_put_file_raw monta
+    // "Authorization: <o que vier>" — entao o "Bearer " entra aqui.
+    char bearer[CLOUD_AUTH_MAX + 8];
+    snprintf(bearer, sizeof(bearer), "Bearer %s", access_token);
+
+    HttpResponse p = http_put_file_raw(session, bearer, local_path, mime_type);
+    bool ok = p.ok && (p.status == 200 || p.status == 201);
+    http_response_free(&p);
+    return ok;
+}
+
+static long tamanho_do_arquivo(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fclose(f);
+    return n;
+}
+
 bool drive_upload(const char *access_token, const char *folder_id,
                    const char *remote_name, const char *local_path,
                    const char *mime_type) {
     char existing_id[128] = {0};
     bool updating = find_by_name(access_token, remote_name, folder_id, NULL, false,
                                   existing_id, sizeof(existing_id));
+
+    long fsize = tamanho_do_arquivo(local_path);
+    if (fsize < 0) return false;
+    if (fsize > DRIVE_MULTIPART_MAX)
+        return drive_upload_resumable(access_token, folder_id, remote_name, local_path,
+                                       mime_type, updating, existing_id);
 
     char name_json[300];
     json_escape(remote_name, name_json, sizeof(name_json));
