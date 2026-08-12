@@ -48,6 +48,22 @@ bool syncjob_has_local_backup(const TitleEntry *title);
 // qual save deste console ela e (ou que nao e de nenhum).
 void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz);
 
+// Quantos arquivos tem o backup deste save na nuvem. Serve pra barra de
+// progresso saber a porcentagem em vez de só girar; 0 quando não tem backup.
+//
+// NUNCA cria nada. A versão que isto substituiu vivia no sysmodule e usava
+// ensure em vez de find, então cada título sem backup ganhava uma pasta vazia
+// no Drive de quem só queria ver uma barrinha — e, depois do layout aninhado,
+// ela ainda contava a pasta do JOGO em vez da pasta da conta, com o .nxsaves e
+// as outras contas entrando na conta do total.
+int syncjob_cloud_file_count(const TitleEntry *title);
+
+// O caminho deste save na nuvem, relativo a raiz do app: "<Jogo>/<Dono>".
+//
+// Publico pelo mesmo motivo que o syncjob_save_folder_name: da pra testar no
+// Mac sem console nenhum, e esta e a regra que ja errou tres vezes num dia so.
+void syncjob_cloud_folder_path(const TitleEntry *title, char *out, size_t outsz);
+
 // Traz o save da nuvem e escreve por cima do save local. É a única função do
 // projeto que escreve em save de jogo — quem chama tem que ter certeza de que
 // o jogo NÃO está com o save aberto.
@@ -142,16 +158,6 @@ void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
 // são estas aqui com o caminho do arquivo geral.
 size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, size_t count,
                                   syncjob_log_cb log, syncjob_stop_cb stop);
-// Quantos arquivos tem o backup deste save na nuvem. Serve pra barra de
-// progresso saber a porcentagem em vez de só girar; 0 quando não tem backup.
-//
-// NUNCA cria nada. A versão que isto substituiu vivia no sysmodule e usava
-// ensure em vez de find, então cada título sem backup ganhava uma pasta vazia
-// no Drive de quem só queria ver uma barrinha — e, depois do layout aninhado,
-// ela ainda contava a pasta do JOGO em vez da pasta da conta, com o .nxsaves e
-// as outras contas entrando na conta do total.
-int syncjob_cloud_file_count(const TitleEntry *title);
-
 bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log);
 
 // O arquivo de UM jogo, pra dentro da pasta daquele jogo na nuvem — e não pra

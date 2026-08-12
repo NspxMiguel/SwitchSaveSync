@@ -245,6 +245,11 @@ static void conta_subpasta(const char *id, const char *name, bool is_folder, voi
     u->quantas++;
 }
 
+void syncjob_cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
+{
+    cloud_folder_path(title, out, outsz);
+}
+
 // Tem arquivo solto no primeiro nível desta pasta?
 typedef struct { bool tem_arquivo; } TemArquivoCtx;
 
