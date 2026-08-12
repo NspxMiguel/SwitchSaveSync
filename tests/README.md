@@ -147,6 +147,17 @@ Dois detalhes do falso que valem saber:
 | primeira sync volta a usar `ensure_subfolder` com o caminho de dois níveis | **10** |
 | "mudou dos dois lados" vira download em vez de conflito | 4 |
 | "sem marcador" vira upload em vez de conflito | 2 |
+| tirar a trava do `shared_game` no resgate de leitura | 3 |
+
+### O que estes testes acharam
+
+O bloco de **mais de uma conta** achou um bug de verdade na primeira execucao:
+o resgate de leitura entregava o save de uma conta pra outra. Num console com
+duas contas do mesmo jogo, a segunda a sincronizar nao achava a pasta dela,
+encontrava a unica que existia — a da primeira — e recebia o save do vizinho.
+Com o save local vazio isso vira download do save de outra pessoa por cima do
+savedata. Consertado com a trava do `shared_game`; a ultima linha da tabela
+acima e a mutacao que prova o conserto.
 
 A primeira é o bug de verdade que passou hoje. O teste que o pega é o de **ida e
 volta**: subir e sincronizar de novo. Se o caminho que escreve e o que lê não
