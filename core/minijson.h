@@ -46,6 +46,15 @@ bool json_first_element(const char *arrayJson, char *out, size_t outsz);
 //           // processa elem (objeto ou string bruto)
 //       }
 //   }
+// Aponta pro comeco do VALOR desta chave, dentro do proprio json. NULL se a
+// chave nao existe.
+//
+// Existe pra dar pra percorrer um array grande sem copiar ele pra lugar nenhum:
+// o json_get_block copia o bloco inteiro pra um buffer, e bloco que nao cabe
+// faz a leitura FALHAR (nao truncar). Era isso que derrubava a listagem de
+// pasta cheia no Drive.
+const char *json_value_at(const char *json, const char *key);
+
 bool json_array_begin(const char *arrayJson, const char **cursor);
 bool json_array_next(const char **cursor, char *out, size_t outsz);
 

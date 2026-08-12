@@ -136,6 +136,11 @@ bool json_first_element(const char *arrayJson, char *out, size_t outsz) {
     return false;
 }
 
+const char *json_value_at(const char *json, const char *key) {
+    if (!json || !key) return NULL;
+    return find_value_start(json, key);
+}
+
 bool json_array_begin(const char *arrayJson, const char **cursor) {
     if (!arrayJson || !cursor) return false;
     const char *p = arrayJson;

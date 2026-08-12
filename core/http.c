@@ -639,6 +639,21 @@ bool http_download_to_file(const char *url, const char *bearer, const char *loca
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, fwrite);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, out);
 
+    // Mesma história do upload, e esta aqui tinha ficado de fora: o
+    // make_easy_handle põe 30 s de teto no handle, o que serve pra chamada de
+    // API que devolve um JSON curto e é uma armadilha pra transferência de
+    // arquivo. Baixar um save de 30 MB num Wi-Fi comum passa de 30 s
+    // tranquilamente, e o que acontecia era o curl cortar no meio — o arquivo
+    // saía truncado e o download falhava sempre, sem nunca dizer por quê.
+    //
+    // É por aqui que passa TODO download do Drive (o drive_download_by_id
+    // chama esta função), então o efeito era: save grande nunca voltava da
+    // nuvem. O LOW_SPEED continua cobrindo o que importa de verdade — a
+    // transferência que travou de vez — sem punir quem tem link ruim.
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 60L);
+
     CURLcode rc = curl_easy_perform(curl);
     long status = 0;
     if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
