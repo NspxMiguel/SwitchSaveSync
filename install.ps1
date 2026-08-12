@@ -297,6 +297,10 @@ try {
             Write-Host ('  ' + (T 'procurando a versao mais nova... ' 'looking for the newest release... ')) -NoNewline
         }
         $url = UrlDoZip
+        if (-not $url -and $Version) {
+            Morre "a versao $Version nao tem o zip do cartao (ele existe da v0.4.0 em diante)" `
+                  "release $Version has no SD-card zip (those start at v0.4.0)"
+        }
         if (-not $url) {
             Morre "nao achei o zip da release. Sem internet? Baixa a mao em $pagina/latest e roda com -Zip" `
                   "couldn't find the release zip. No internet? Download it from $pagina/latest and use -Zip"
