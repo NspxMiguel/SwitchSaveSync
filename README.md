@@ -197,16 +197,60 @@ being necessary.
 > nothing — and rebuilding it from the new path creates a second icon instead of fixing the
 > first. Leave it at `sdmc:/switch/SwitchSaveSync.nro` and be done.
 
+### Autosync — optional, and new
+
+The app above is the whole product; this part is extra. It's a **sysmodule**: it runs in the
+background and, when you close a game, backs that game's save up on its own. You never open
+it — you check on it from an **[Ultrahand](https://github.com/ppkantorski/Ultrahand-Overlay)
+overlay**, which is where it says what it did.
+
+Three files, and none of them replace the `.nro`:
+
+| From the release | Where it goes on the SD card |
+| --- | --- |
+| `exefs.nsp` | `/atmosphere/contents/00FF0000535953FF/exefs.nsp` |
+| `toolbox.json` | `/atmosphere/contents/00FF0000535953FF/toolbox.json` |
+| `SwitchSaveSync.ovl` | `/switch/.overlays/SwitchSaveSync.ovl` |
+
+Then reboot, open the Ultrahand overlay and start it from there.
+
+> **It does not start with the console, on purpose.** There is no `boot2.flag` in that
+> folder and there shouldn't be one: something that mounts savedata should not come up
+> before you've said so. You start it by hand, from the overlay, and it stops when you say.
+
+It uses the **same login as the app** — sign in there first, or the cloud half has nothing
+to talk to and the overlay will say so.
+
+**Where this actually is:** the SD-card half runs on the console today. The cloud half is
+still being tested, so treat this as the part that's being built rather than the part you
+rely on. The `.nro` doesn't depend on any of it.
+
 ## Where the saves end up
 
-In a `Nintendo Switch Saves/` folder at the root of your Drive (or your WebDAV), one
-subfolder per game with the files loose inside. No closed format: you can open the cloud's
-website and pull a single save by hand whenever you want.
+In a `Nintendo Switch Saves/` folder at the root of your Drive (or your WebDAV), a folder
+per **game** and, inside it, a folder per **account**:
 
-When a game has saves from more than one account, the nickname goes into the folder name —
-*Mario Kart 8 Deluxe (Player 1)*. Just the name, though: what actually identifies it is the
-game + account pair, recorded in `/switch/SwitchSaveSync/pastas.txt`. That's why you can
-rename the console account freely without the app losing sight of the backup.
+```
+Nintendo Switch Saves/
+  Rayman Legends_ Definitive Edition/
+    Miguel/          ← the files, loose
+    Convidado/
+  The Legend of Zelda_ Breath of the Wild/
+    Miguel/
+```
+
+The account folder is always there, even when the game has a single save: a save sitting
+loose in the game's folder reads like a save with no owner, and that only stays true until
+someone else on the console opens the same game.
+
+No closed format: you can open the cloud's website and pull a single file out by hand
+whenever you want. The one exception is optional — a `<Game>.nxsaves` sitting next to the
+account folders, which is that game's saves, every account, packed into a single file for
+carrying around.
+
+Names are just names. What identifies a backup is the game + account pair, recorded in
+`/switch/SwitchSaveSync/pastas.txt`, which is why you can rename the console account freely
+without the app losing sight of it.
 
 ## Building with your own credentials
 
@@ -265,11 +309,15 @@ that were opened and are parked on purpose:
 | `gui/` | The app, built on [borealis](https://github.com/natinusala/borealis) | **In use** |
 | `core/` | The engine: Drive, OAuth, save mounting, sync | **In use** |
 | `app/` | The first version, text mode | Historical |
-| `sysmodule/` | Background autosync | Parked |
-| `overlay/` | Ultrahand/Tesla menu | Parked |
+| `sysmodule/` | Background autosync | **New, under test** |
+| `overlay/` | The Ultrahand overlay that drives it | **New, under test** |
 
-Autosync will come back as a screen at game **startup** — "syncing, please wait", with a
-percentage bar and a **Skip** button for people who won't wait. Not built yet.
+Autosync backs a save up when you **close** the game. On the console it has done the
+SD-card half; the cloud half is still being tested. [How to install
+it](#autosync--optional-and-new).
+
+What's still missing there is the other end: a screen at game **startup** — "syncing,
+please wait", with a percentage bar and a **Skip** button for people who won't wait.
 
 ## Further reading
 

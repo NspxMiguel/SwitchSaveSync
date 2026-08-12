@@ -197,16 +197,59 @@ abrir por ele já dá a memória e a rede inteiras. O truque do **R** deixa de s
 > — e refazer o atalho a partir do caminho novo cria um segundo ícone em vez de consertar o
 > primeiro. Deixe em `sdmc:/switch/SwitchSaveSync.nro` e pronto.
 
+### Autosync — opcional, e novo
+
+O app aí de cima é o produto inteiro; esta parte é a mais. É um **sysmodule**: roda de
+fundo e, quando você fecha um jogo, faz o backup do save daquele jogo sozinho. Você nunca
+abre ele — você olha o que ele fez por um **overlay do
+[Ultrahand](https://github.com/ppkantorski/Ultrahand-Overlay)**.
+
+Três arquivos, e nenhum deles substitui o `.nro`:
+
+| Do release | Onde vai no cartão |
+| --- | --- |
+| `exefs.nsp` | `/atmosphere/contents/00FF0000535953FF/exefs.nsp` |
+| `toolbox.json` | `/atmosphere/contents/00FF0000535953FF/toolbox.json` |
+| `SwitchSaveSync.ovl` | `/switch/.overlays/SwitchSaveSync.ovl` |
+
+Depois reinicia, abre o overlay do Ultrahand e liga ele por lá.
+
+> **Ele não sobe junto com o console, de propósito.** Não existe `boot2.flag` nessa pasta e
+> não deve existir: uma coisa que monta savedata não sobe antes de você mandar. Você liga na
+> mão, pelo overlay, e desliga quando quiser.
+
+Ele usa o **mesmo login do app** — entra na conta por lá primeiro, senão a metade da nuvem
+não tem com quem falar, e o overlay vai dizer isso.
+
+**Onde isso está de verdade:** a metade do cartão roda no console hoje. A metade da nuvem
+ainda está em teste, então trate como a parte que está sendo feita, e não como a parte em
+que você confia. O `.nro` não depende de nada disso.
+
 ## Onde os saves vão parar
 
-Numa pasta `Nintendo Switch Saves/`, na raiz do seu Drive (ou do seu WebDAV), com uma
-subpasta por jogo e os arquivos soltos lá dentro. Nada de formato fechado: dá pra abrir
-pelo site da nuvem e baixar um save na mão quando quiser.
+Numa pasta `Nintendo Switch Saves/`, na raiz do seu Drive (ou do seu WebDAV), uma pasta por
+**jogo** e, dentro dela, uma pasta por **conta**:
 
-Quando um jogo tem save de mais de uma conta, o apelido entra no nome da pasta — *Mario
-Kart 8 Deluxe (Player 1)*. Só o nome: quem identifica de verdade é o par jogo + conta,
-anotado em `/switch/SwitchSaveSync/pastas.txt`. Por isso você pode renomear a conta do
-console à vontade que o app não perde o backup de vista.
+```
+Nintendo Switch Saves/
+  Rayman Legends_ Definitive Edition/
+    Miguel/          ← os arquivos, soltos
+    Convidado/
+  The Legend of Zelda_ Breath of the Wild/
+    Miguel/
+```
+
+A pasta da conta existe sempre, mesmo quando o jogo tem um save só: save solto na pasta do
+jogo é save sem dono, e isso só continua verdade até outra pessoa do console abrir o mesmo
+jogo.
+
+Nada de formato fechado: dá pra abrir pelo site da nuvem e baixar um arquivo na mão quando
+quiser. A única exceção é opcional — um `<Jogo>.nxsaves` do lado das pastas de conta, que é
+o save daquele jogo, de todas as contas, num arquivo só pra levar de uma vez.
+
+Nome é só nome. Quem identifica o backup é o par jogo + conta, anotado em
+`/switch/SwitchSaveSync/pastas.txt` — por isso você pode renomear a conta do console à
+vontade que o app não perde ele de vista.
 
 ## Compilar com a sua própria credencial
 
@@ -265,11 +308,14 @@ foram abertos e estão parados de propósito:
 | `gui/` | O app, em [borealis](https://github.com/natinusala/borealis) | **Em uso** |
 | `core/` | O motor: Drive, OAuth, montagem de save, sincronização | **Em uso** |
 | `app/` | Primeira versão, em modo texto | Histórico |
-| `sysmodule/` | Autosync rodando de fundo | Pausado |
-| `overlay/` | Menu no Ultrahand/Tesla | Pausado |
+| `sysmodule/` | Autosync rodando de fundo | **Novo, em teste** |
+| `overlay/` | O overlay do Ultrahand que liga ele | **Novo, em teste** |
 
-O autosync vai voltar como uma tela na **abertura** do jogo — "sincronizando, aguarde", com
-barra de porcentagem e um botão **Pular** pra quem não quer esperar. Ainda não está feito.
+O autosync faz o backup quando você **fecha** o jogo. No console, a metade do cartão já
+roda; a metade da nuvem ainda está em teste. [Como instalar](#autosync--opcional-e-novo).
+
+O que falta lá é a outra ponta: uma tela na **abertura** do jogo — "sincronizando,
+aguarde", com barra de porcentagem e um botão **Pular** pra quem não quer esperar.
 
 ## Leitura
 
