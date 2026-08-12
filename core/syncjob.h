@@ -142,6 +142,16 @@ void syncjob_game_archive_path(const TitleEntry *title, char *out, size_t outsz)
 // são estas aqui com o caminho do arquivo geral.
 size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, size_t count,
                                   syncjob_log_cb log, syncjob_stop_cb stop);
+// Quantos arquivos tem o backup deste save na nuvem. Serve pra barra de
+// progresso saber a porcentagem em vez de só girar; 0 quando não tem backup.
+//
+// NUNCA cria nada. A versão que isto substituiu vivia no sysmodule e usava
+// ensure em vez de find, então cada título sem backup ganhava uma pasta vazia
+// no Drive de quem só queria ver uma barrinha — e, depois do layout aninhado,
+// ela ainda contava a pasta do JOGO em vez da pasta da conta, com o .nxsaves e
+// as outras contas entrando na conta do total.
+int syncjob_cloud_file_count(const TitleEntry *title);
+
 bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log);
 
 // O arquivo de UM jogo, pra dentro da pasta daquele jogo na nuvem — e não pra

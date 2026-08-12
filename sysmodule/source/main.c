@@ -235,41 +235,6 @@ static bool pull_abort_cb(void)
 // Conta quantos arquivos tem no backup desse jogo no Drive, pra barra ter uma
 // porcentagem de verdade em vez de so girar. Custa duas chamadas de API; se
 // falhar, a tela mostra "..." e segue.
-typedef struct
-{
-    const char *token;
-    int n;
-} CountCtx;
-
-static void count_cb(const char *id, const char *name, bool is_folder, void *ud)
-{
-    (void)name;
-    CountCtx *c = (CountCtx *)ud;
-    if (is_folder)
-        cloud_list_children(c->token, id, count_cb, c);
-    else
-        c->n++;
-}
-
-static int count_remote_files(const char *safe_name)
-{
-    char token[CLOUD_AUTH_MAX];
-    if (!cloud_begin(token, sizeof(token)))
-        return 0;
-
-    char root_id[CLOUD_ID_MAX];
-    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
-        return 0;
-
-    char game_id[CLOUD_ID_MAX];
-    if (!cloud_ensure_subfolder(token, root_id, safe_name, game_id, sizeof(game_id)))
-        return 0;
-
-    CountCtx ctx = { token, 0 };
-    cloud_list_children(token, game_id, count_cb, &ctx);
-    return ctx.n;
-}
-
 // Chamado pelo cloud.c a cada arquivo.
 static void progress_cb(const char *action, const char *name, bool ok)
 {
@@ -514,9 +479,7 @@ static void pull_title_idle(u64 application_id)
     g_screen = gfx_init();
     pull_redraw(false);
 
-    char safe[0x201];
-    syncstate_sanitize_name(title.name, safe, sizeof(safe));
-    g_files_total = count_remote_files(safe);
+    g_files_total = syncjob_cloud_file_count(&title);
     pull_redraw(false);
 
     cloud_set_progress_cb(progress_cb);
