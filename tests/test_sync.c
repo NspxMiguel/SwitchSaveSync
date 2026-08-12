@@ -29,7 +29,7 @@ Result timeGetCurrentTime(TimeType type, u64 *out)
 // do fake_cloud.c
 void fake_cloud_reset(void);
 void fake_save_reset(void);
-extern int fake_puts, fake_gets, fake_commits, fake_mount_falha;
+extern int fake_puts, fake_gets, fake_commits, fake_mount_falha, fake_remove_falha;
 
 // ------------------------------------------------------------------ placar
 
@@ -85,6 +85,22 @@ static void escreve(const char *caminho, const char *texto)
     if (!f) { printf("  !! nao criei %s\n", caminho); exit(2); }
     fputs(texto, f);
     fclose(f);
+}
+
+static void apaga_pasta(const char *dir)
+{
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)))
+    {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char p[1024];
+        snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+        unlink(p);
+    }
+    closedir(d);
+    rmdir(dir);
 }
 
 static bool tem_arquivo(const char *caminho)
@@ -459,6 +475,67 @@ static void caso_restore_nao_mistura(void)
         "e NAO trouxe o arquivo da conta B");
 }
 
+// ============================== o prune que falha
+//
+// O prune tira da nuvem o que o save nao tem mais. Quando ele falha, a nuvem
+// fica com um arquivo que o jogo apagou — e marcar "sincronizado" nessa hora
+// mente: o sync seguinte ve a nuvem mais nova, desce por cima do savedata e
+// RESSUSCITA o arquivo apagado dentro do save.
+static void caso_prune_falhou_nao_marca(void)
+{
+    printf("\n== prune falhou: nao pode dizer que esta sincronizado ==\n");
+    do_zero();
+
+    TitleEntry t = o_jogo();
+    escreve("save-falso/a.dat", "fica");
+    escreve("save-falso/b.dat", "vai ser apagado pelo jogo");
+    res_eq(syncjob_sync_title(&t, NULL), SYNCJOB_SYNC_UPLOADED, "sobe os dois arquivos");
+
+    // O jogo apaga o b.dat. Na hora de subir, o DELETE na nuvem falha.
+    unlink("save-falso/b.dat");
+    fake_remove_falha = 1;
+    res_eq(syncjob_sync_title(&t, NULL), SYNCJOB_SYNC_UPLOADED, "sobe mesmo assim");
+    fake_remove_falha = 0;
+
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"),
+        "o arquivo sobrou na nuvem, como esperado");
+
+    // A prova: o proximo sync NAO pode trazer o b.dat de volta pro savedata.
+    SyncjobSyncResult r = syncjob_sync_title(&t, NULL);
+    ok(r != SYNCJOB_SYNC_DOWNLOADED,
+        "o sync seguinte NAO baixa a sobra por cima do save");
+    ok(!tem_arquivo("save-falso/b.dat"),
+        "e o arquivo que o jogo apagou NAO ressuscita dentro do save");
+}
+
+// O .nxsaves do jogo mora solto na pasta do jogo — que e exatamente a marca
+// que o cloud_flat_backup usa pra reconhecer backup do layout antigo. Se ele
+// se confundir, devolve o CONTAINER, e o restore escreve o proprio .nxsaves
+// (dezenas de MB) dentro do savedata.
+static void caso_arquivo_do_jogo_nao_vira_backup(void)
+{
+    printf("\n== o .nxsaves do jogo nao pode passar por backup antigo ==\n");
+    do_zero();
+
+    TitleEntry t = o_jogo();
+    escreve("save-falso/progresso.dat", "o save bom");
+    syncjob_sync_title(&t, NULL);
+
+    // O app poe o arquivo do jogo aqui, no primeiro nivel da pasta do jogo.
+    escreve("nuvem-falsa/Jogo de Teste/Jogo de Teste.nxsaves", "blob gigante");
+
+    // Agora some a pasta da conta: e o estado em que o resgate nao acha nada e
+    // o fallback achatado e consultado.
+    apaga_pasta("nuvem-falsa/Jogo de Teste/Miguel");
+
+    unlink("save-falso/progresso.dat");
+    ok(!syncjob_restore_title(&t, NULL),
+        "restore diz que NAO tem backup, em vez de entregar o container");
+    ok(!tem_arquivo("save-falso/Jogo de Teste.nxsaves"),
+        "e o .nxsaves NAO foi escrito dentro do savedata");
+    ok(fake_commits == 0, "nada commitado");
+}
+
 int main(void)
 {
     mkdir("sdmc:", 0777);
@@ -482,6 +559,9 @@ int main(void)
     caso_prune_nao_come_o_vizinho();
     caso_arquivo_do_jogo_sobrevive();
     caso_restore_nao_mistura();
+
+    caso_prune_falhou_nao_marca();
+    caso_arquivo_do_jogo_nao_vira_backup();
 
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);
