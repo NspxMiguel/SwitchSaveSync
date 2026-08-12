@@ -28,7 +28,9 @@
 set -u
 
 REPO="NspxMiguel/SwitchSaveSync"
-API="https://api.github.com/repos/$REPO/releases"
+# SSS_API existe pra um so' proposito: a integracao continua aponta ele pro
+# vazio e prova que o plano B (sem API) acha a release sozinho.
+API="${SSS_API:-https://api.github.com/repos/$REPO/releases}"
 PAGINA="https://github.com/$REPO/releases"
 
 # Os quatro arquivos, e onde cada um cai. Errar o lugar de um deles e passar a
@@ -291,13 +293,24 @@ acha_url_do_zip() {
         | tr ',' '\n' | grep -o '"browser_download_url": *"[^"]*-sd\.zip"' \
         | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
 
-    # A API do GitHub da 60 chamadas por hora por endereco de IP. Quando ela
-    # fecha, a pagina da release em HTML ainda responde e tem o mesmo link.
+    # A API do GitHub da 60 chamadas por hora por endereco de IP, e num
+    # provedor grande esse limite ja chega gasto. O plano B nao usa a API.
+    #
+    # A pagina da release NAO tem o link do anexo: ela carrega essa parte
+    # depois, de /releases/expanded_assets/<tag>. Entao sao dois passos —
+    # descobrir a tag no HTML da pagina, e ler o pedaco que tem os anexos.
     if [ -z "$url" ]; then
-        if [ -n "$VERSAO" ]; then pag="$PAGINA/expanded_assets/$VERSAO"; else pag="$PAGINA/latest"; fi
-        url=$(curl -fsSL "$pag" 2>/dev/null \
-            | grep -o '/'"$REPO"'/releases/download/[^"]*-sd\.zip' | head -1)
-        [ -n "$url" ] && url="https://github.com$url"
+        if [ -n "$VERSAO" ]; then
+            pedaco="releases/expanded_assets/$VERSAO"
+        else
+            pedaco=$(curl -fsSL "$PAGINA/latest" 2>/dev/null \
+                | grep -o 'releases/expanded_assets/[A-Za-z0-9._-]*' | head -1)
+        fi
+        if [ -n "$pedaco" ]; then
+            url=$(curl -fsSL "https://github.com/$REPO/$pedaco" 2>/dev/null \
+                | grep -o '/'"$REPO"'/releases/download/[^"]*-sd\.zip' | head -1)
+            [ -n "$url" ] && url="https://github.com$url"
+        fi
     fi
 
     printf '%s' "$url"

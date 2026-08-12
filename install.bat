@@ -1,8 +1,8 @@
 @echo off
-rem SwitchSaveSync — double-click this and it puts the app on your SD card.
+rem SwitchSaveSync - double-click this and it puts the app on your SD card.
 rem
 rem This is the "exe" of the project: a file you click, that asks which card
-rem and copies the files there. It does nothing by itself — it starts
+rem and copies the files there. It does nothing by itself - it starts
 rem install.ps1, which is the actual installer and is right next to this file
 rem (or comes from GitHub, if you only downloaded this one).
 rem

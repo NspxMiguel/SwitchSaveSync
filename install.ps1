@@ -36,7 +36,9 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
 $repo    = 'NspxMiguel/SwitchSaveSync'
-$api     = "https://api.github.com/repos/$repo/releases"
+# SSS_API existe pra um so' proposito: a integracao continua aponta ele pro
+# vazio e prova que o plano B (sem API) acha a release sozinho.
+$api     = if ($env:SSS_API) { $env:SSS_API } else { "https://api.github.com/repos/$repo/releases" }
 $pagina  = "https://github.com/$repo/releases"
 
 $arquivosApp  = @('switch\SwitchSaveSync.nro')
@@ -235,13 +237,25 @@ function UrlDoZip {
         if ($asset) { return $asset.browser_download_url }
     } catch { }
 
-    # A API do GitHub da 60 chamadas por hora por IP. Quando ela fecha, a
-    # pagina da release em HTML ainda responde e tem o mesmo link.
+    # A API do GitHub da 60 chamadas por hora por IP, e num provedor grande
+    # esse limite ja chega gasto. O plano B nao usa a API.
+    #
+    # A pagina da release NAO tem o link do anexo: ela carrega essa parte
+    # depois, de /releases/expanded_assets/<tag>. Entao sao dois passos.
     try {
-        if ($Version) { $pag = "$pagina/expanded_assets/$Version" } else { $pag = "$pagina/latest" }
-        $html = (Invoke-WebRequest -Uri $pag -UseBasicParsing -Headers @{ 'User-Agent' = 'SwitchSaveSync-installer' }).Content
-        $m = [regex]::Match($html, "/$repo/releases/download/[^""]*-sd\.zip")
-        if ($m.Success) { return 'https://github.com' + $m.Value }
+        $cabeca = @{ 'User-Agent' = 'SwitchSaveSync-installer' }
+        if ($Version) {
+            $pedaco = "releases/expanded_assets/$Version"
+        } else {
+            $html = (Invoke-WebRequest -Uri "$pagina/latest" -UseBasicParsing -Headers $cabeca).Content
+            $m = [regex]::Match($html, 'releases/expanded_assets/[A-Za-z0-9._-]+')
+            if ($m.Success) { $pedaco = $m.Value } else { $pedaco = $null }
+        }
+        if ($pedaco) {
+            $frag = (Invoke-WebRequest -Uri "https://github.com/$repo/$pedaco" -UseBasicParsing -Headers $cabeca).Content
+            $m2 = [regex]::Match($frag, "/$repo/releases/download/[^""]*-sd\.zip")
+            if ($m2.Success) { return 'https://github.com' + $m2.Value }
+        }
     } catch { }
 
     return $null
