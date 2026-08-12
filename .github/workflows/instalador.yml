@@ -68,6 +68,15 @@ jobs:
           LANG: pt_BR.UTF-8
         run: bash install.sh --card "$RUNNER_TEMP/cartao" --yes | grep -q "Pronto"
 
+      - name: sem a API do GitHub, o plano B ainda acha a release
+        env:
+          SSS_API: 'https://api.github.com/repos/este-repo-nao-existe-xyz/nada/releases'
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/planoB"
+          bash install.sh --card "$RUNNER_TEMP/planoB" --yes
+          test -s "$RUNNER_TEMP/planoB/switch/SwitchSaveSync.nro"
+
       - name: --zip de arquivo local, sem internet nenhuma
         run: |
           set -eu
@@ -110,6 +119,15 @@ jobs:
       - name: instala do zero
         shell: powershell
         run: .\install.ps1 -Card (Join-Path $env:RUNNER_TEMP 'cartao') -Yes
+
+      - name: sem a API do GitHub, o plano B ainda acha a release
+        shell: powershell
+        env:
+          SSS_API: 'https://api.github.com/repos/este-repo-nao-existe-xyz/nada/releases'
+        run: |
+          $alvo = Join-Path $env:RUNNER_TEMP 'planoB'
+          .\install.ps1 -Card $alvo -Yes
+          if (-not (Test-Path (Join-Path $alvo 'switch\SwitchSaveSync.nro'))) { exit 1 }
 
       - name: os quatro arquivos chegaram, e o vizinho continua vivo
         shell: powershell
