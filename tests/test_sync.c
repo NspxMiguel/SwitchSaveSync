@@ -536,6 +536,46 @@ static void caso_arquivo_do_jogo_nao_vira_backup(void)
     ok(fake_commits == 0, "nada commitado");
 }
 
+// A porta que o AUTOSYNC usa, e que nenhum teste tocava.
+//
+// Quando o jogo fecha, o sysmodule chama o syncjob_backup_title_ex e decide,
+// pelo `nuvem_bate`, se pode marcar aquele save como sincronizado. Marcar
+// errado nao e um detalhe: o marcador e o que faz o proximo sync decidir que a
+// nuvem esta na frente — e ai o arquivo que o jogo apagou VOLTA pra dentro do
+// savedata. Foi um bug de verdade, e ninguem estava olhando essa saida.
+static void caso_backup_ex_conta_a_verdade(void)
+{
+    printf("\n== o backup do autosync diz quando a nuvem NAO bate ==\n");
+    do_zero();
+
+    TitleEntry t = o_jogo();
+    escreve("save-falso/a.dat", "fica");
+    escreve("save-falso/b.dat", "o jogo vai apagar");
+
+    bool bate = false;
+    ok(syncjob_backup_title_ex(&t, NULL, &bate), "subiu os dois arquivos");
+    ok(bate, "e a nuvem bate com o save: pode marcar como sincronizado");
+
+    // O jogo apaga o b.dat e, na hora de subir, o DELETE da nuvem falha.
+    unlink("save-falso/b.dat");
+    fake_remove_falha = 1;
+    bate = true; // se ninguem escrever, o teste tem que pegar
+    ok(syncjob_backup_title_ex(&t, NULL, &bate), "sobe mesmo com a limpeza falhando");
+    ok(!bate, "e AVISA que a nuvem nao bate — o autosync nao pode marcar");
+    fake_remove_falha = 0;
+
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"),
+        "a sobra continua la, que e o motivo do aviso");
+
+    // Com a limpeza funcionando, volta a bater.
+    ok(syncjob_backup_title_ex(&t, NULL, &bate), "sobe de novo, agora sem falha");
+    ok(bate, "e agora bate");
+    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"), "a sobra saiu da nuvem");
+
+    // E o de sempre: nada disso encosta no savedata pra escrever.
+    ok(fake_commits == 0, "backup nao commita no savedata em momento nenhum");
+}
+
 int main(void)
 {
     mkdir("sdmc:", 0777);
@@ -562,6 +602,7 @@ int main(void)
 
     caso_prune_falhou_nao_marca();
     caso_arquivo_do_jogo_nao_vira_backup();
+    caso_backup_ex_conta_a_verdade();
 
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);
