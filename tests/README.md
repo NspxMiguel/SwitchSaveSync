@@ -80,3 +80,41 @@ encosta nelas, estão ali só pro linker parar de reclamar.
 Um detalhe: o `-Wno-format` no `run.sh` é por causa do stub. No Switch `u64` é
 `unsigned long`; no Mac é `unsigned long long`. Os `%016lX` do core estão
 certos lá e reclamam aqui.
+
+## `pastas` — o caminho da pasta na nuvem
+
+Testa a regra `<Jogo>/<Dono>`, que substituiu a pasta achatada `Jogo (Dono)`.
+
+Existe porque essa regra errou **três vezes no mesmo dia em que foi escrita**, e
+nenhuma das três precisava de console pra ser pega:
+
+1. o ramo de primeira sync entregou o caminho de dois níveis pra uma função que
+   cria um nome só — no Drive nasceu uma pasta cujo *nome* tinha uma barra, o
+   upload dizia que deu certo e nenhum leitor achava aquilo nunca mais;
+2. o fallback do layout antigo passou a resolver pra pasta-container do jogo, e
+   restaurar aquilo escreveria as pastas das outras contas e o `.nxsaves` de
+   29 MB **dentro do savedata**;
+3. a contagem da barra de progresso usava `ensure` em vez de `find` e criava
+   pasta vazia no Drive de quem só olhou uma tela.
+
+O `nomes` continua testando a regra **achatada**, que não morreu: ela ainda vale
+pro backup no cartão e pro nome de pasta dentro do arquivo `.nxsaves`.
+
+### Sobre a mutação
+
+Este arquivo passou verde de primeira, o que é motivo pra desconfiar — teste que
+não sabe falhar não vale nada. Rodando mutação (quebrar o código de propósito e
+conferir que o teste acusa), **o teste da truncagem não pegou**: o apelido usado
+era "Miguel", de 6 letras, e 512 + 1 + 6 ainda cabia no buffer de 544. O pior
+caso de verdade é o apelido no tamanho que o console entrega — `account[0x21]`,
+32 caracteres — onde 512 + 1 + 32 estoura por um byte e quem perde o fim é o
+dono. Com dois apelidos de 32 que diferem só no último caractere, os dois donos
+colidem no mesmo caminho e um escreve por cima do save do outro.
+
+Corrigido, as três mutações são pegas:
+
+| mutação | testes que acusam |
+| --- | --- |
+| tirar a reserva de espaço da truncagem | 3 |
+| voltar a deixar save único solto na raiz do jogo | 6 |
+| voltar a obedecer registro achatado do `pastas.txt` | 2 |

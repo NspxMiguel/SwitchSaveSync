@@ -4,11 +4,25 @@
 #include "titles.h"
 #include "cloud_backend.h"
 
+#include <stdio.h>
+
 bool savemount_mount_typed(u64 a, AccountUid u, bool d, bool r) { (void)a;(void)u;(void)d;(void)r; return false; }
 void savemount_unmount(bool c) { (void)c; }
 bool savemount_wipe_contents(void) { return false; }
 bool savemount_copy_tree(const char *s, const char *d) { (void)s;(void)d; return false; }
 size_t titles_list_with_savedata(TitleEntry *o, size_t m) { (void)o;(void)m; return 0; }
+
+// O apelido da conta em uso. O teste escreve aqui pra mandar no resultado: e
+// justamente este valor que decide o nome da pasta quando o save nao diz de
+// quem e. Vazio = o console nao soube dizer.
+char stub_conta_atual[0x21] = "";
+
+bool titles_current_account_name(char *out, size_t outsz)
+{
+    if (stub_conta_atual[0] == '\0') return false;
+    snprintf(out, outsz, "%s", stub_conta_atual);
+    return true;
+}
 
 static const char *n_name(void)  { return "fora do teste"; }
 static const char *n_hint(void)  { return ""; }

@@ -12,7 +12,7 @@
 # testa.
 #
 #   ./tests/run.sh          roda tudo
-#   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes)
+#   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes | pastas)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -47,6 +47,15 @@ fi
 # por último, e assim os dois que não precisam de nada rodam mesmo sem Apache.)
 if [ "$QUAL" = tudo ] || [ "$QUAL" = nomes ]; then
     roda nomes test_nomes.c stubs_console.c \
+        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+fi
+
+# ---- 3b. o caminho da pasta na nuvem ----
+# Separado do "nomes" de proposito: aquele testa a regra ANTIGA (achatada), que
+# continua valendo pro backup do cartao, e este testa a de agora.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = pastas ]; then
+    roda pastas test_pastas.c stubs_console.c \
         $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
         $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
