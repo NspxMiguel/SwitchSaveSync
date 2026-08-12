@@ -14,7 +14,7 @@
 #   ./tests/run.sh          roda tudo
 #   ./tests/run.sh nomes    roda só um
 #                           (nxsaves | webdav | nomes | pastas | sync | arquivo
-#                            | credencial | servidor)
+#                            | credencial | servicos | servidor)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -83,6 +83,16 @@ fi
 # usuario > endpoint > chave do build) e o parser do arquivo torto.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = credencial ]; then
     roda credencial test_credencial.c $CORE/credencial.c
+fi
+
+# ---- 3e2. o NPDM do sysmodule libera tudo que ele abre? ----
+# Nao compila nada: le as chamadas *Initialize() e confere contra o
+# service_access. Servico faltando nao da erro de compilacao nem aparece em
+# teste de logica — falha calado no console, que foi como o idioma, o apelido
+# da conta e a ordenacao por ultimo jogado se perderam.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = servicos ]; then
+    printf '\n########## servicos ##########\n'
+    python3 servicos.py || falhou=1
 fi
 
 # ---- 3f. o freio do servidor de autenticacao ----
@@ -196,7 +206,7 @@ if [ "$QUAL" = drive ]; then
 
     clang $CFLAGS test_drive.c \
         $CORE/drive.c $CORE/oauth.c $CORE/http.c $CORE/cloud.c \
-        $CORE/minijson.c $CORE/webdav.c \
+        $CORE/minijson.c $CORE/webdav.c $CORE/credencial.c \
         -lcurl -lz -o "build/$nome/teste"
     (cd "build/$nome" && ./teste) || falhou=1
 
