@@ -85,6 +85,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # O PowerShell 5.1 le .ps1 sem BOM como ANSI, e um travessao vira lixo
+      # que quebra a analise do script inteiro. Ja aconteceu; nao acontece de
+      # novo sem alguem ver.
+      - name: install.ps1 e install.bat sao ASCII puro
+        shell: powershell
+        run: |
+          foreach ($f in @('install.ps1', 'install.bat')) {
+            $bytes = [System.IO.File]::ReadAllBytes($f)
+            $ruim = $bytes | Where-Object { $_ -gt 127 }
+            if ($ruim) { Write-Host "$f tem $($ruim.Count) byte(s) fora do ASCII"; exit 1 }
+            Write-Host "$f ok"
+          }
+
       - name: cartão de mentira, com um arquivo que não pode sumir
         shell: powershell
         run: |

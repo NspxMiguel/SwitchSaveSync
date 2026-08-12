@@ -1,4 +1,4 @@
-# SwitchSaveSync — puts the app on the SD card for you. Windows.
+# SwitchSaveSync - puts the app on the SD card for you. Windows.
 #
 #   irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
 #
@@ -17,7 +17,7 @@
 #           -NoHbl   (don't touch atmosphere\config\override_config.ini)
 #
 # Speaks Portuguese when Windows does. Written for PowerShell 5.1, which is
-# what comes with Windows 10 and 11 — nothing to install.
+# what comes with Windows 10 and 11 - nothing to install.
 
 [CmdletBinding()]
 param(
@@ -86,7 +86,7 @@ function Nota([string] $raiz) {
 
 function Candidatos {
     # DriveType 2 e' removivel e 3 e' fixo. O leitor de cartao embutido em
-    # muito notebook se apresenta como FIXO, entao os dois entram — o que
+    # muito notebook se apresenta como FIXO, entao os dois entram - o que
     # protege de verdade e' exigir FAT32/exFAT e nunca aceitar o disco do
     # Windows.
     $sistema = $env:SystemDrive
@@ -115,8 +115,8 @@ function EscolheCartao {
     $lista = @(Candidatos)
     if ($lista.Count -eq 0) {
         Diz 'Nao achei nenhum cartao FAT32/exFAT.' 'No FAT32/exFAT card found.'
-        Diz 'Enfia o cartao do Switch no computador e roda de novo — ou passa -Card E:\' `
-            'Put the Switch card in the computer and run again — or pass -Card E:\'
+        Diz 'Enfia o cartao do Switch no computador e roda de novo - ou passa -Card E:\' `
+            'Put the Switch card in the computer and run again - or pass -Card E:\'
         exit 1
     }
 
@@ -138,7 +138,7 @@ function EscolheCartao {
             $marca = T 'vazio, nao da pra saber' 'empty, no way to tell'
             $cor = 'Gray'
         }
-        Write-Host ("  {0}) {1}  {2}  {3}  — " -f ($i + 1), $c.Raiz, $c.Rotulo, $c.Fs) -NoNewline
+        Write-Host ("  {0}) {1}  {2}  {3}  - " -f ($i + 1), $c.Raiz, $c.Rotulo, $c.Fs) -NoNewline
         Write-Host $marca -ForegroundColor $cor
     }
 
@@ -164,7 +164,7 @@ function EscolheCartao {
 # isso, a pessoa segura R, o jogo abre normal, e conclui que o app nao presta.
 #
 # Regra: se o arquivo NAO existe, eu crio. Se existe, eu nao reescrevo a
-# configuracao de ninguem — no maximo pergunto se posso acrescentar, guardando
+# configuracao de ninguem - no maximo pergunto se posso acrescentar, guardando
 # uma copia antes.
 $blocoHbl = @'
 [hbl_config]
@@ -197,8 +197,8 @@ function CuidaDoHbl([string] $raiz) {
     if ((Get-Content -LiteralPath $ini -Raw) -match '(?im)^\s*override_any_app\s*=\s*true') { return }
 
     Write-Host ''
-    Write-Host (T 'O teu override_config.ini nao tem override_any_app=true — sem isso, segurar R nao faz nada.' `
-                  'Your override_config.ini has no override_any_app=true — without it, holding R does nothing.') -ForegroundColor Yellow
+    Write-Host (T 'O teu override_config.ini nao tem override_any_app=true - sem isso, segurar R nao faz nada.' `
+                  'Your override_config.ini has no override_any_app=true - without it, holding R does nothing.') -ForegroundColor Yellow
 
     if ($Yes) {
         Diz "Nao mexo num arquivo de configuracao que ja existe. Acrescenta a mao, no fim de ${ini}:" `
@@ -250,15 +250,15 @@ function UrlDoZip {
 # ------------------------------------------------------------- instalar
 
 Write-Host 'SwitchSaveSync' -ForegroundColor White
-Diz 'Instalador de cartao — nao apaga nada do que ja esta la.' `
-    'SD card installer — it deletes nothing that is already there.'
+Diz 'Instalador de cartao - nao apaga nada do que ja esta la.' `
+    'SD card installer - it deletes nothing that is already there.'
 
 if (-not $Card) { $Card = EscolheCartao }
 if (-not (Test-Path $Card)) { Morre "nao achei $Card" "no such path: $Card" }
 
 if ((Nota $Card) -lt 3 -and -not $Yes) {
-    Write-Host (T "Essa unidade nao tem atmosphere\ nem switch\ — pode nao ser o cartao do Switch." `
-                  "That drive has no atmosphere\ or switch\ — it may not be the Switch card.") -ForegroundColor Yellow
+    Write-Host (T "Essa unidade nao tem atmosphere\ nem switch\ - pode nao ser o cartao do Switch." `
+                  "That drive has no atmosphere\ or switch\ - it may not be the Switch card.") -ForegroundColor Yellow
     $r = Read-Host (T "Escrever em $Card mesmo assim? [s/N]" "Write to $Card anyway? [y/N]")
     if ($r -notmatch '^(s|sim|y|yes)$') {
         Diz 'Cancelado, nada foi escrito.' 'Cancelled, nothing was written.'
@@ -295,7 +295,7 @@ try {
     Expand-Archive -LiteralPath $zipLocal -DestinationPath $saco -Force
 
     if (-not (Test-Path (Join-Path $saco $arquivosApp[0]))) {
-        Morre 'o zip nao tem o app dentro — versao errada?' 'that zip has no app inside — wrong release?'
+        Morre 'o zip nao tem o app dentro - versao errada?' 'that zip has no app inside - wrong release?'
     }
 
     if ($AppOnly) { $lista = $arquivosApp } else { $lista = $arquivosApp + $arquivosAuto }
@@ -337,8 +337,8 @@ try {
         $o = Join-Path $saco $rel
         $d = Join-Path $Card $rel
         if ((Test-Path $o) -and (Get-Item $o).Length -ne (Get-Item $d).Length) {
-            Morre "$rel saiu do tamanho errado — tira o cartao e poe de novo, depois roda outra vez" `
-                  "$rel came out the wrong size — reseat the card and run this again"
+            Morre "$rel saiu do tamanho errado - tira o cartao e poe de novo, depois roda outra vez" `
+                  "$rel came out the wrong size - reseat the card and run this again"
         }
     }
 
@@ -350,8 +350,8 @@ try {
     Diz 'Agora, no console:' 'Now, on the console:'
     Diz '  1. Poe o cartao de volta e liga o console no CFW.' `
         '  1. Put the card back and boot the console into CFW.'
-    Diz '  2. Abre o menu de homebrew SEGURANDO R em cima de um jogo instalado — nao pelo Album.' `
-        '  2. Open the homebrew menu HOLDING R on an installed game — not from the Album.'
+    Diz '  2. Abre o menu de homebrew SEGURANDO R em cima de um jogo instalado - nao pelo Album.' `
+        '  2. Open the homebrew menu HOLDING R on an installed game - not from the Album.'
     Diz '  3. Abre o SwitchSaveSync e entra na tua conta do Google na primeira tela.' `
         '  3. Open SwitchSaveSync and sign in to your Google account on the first screen.'
     if (-not $AppOnly) {
@@ -365,8 +365,8 @@ try {
             $shell.Namespace(17).ParseName($Card.TrimEnd('\')).InvokeVerb('Eject')
             Diz 'Cartao ejetado, pode tirar.' 'Card ejected, you can pull it.'
         } catch {
-            Diz 'Nao consegui ejetar — tira pelo icone da bandeja.' `
-                "Couldn't eject — use the tray icon."
+            Diz 'Nao consegui ejetar - tira pelo icone da bandeja.' `
+                "Couldn't eject - use the tray icon."
         }
     }
 }
