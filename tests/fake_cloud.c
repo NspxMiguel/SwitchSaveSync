@@ -202,8 +202,18 @@ static bool g_escrita    = false;
 int  fake_commits        = 0;
 int  fake_mount_falha    = 0; // o teste liga isto pra simular jogo aberto
 
+// "save:" existe SÓ enquanto está montado.
+//
+// Nem todo caminho passa pelo savemount_copy_tree: o arquivo único lê e
+// escreve com o nxsaves direto em "save:/". Aqui isso vira um atalho pra
+// save-falso — e ele só existe entre o mount e o unmount, de propósito. Assim
+// mexer no savedata sem montar não "quase funciona": não acha pasta nenhuma,
+// que é o que a regra do console diz (savemount.h).
+#define ATALHO "save:"
+
 void fake_save_reset(void)
 {
+    unlink(ATALHO);
     apaga_recursivo(RAIZ_SAVE);
     mkdir(RAIZ_SAVE, 0777);
     g_montado = g_escrita = false;
@@ -218,6 +228,7 @@ bool savemount_mount_typed(u64 app, AccountUid uid, bool device, bool read_only)
     if (g_montado) return false; // montar duas vezes é erro, e o teste pega
     g_montado = true;
     g_escrita = !read_only;
+    symlink(RAIZ_SAVE, ATALHO);
     return true;
 }
 
@@ -229,6 +240,7 @@ void savemount_unmount(bool commit)
     if (commit && !g_escrita) fake_commits = -1000; // sabotagem visível
     g_montado = false;
     g_escrita = false;
+    unlink(ATALHO);
 }
 
 bool savemount_wipe_contents(void)

@@ -146,6 +146,14 @@ static void caso_arquivo_do_jogo_vai_pra_pasta(void)
         "e nao na raiz, que era o defeito antigo");
 }
 
+// Fora da função de propósito: função dentro de função é extensão do GCC, e
+// aqui o compilador é o clang.
+static void conta_pasta(const char *nome, uint64_t bytes, void *ud)
+{
+    (void)nome; (void)bytes;
+    (*(int *)ud)++;
+}
+
 // O arquivo do jogo tem que carregar TODAS as contas — foi isso que ele
 // pediu: "isso inclui tudo, todos os usuarios saves e etc".
 static void caso_arquivo_leva_todas_as_contas(void)
@@ -174,11 +182,6 @@ static void caso_arquivo_leva_todas_as_contas(void)
 
     // Confere pelo indice do proprio formato, nao por adivinhacao.
     int pastas = 0;
-    void conta_pasta(const char *nome, uint64_t bytes, void *ud)
-    {
-        (void)nome; (void)bytes;
-        (*(int *)ud)++;
-    }
     nxsaves_list_folders(caminho, conta_pasta, &pastas);
     ok(pastas == 2, "e o indice do arquivo lista duas pastas");
 }
