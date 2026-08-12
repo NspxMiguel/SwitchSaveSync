@@ -135,7 +135,8 @@ Plug the SD card into your computer and run, on **macOS or Linux**:
 curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
 ```
 
-On **Windows**, in PowerShell — or download [`install.bat`](install.bat) and double-click it:
+On **Windows**, download **[install.bat](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest/download/install.bat)** and double-click it — one file, no admin,
+it fetches the rest itself. Or, if you'd rather type:
 
 ```powershell
 irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex

@@ -15,15 +15,16 @@ copiados na mão, e ele está aqui pra você conseguir conferir o que o primeiro
 curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
 ```
 
-**Windows** — abre o PowerShell (não precisa de administrador) e roda:
+**Windows** — baixa o **[install.bat](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest/download/install.bat)** e **dá dois cliques**. É isso: um arquivo
+só, sem administrador, sem instalar nada. Ele busca o resto sozinho. O Windows mostra antes
+aquele aviso pequeno de "Open File - Security Warning" — é o que qualquer script sem
+assinatura recebe.
+
+Se preferir digitar um comando, o PowerShell faz o mesmo:
 
 ```powershell
 irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
 ```
-
-Ou baixa o [`install.bat`](install.bat) e o [`install.ps1`](install.ps1) na mesma pasta e
-**dá dois cliques no .bat**. O Windows vai mostrar aquele aviso pequeno de "Open File -
-Security Warning" — é o que qualquer script sem assinatura recebe.
 
 Ele lista os cartões FAT32/exFAT que enxerga, marca o que tem cara de Switch, e pergunta
 qual é. Depois baixa a versão mais nova, copia quatro arquivos e confere se cada um chegou
