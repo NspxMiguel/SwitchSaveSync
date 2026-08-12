@@ -369,6 +369,10 @@ principal() {
             printf '  %s' "$(t "procurando a versao mais nova... " "looking for the newest release... ")"
         fi
         url=$(acha_url_do_zip)
+        if [ -z "$url" ] && [ -n "$VERSAO" ]; then
+            morre "a versao $VERSAO nao tem o zip do cartao (ele existe da v0.4.0 em diante)" \
+                  "release $VERSAO has no SD-card zip (those start at v0.4.0)"
+        fi
         [ -n "$url" ] || morre \
             "nao achei o zip da release. Sem internet? Baixa a mao em $PAGINA/latest e roda com --zip" \
             "couldn't find the release zip. No internet? Download it from $PAGINA/latest and use --zip"
