@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="150" viewBox="0 0 256 150">
+  <defs><radialGradient id="f" cx="50%" cy="42%" r="75%">
+    <stop offset="0%" stop-color="#2a2d38"/><stop offset="100%" stop-color="#101218"/>
+  </radialGradient></defs>
+  <rect width="256" height="150" fill="url(#f)"/>
+  <g transform="translate(78,3) scale(0.56)">
+    <!-- anel partido: metade azul girando pra cima, metade vermelha pra baixo -->
+    <path d="M 128 24 A 104 104 0 0 0 128 232" fill="none" stroke="#00c3e3" stroke-width="30" stroke-linecap="butt"/>
+    <path d="M 128 232 A 104 104 0 0 0 128 24" fill="none" stroke="#ff3c28" stroke-width="30" stroke-linecap="butt"/>
+    <polygon points="128,4 128,60 96,32" fill="#00c3e3"/>
+    <polygon points="128,252 128,196 160,224" fill="#ff3c28"/>
+    <!-- nuvem -->
+    <g fill="#ffffff">
+      <circle cx="102" cy="132" r="26"/><circle cx="128" cy="112" r="34"/><circle cx="156" cy="132" r="26"/>
+      <rect x="76" y="130" width="104" height="30" rx="15"/>
+    </g>
+  </g>
+
+</svg>
