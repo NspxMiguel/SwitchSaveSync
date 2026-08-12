@@ -16,15 +16,15 @@ what the first one did.
 curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
 ```
 
-**Windows** — open PowerShell (no admin needed) and run:
+**Windows** — download **[install.bat](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest/download/install.bat)** and **double-click it**. That's the whole
+thing: one file, no admin, nothing to install. It fetches the rest by itself. Windows shows a
+small "Open File - Security Warning" first — that's what any unsigned script gets.
+
+If you'd rather type a command, PowerShell does the same:
 
 ```powershell
 irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
 ```
-
-Or download [`install.bat`](install.bat) and [`install.ps1`](install.ps1) into the same
-folder and **double-click the .bat**. Windows will show a small "Open File - Security
-Warning" — that is what any unsigned script gets.
 
 It lists the FAT32/exFAT cards it can see, marks the one that looks like a Switch, and
 asks which. Then it downloads the newest release, copies four files, and checks that each

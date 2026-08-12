@@ -135,7 +135,8 @@ Enfia o cartão no computador e roda, no **macOS ou Linux**:
 curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
 ```
 
-No **Windows**, no PowerShell — ou baixa o [`install.bat`](install.bat) e dá dois cliques:
+No **Windows**, baixa o **[install.bat](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest/download/install.bat)** e dá dois cliques — um arquivo só, sem
+administrador, e ele busca o resto sozinho. Ou, se preferir digitar:
 
 ```powershell
 irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
