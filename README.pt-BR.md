@@ -109,8 +109,8 @@ nuvem não é uma opção.
 
 ## Onde foi testado
 
-**Switch V2 com firmware 18.1.0, em Atmosphère.** É o console em que ele foi escrito e é
-onde ele roda todo dia — o resto é honestidade sobre o que ninguém tentou ainda.
+**Switch V2 com firmware 18.1.0, em Atmosphère.** É a configuração em que ele foi escrito e
+é onde ele roda todo dia — o resto é honestidade sobre o que ninguém tentou ainda.
 
 Nada aqui depende de versão: o app não tem tabela de offsets, não faz patch em nada e não
 lê estrutura interna de save. Ele usa as chamadas de montar save da libnx, que são as
@@ -233,10 +233,10 @@ Numa pasta `Nintendo Switch Saves/`, na raiz do seu Drive (ou do seu WebDAV), um
 ```
 Nintendo Switch Saves/
   Rayman Legends_ Definitive Edition/
-    Miguel/          ← os arquivos, soltos
-    Convidado/
+    Conta 1/         ← os arquivos, soltos
+    Conta 2/
   The Legend of Zelda_ Breath of the Wild/
-    Miguel/
+    Conta 1/
 ```
 
 A pasta da conta existe sempre, mesmo quando o jogo tem um save só: save solto na pasta do

@@ -25,8 +25,8 @@
 
 #define WEBDAV_CFG_PATH SYNC_APP_DIR "/webdav.cfg"
 
-// A mesma pasta que o Drive usa, pelo mesmo motivo de sempre: se ele trocar
-// de nuvem, quer achar as coisas com o nome que já conhece.
+// A mesma pasta que o Drive usa, pelo mesmo motivo de sempre: quem troca de
+// nuvem quer achar as coisas com o nome que já conhece.
 #define WEBDAV_ROOT_NAME DRIVE_APP_FOLDER_NAME
 
 // --- os dados de acesso -----------------------------------------------------
@@ -169,8 +169,8 @@ static void decode_path(const char *in, size_t inlen, char *out, size_t outsz) {
 // --- endereços --------------------------------------------------------------
 //
 // A configuração é a URL inteira da pasta base ("https://nas/remote.php/dav/
-// files/miguel"). Um id, aqui, é o CAMINHO absoluto no servidor
-// ("/remote.php/dav/files/miguel/Nintendo Switch Saves/Zelda"), sem escapar —
+// files/usuario"). Um id, aqui, é o CAMINHO absoluto no servidor
+// ("/remote.php/dav/files/usuario/Nintendo Switch Saves/Zelda"), sem escapar —
 // é o que o PROPFIND devolve depois de decodificado, e é legível no log.
 
 // Onde acaba o "https://host:porta" da URL configurada.

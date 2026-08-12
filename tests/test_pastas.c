@@ -1,7 +1,7 @@
 // Teste do caminho da pasta na nuvem: "<Jogo>/<Dono>".
 //
-// Este arquivo existe porque a regra que ele testa errou TRÊS vezes em
-//, no mesmo dia em que foi escrita:
+// Este arquivo existe porque a regra que ele testa errou TRÊS vezes no mesmo
+// dia em que foi escrita:
 //
 //   1. o ramo de primeira sync entregou o caminho de dois níveis pra uma função
 //      que cria um nome só — no Drive nasceu uma pasta cujo NOME tinha barra;
@@ -82,25 +82,25 @@ static void teste_sempre_dois_niveis(void)
 
     char out[0x220];
 
-    // conversa privada removida do historico
-    // conversa privada removida do historico
+    // Vale ate pro save unico: sem a pasta de conta, o save fica solto na raiz
+    // do jogo, misturado com as pastas das outras contas.
     {
-        TitleEntry t = jogo("Super Mario 3D World", "Miguel", false);
+        TitleEntry t = jogo("Super Mario 3D World", "Jogador", false);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
-        eq(out, "Super Mario 3D World/Miguel",
+        eq(out, "Super Mario 3D World/Jogador",
             "save unico TAMBEM ganha pasta de conta");
     }
 
     {
-        TitleEntry t = jogo("Rayman Legends", "Convidado", true);
+        TitleEntry t = jogo("Rayman Legends", "CONVIDADO", true);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
-        eq(out, "Rayman Legends/Convidado", "jogo com varias contas: uma pasta por conta");
+        eq(out, "Rayman Legends/CONVIDADO", "jogo com varias contas: uma pasta por conta");
     }
 
-    // O nome do jogo nunca leva apelido — era isso que fazia quatro Rayman
-    // Legends aparecerem lado a lado na raiz do Drive de quem usa.
+    // O nome do jogo nunca leva apelido — era isso que fazia um jogo com save
+    // de quatro contas virar quatro pastas lado a lado na raiz do Drive.
     {
-        TitleEntry a = jogo("Rayman Legends", "Miguel", true);
+        TitleEntry a = jogo("Rayman Legends", "Jogador", true);
         TitleEntry b = jogo("Rayman Legends", "Convidado", true);
         char pa[0x220], pb[0x220];
         syncjob_cloud_folder_path(&a, pa, sizeof(pa));
@@ -133,18 +133,18 @@ static void teste_nome_do_dono(void)
 
     // 2. o caso normal.
     {
-        TitleEntry t = jogo("Zelda", "Miguel", false);
+        TitleEntry t = jogo("Zelda", "Jogador", false);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
-        eq(out, "Zelda/Miguel", "com apelido, usa o apelido");
+        eq(out, "Zelda/Jogador", "com apelido, usa o apelido");
     }
 
-    // conversa privada removida do historico
-    // conversa privada removida do historico
+    // 3. sem apelido e com UM save so: cai na conta que esta usando o app
+    //    agora, que e o unico palpite que nao mistura save de gente diferente.
     {
-        snprintf(stub_conta_atual, sizeof(stub_conta_atual), "%s", "Miguel");
+        snprintf(stub_conta_atual, sizeof(stub_conta_atual), "%s", "Jogador");
         TitleEntry t = jogo("Stardew Valley", NULL, false);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
-        eq(out, "Stardew Valley/Miguel",
+        eq(out, "Stardew Valley/Jogador",
             "sem apelido e save unico: cai na conta em uso");
         stub_conta_atual[0] = '\0';
     }
@@ -152,12 +152,12 @@ static void teste_nome_do_dono(void)
     // 4. sem apelido mas com MAIS DE UM save: aqui chutar a conta em uso
     //    misturaria save de gente diferente. Tem que cair no uid.
     {
-        snprintf(stub_conta_atual, sizeof(stub_conta_atual), "%s", "Miguel");
+        snprintf(stub_conta_atual, sizeof(stub_conta_atual), "%s", "Jogador");
         TitleEntry t = jogo("Mario Kart 8 Deluxe", NULL, true);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
         ok(strstr(out, "/conta-") != NULL,
             "sem apelido e varios saves: NAO chuta a conta em uso, usa o uid");
-        ok(strstr(out, "Miguel") == NULL,
+        ok(strstr(out, "Jogador") == NULL,
             "e o nome de quem esta no console nao aparece");
         stub_conta_atual[0] = '\0';
     }
@@ -185,18 +185,18 @@ static void teste_barra(void)
     // Se o nome do jogo passasse cru, um jogo chamado "A/B" criaria um nivel
     // fantasma e o save cairia numa pasta que ninguem procura.
     {
-        TitleEntry t = jogo("Jogo/Com/Barra", "Miguel", false);
+        TitleEntry t = jogo("Jogo/Com/Barra", "Jogador", false);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
 
         int barras = 0;
         for (const char *p = out; *p; p++) if (*p == '/') barras++;
         ok(barras == 1, "nome de jogo com barra nao cria nivel fantasma");
-        eq(out, "Jogo_Com_Barra/Miguel", "a barra do nome vira sublinhado");
+        eq(out, "Jogo_Com_Barra/Jogador", "a barra do nome vira sublinhado");
     }
 
     // O mesmo pelo lado do apelido.
     {
-        TitleEntry t = jogo("Zelda", "Mi/guel", true);
+        TitleEntry t = jogo("Zelda", "Jo/gador", true);
         syncjob_cloud_folder_path(&t, out, sizeof(out));
 
         int barras = 0;
@@ -215,8 +215,8 @@ static void teste_truncagem(void)
     // os dois cairiam no mesmo caminho e um escreveria por cima do save do
     // outro — o pior desfecho possivel aqui.
     //
-    // Os numeros importam, e a primeira versao deste teste errou neles: com o
-    // apelido "Miguel" (6 letras) a soma 512 + 1 + 6 ainda cabia nos 544 do
+    // Os numeros importam, e a primeira versao deste teste errou neles: com um
+    // apelido de 6 letras a soma 512 + 1 + 6 ainda cabia nos 544 do
     // buffer, entao o teste passava mesmo com a reserva de espaco removida —
     // provado por mutacao. O pior caso de verdade e o apelido no tamanho
     // maximo que o console entrega: TitleEntry.account tem 0x21 bytes, ou seja
@@ -260,20 +260,21 @@ static void teste_registro(void)
     printf("\n== pastas.txt: registro novo vale, registro velho nao ==\n");
 
     char out[0x220];
-    TitleEntry t = jogo("Rayman Legends", "Miguel", true);
+    TitleEntry t = jogo("Rayman Legends", "Jogador", true);
 
     // Registro do layout NOVO (com barra): manda, mesmo com o apelido trocado.
-    // E pra isso que o pastas.txt existe — "mudei d nome e foi nao".
+    // E pra isso que o pastas.txt existe: renomear a conta nao pode orfanar o
+    // backup que ja esta na nuvem.
     syncstate_remember_folder(t.application_id, t.uid, "Rayman Legends/NomeAntigo");
     syncjob_cloud_folder_path(&t, out, sizeof(out));
     eq(out, "Rayman Legends/NomeAntigo",
         "registro com barra manda (apelido trocado nao orfana o backup)");
 
     // Registro do layout VELHO (achatado, sem barra): tem que ser ignorado,
-    // senao o app recria a bagunca que mandaram desfazer.
-    syncstate_remember_folder(t.application_id, t.uid, "Rayman Legends (Player 1)");
+    // senao o app recria a bagunca do layout antigo.
+    syncstate_remember_folder(t.application_id, t.uid, "Rayman Legends (Jogador)");
     syncjob_cloud_folder_path(&t, out, sizeof(out));
-    eq(out, "Rayman Legends/Miguel",
+    eq(out, "Rayman Legends/Jogador",
         "registro achatado e ignorado (nao recria pasta de topo com apelido)");
 
     syncstate_forget_folder(t.application_id, t.uid);

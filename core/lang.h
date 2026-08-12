@@ -1,11 +1,9 @@
-// lang.h — idioma do app: português ou inglês.
-//
-// conversa privada removida do historico
+// lang.h — idioma do app: português ou inglês, escolhido dentro do app.
 //
 // Sem arquivo de tradução e sem tabela de chaves, de propósito. A borealis tem
 // um i18n próprio (resources/i18n/<locale>/*.json), mas ele lê só o idioma do
-// CONSOLE — não dá pra escolher dentro do app, que é justamente o que ele
-// pediu. E tabela de chaves troca erro de compilação por erro em tempo de
+// CONSOLE — não dá pra escolher dentro do app, que é justamente o que se quer
+// aqui. E tabela de chaves troca erro de compilação por erro em tempo de
 // execução: chave que ninguém traduziu aparece na tela como "menu/games/title",
 // e só se descobre abrindo aquela tela.
 //

@@ -115,12 +115,12 @@
       }
     },
     {
-      "comment": "Versao minima de kernel. Era a UNICA diferenca estrutural entre o nosso NPDM e o do sys-clk, que sobe nesse console — decodifiquei os dois byte a byte. 0x0060 = kernel 6.0, o mesmo valor que ele usa.",
+      "comment": "Versao minima de kernel. Era a UNICA diferenca estrutural entre o nosso NPDM e o do sys-clk, que sobe nesse console — os dois foram decodificados byte a byte. 0x0060 = kernel 6.0, o mesmo valor que ele usa.",
       "type": "min_kernel_version",
       "value": "0x0060"
     },
     {
-      "comment": "Os svc de debug (0x60 a 0x66) sairam daqui de proposito. O codigo que congelava jogo foi removido, mas remover so o codigo nao basta: sem a permissao no NPDM, o kernel recusa svcDebugActiveProcess mesmo que alguem reintroduza a chamada por engano. E a trava que nao depende de eu lembrar.",
+      "comment": "Os svc de debug (0x60 a 0x66) sairam daqui de proposito. O codigo que congelava jogo foi removido, mas remover so o codigo nao basta: sem a permissao no NPDM, o kernel recusa svcDebugActiveProcess mesmo que alguem reintroduza a chamada por engano. E a trava que nao depende de ninguem lembrar.",
       "type": "handle_table_size",
       "value": 128
     },

@@ -2,8 +2,8 @@
 // (.nxsaves) e o backup no próprio cartão.
 //
 // O teste do `sync` cobre subir e baixar. Estas aqui são as outras duas formas
-// de o save do Miguel sair e voltar, e até agora nenhuma delas tinha sido
-// exercitada fora do console.
+// de o save sair e voltar, e até agora nenhuma delas tinha sido exercitada
+// fora do console.
 //
 // Mesma nuvem e mesmo savedata falsos do test_sync.c (fake_cloud.c); o
 // syncjob.c é o de produção.
@@ -69,7 +69,7 @@ static TitleEntry o_jogo(void)
 {
     TitleEntry t = {0};
     snprintf(t.name, sizeof(t.name), "Jogo de Teste");
-    snprintf(t.account, sizeof(t.account), "Miguel");
+    snprintf(t.account, sizeof(t.account), "Jogador");
     t.application_id = 0x0100152000022000ULL;
     t.uid.uid[0]     = 0x1000000000563F8CULL;
     t.uid.uid[1]     = 0x4FEBE4CDBD951CB7ULL;
@@ -106,7 +106,7 @@ static void caso_arquivo_ida_e_volta(void)
     ok(nxsaves_is_box(caminho), "e o que saiu tem cara de .nxsaves de verdade");
     ok(fake_commits == 0, "guardar nao commita no savedata (montagem read-only)");
 
-    // Agora o console perde o save e ele tira de volta do arquivo.
+    // Agora o console perde o save e o app tira de volta do arquivo.
     unlink("save-falso/progresso.dat");
     unlink("save-falso/perfil/dados.bin");
 
@@ -122,9 +122,8 @@ static void caso_arquivo_ida_e_volta(void)
     ok(fake_commits == 1, "e a volta commitou uma vez, so");
 }
 
-// O que mudou hoje: o arquivo de UM jogo vai pra DENTRO da pasta do jogo, e
-// nao pra raiz da nuvem, que era onde o "Mario Kart 8 Deluxe.ssaves" dele
-// estava largado.
+// O arquivo de UM jogo vai pra DENTRO da pasta do jogo, e nao pra raiz da
+// nuvem, que era onde o .ssaves de cada jogo ficava largado.
 static void caso_arquivo_do_jogo_vai_pra_pasta(void)
 {
     printf("\n== o .nxsaves de um jogo mora na pasta daquele jogo ==\n");
@@ -154,15 +153,15 @@ static void conta_pasta(const char *nome, uint64_t bytes, void *ud)
     (*(int *)ud)++;
 }
 
-// O arquivo do jogo tem que carregar TODAS as contas — foi isso que ele
-// pediu: "isso inclui tudo, todos os usuarios saves e etc".
+// O arquivo do jogo tem que carregar TODAS as contas: todos os usuarios, todos
+// os saves, sem sobrar nenhum de fora.
 static void caso_arquivo_leva_todas_as_contas(void)
 {
     printf("\n== o arquivo do jogo leva todas as contas ==\n");
     do_zero();
 
     TitleEntry a = o_jogo();
-    snprintf(a.account, sizeof(a.account), "Miguel");
+    snprintf(a.account, sizeof(a.account), "Jogador");
     a.uid.uid[0]  = 0x1111111111111111ULL;
     a.shared_game = true;
 

@@ -30,7 +30,7 @@ static const uint8_t MAGIC[8] = { 'N', 'X', 'S', 'A', 'V', 'E', 'S', 0x1A };
 
 // A chave do embaralhamento. Não é segredo — o código é público. Ela existe
 // pra que o arquivo não seja um deflate cru que qualquer ferramenta abre por
-// conversa privada removida do historico
+// acidente. É disfarce, não cofre.
 #define CHAVE 0x5357495443484E58ull // "SWITCHNX"
 
 typedef struct

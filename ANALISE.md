@@ -1,7 +1,5 @@
 # Auto save sync no Switch (CFW) estilo Steam Cloud — análise de viabilidade
 
-Data:
-
 ## Veredito curto
 
 **Viável, com uma ressalva grande.** As duas metades difíceis do problema — ler/escrever
@@ -140,8 +138,8 @@ Opção C original, e reaproveita quase toda a esqueleto que o Fizeau já valido
 
 ### Decisão de arquitetura: sysmodule é o alvo, não o launcher
 
-Ponto correto e muda a prioridade do projeto: a Opção A (launcher) tem um defeito que eu
-descrevi mas subestimei — ela exige um passo manual extra (abrir o launcher, escolher o
+A Opção A (launcher) tem um defeito descrito acima mas subestimado, e ele muda a
+prioridade do projeto: ela exige um passo manual extra (abrir o launcher, escolher o
 jogo na lista) toda vez, em vez de simplesmente clicar o jogo no menu HOME como sempre.
 Isso não é "Steam-like", é fricção adicional, e é exatamente o tipo de coisa que faz um
 projeto de "conveniência" não ser usado na prática.
@@ -160,20 +158,20 @@ antes de meter a mão no sysmodule, que é mais difícil de depurar (crash de sy
 geralmente é tela preta/reboot, não um stacktrace amigável). Ninguém usa a Opção A como
 produto final.
 
-**Sobre o overlay:** correto, hoje em dia o [Ultrahand
+**Sobre o overlay:** hoje em dia o [Ultrahand
 Overlay](https://github.com/ppkantorski/Ultrahand-Overlay) é o padrão — é um drop-in
 replacement pro Tesla Menu (construído sobre `libultrahand`, um fork evoluído da
 `libtesla`), acessível por qualquer jogo via hotkey, sem precisar suspender o jogo pra
 abrir. E o próprio Fizeau, na versão referenciada acima, já usa `libultrahand` no overlay
 dele — então a base de código a copiar já está no padrão certo, não precisa portar nada
-de Tesla pra Ultrahand. Corrigido no resto deste documento: onde eu tinha escrito "overlay
+de Tesla pra Ultrahand. Vale pro resto deste documento: onde estiver escrito "overlay
 Tesla", leia-se Ultrahand.
 
 ### Diálogo de conflito (estilo Steam)
 
-É a peça que faltava e melhora o design: em vez de resolver conflito sozinho
-(last-write-wins silencioso, como eu tinha proposto acima), fazer igual ao Steam —
-só interromper o usuário **quando há conflito de verdade**, e deixar ele escolher.
+É a peça que faltava: em vez de resolver conflito sozinho (last-write-wins silencioso,
+como proposto acima), fazer igual ao Steam — só interromper o usuário **quando há
+conflito de verdade**, e deixar quem usa escolher.
 
 **Quando o Steam mostra a tela:** só quando save local e save da nuvem divergem e
 nenhum dos dois é claramente descendente do outro (ex: jogou offline em um PC E depois
@@ -213,9 +211,8 @@ trava", não "o jogo trava".
 
 ### Achievements
 
-Você mesmo já desconfiou certo: **isso é inviável dentro deste projeto**, não por
-dificuldade de engenharia pontual, mas porque é um problema de escopo completamente
-diferente.
+**Isso é inviável dentro deste projeto**, não por dificuldade de engenharia pontual, mas
+porque é um problema de escopo completamente diferente.
 
 Save sync funciona porque save data tem uma API oficial e uniforme
 (`fsOpenSaveDataFileSystem`) — o mesmo código lê o save de qualquer jogo. Não existe
@@ -273,39 +270,31 @@ da Nintendo. O projeto não toca em nada disso.
    bloquear nada. Zero risco de travar jogo, porque não há hook bloqueante ainda — só
    escreve na nuvem depois que o jogo fechou. Já cobre "esqueci de fazer backup" sozinho.
 
-   * conversa privada removida do historico
-conversa privada removida do historico
-conversa privada removida do historico
-conversa privada removida do historico
-conversa privada removida do historico
-   "depois a gente vê", é não vai ter. O sysmodule vai pro SD mas não sobe no
-   boot: lança na mão pelo overlay Ultrahand. Se ele crashar, é só não lançar, e
-   o console boota normal. O raciocínio dele está certo no ponto que importa:
-   sem auto-boot, uma atualização de firmware que quebre o sysmodule não tem
-   como travar o boot, porque nada sobe sozinho. (Mesmo com auto-boot não
-   bricaria: Atmosphère inteiro mora no SD, a firmware da NAND não é tocada, e a
-   recuperação seria tirar o SD e apagar `/atmosphere/contents/<TID>/`. Mas o
-   custo de não ter auto-boot, no uso dele, é realmente ~zero: o console fica em
-   standby, então o sysmodule lançado uma vez continua vivo.)
+   **Sem `boot2.flag`, nunca — decisão fechada, não é "depois a gente vê".** O
+   sysmodule vai pro SD mas não sobe no boot: lança na mão pelo overlay
+   Ultrahand. Se ele crashar, é só não lançar, e o console boota normal. O ponto
+   que importa: sem auto-boot, uma atualização de firmware que quebre o
+   sysmodule não tem como travar o boot, porque nada sobe sozinho. (Mesmo com
+   auto-boot não bricaria: Atmosphère inteiro mora no SD, a firmware da NAND não
+   é tocada, e a recuperação seria tirar o SD e apagar
+   `/atmosphere/contents/<TID>/`. Mas o custo de não ter auto-boot é ~zero no
+   uso normal: com o console em standby, o sysmodule lançado uma vez continua
+   vivo.)
 3. **v1.1 — metadata e conflito:** hash + timestamp + contador monotônico por save,
    histórico de revisões no Drive, e a lógica de detectar "conflito de verdade" descrita
    acima (mesmo sem UI de escolha ainda — pode só logar/avisar por overlay Ultrahand).
 4. **v2 — download bloqueante + tela "puxando save da nuvem":** ~~hook pontual em
-   `OpenSaveDataFileSystem` via `fs.mitm`~~ — **feito, mas por outro
-   caminho.** O `fs.mitm` está bloqueado: a Atmosphère já registra o mitm de
-   `fsp-srv` no `ams.mitm.fs`, e o `sm` aceita **um** mitm por serviço, então um
-   sysmodule de terceiro não consegue registrar sem forkar a Atmosphère.
+   `OpenSaveDataFileSystem` via `fs.mitm`~~ — **feito, mas por outro caminho.**
+   O `fs.mitm` está bloqueado: a Atmosphère já registra o mitm de `fsp-srv` no
+   `ams.mitm.fs`, e o `sm` aceita **um** mitm por serviço, então um sysmodule de
+   terceiro não consegue registrar sem forkar a Atmosphère.
    O que funciona no lugar: o sysmodule vê o jogo virar processo (poll de 100 ms
    em `pm:dmnt`) e o congela com `svcDebugActiveProcess` antes de ele ter lido o
    save — anexar como depurador suspende o processo, e fechar o handle o solta.
    Com o jogo parado, baixa da nuvem, escreve no save e só então solta.
    Fecha o ciclo "estilo Steam" — sync automático nos dois sentidos, sem launcher.
 
-   * conversa privada removida do historico
-   * conversa privada removida do historico
-conversa privada removida do historico
-conversa privada removida do historico
-conversa privada removida do historico
+   **Especificação da tela**, no visual da interface original do Switch:
    - texto "Puxando save da nuvem..." + percentual do download;
    - o jogo só abre quando terminar (é o hook bloqueante que garante isso);
    - fica no mínimo 5 segundos na tela, mesmo se o download for instantâneo;
@@ -314,9 +303,9 @@ conversa privada removida do historico
    - botão **OK**.
 
    Nota de arquitetura importante: **essa tela não tem como sair do NRO**. Um
-   `.nro` é app de userland, roda só quando o Miguel abre pelo homebrew menu, e
+   `.nro` é app de userland, roda só quando alguém abre pelo homebrew menu, e
    não é notificado quando um jogo é lançado. Quem segura o jogo é o sysmodule —
-   por isso esse pedido é deste passo do roadmap, e não do app gráfico.
+   por isso a tela é deste passo do roadmap, e não do app gráfico.
    Como ficou (`sysmodule/source/gfx.c`): camada própria no compositor via
    `vi:m` (o mesmo caminho do overlay do Ultrahand, só que em tela cheia e por
    cima do jogo congelado), fonte do console vinda do `pl:u` rasterizada com
@@ -337,7 +326,7 @@ Antes do passo 1, vale meia hora lendo o código de rede/Drive do JKSV
 a pergunta real vira "fork do JKSV com automação" em vez de "projeto novo", e isso corta
 semanas.
 
-## Status atual do spike
+## Onde o spike do passo 1 parou
 
 O passo 1 do roadmap (`app/`) já cobre mais do que "um jogo hardcoded": além do
 login OAuth Device Flow e upload/download de teste, agora lista **todos** os
@@ -364,7 +353,7 @@ Fontes: [JKSV no GitHub](https://github.com/J-D-K/JKSV) ·
 [NH Switch Guide — save management](https://switch.hacks.guide/homebrew/jksv) ·
 [OAuth 2.0 for TV and Limited-Input Devices](https://developers.google.com/identity/protocols/oauth2/limited-input-device)
 
-## Status atual (, fim do dia)
+## Status atual do projeto
 
 Passos 1 e 2 do roadmap estão feitos e no cartão:
 

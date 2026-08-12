@@ -116,8 +116,8 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
     char status_msg[400];
     if (g_device_cb) {
         // Quem tem UI gráfica já vai desenhar o QR, a URL e o código em letra
-        // grande. Repetir tudo aqui em cima empurrava o QR pra fora da tela
-        // conversa privada removida do historico
+        // grande. Repetir tudo aqui em cima empurrava o QR pra fora da tela —
+        // ele aparecia cortado na tela de login.
         snprintf(status_msg, sizeof(status_msg),
                  "Aguardando voce confirmar no celular ou no PC. (B cancela)");
     } else {
@@ -128,7 +128,7 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
     if (on_status) on_status(status_msg);
 
     // O loop abaixo era inteiramente mudo: erro de rede caía num continue sem
-    // escrever nada, então "esperando ele confirmar" e "a rede morreu" ficavam
+    // escrever nada, então "esperando você confirmar" e "a rede morreu" ficavam
     // exatamente iguais na tela — parada, no mesmo texto, pra sempre. Agora
     // todo caminho escreve alguma coisa, e o contador de segundos serve de
     // sinal de vida.
@@ -190,7 +190,7 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
         http_response_free(&poll);
 
         if (strcmp(err, "authorization_pending") == 0) {
-            // Normal: ele ainda não confirmou. O relógio na tela é o que separa
+            // Normal: a confirmação ainda não veio. O relógio na tela separa
             // "estou esperando você" de "travei".
             if (on_status) {
                 char m[200];
@@ -235,7 +235,7 @@ OauthResult oauth_refresh_access_token(char *out, size_t outsz) {
     // vai ressuscitar: conta desconectada em myaccount.google.com, senha
     // trocada, ou as chaves do projeto resetadas. Guardar ele no cartão faz
     // toda sincronização daqui pra frente falhar igualzinho a uma queda de
-    // rede — e o dono nunca descobre que era só refazer o login. Some com ele.
+    // rede — e ninguém descobre que era só refazer o login. Some com ele.
     if (r.ok && r.status == 400 && r.body && strstr(r.body, "invalid_grant")) {
         http_response_free(&r);
         oauth_logout();

@@ -108,8 +108,8 @@ safety net for when the cloud isn't an option.
 
 ## Where it was tested
 
-**A Switch V2 on firmware 18.1.0, running Atmosphère.** That's the console it was written
-on and the one it runs on every day — everything else here is honesty about what nobody has
+**A Switch V2 on firmware 18.1.0, running Atmosphère.** That's the setup it was written on
+and the one it runs on every day — everything else here is honesty about what nobody has
 tried yet.
 
 Nothing in here is version-dependent: the app has no offset tables, patches nothing, and
@@ -233,10 +233,10 @@ per **game** and, inside it, a folder per **account**:
 ```
 Nintendo Switch Saves/
   Rayman Legends_ Definitive Edition/
-    Miguel/          ← the files, loose
-    Convidado/
+    Account 1/       ← the files, loose
+    Account 2/
   The Legend of Zelda_ Breath of the Wild/
-    Miguel/
+    Account 1/
 ```
 
 The account folder is always there, even when the game has a single save: a save sitting

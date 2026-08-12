@@ -1,15 +1,14 @@
 // nxsaves.h — "tudo num arquivo só", num formato que é nosso.
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
-// abrir com dois cliques no Mac. Não é o que ele quer: ele quer um arquivo que
-// não seja igual ao de todo mundo.
+// A ideia é unificar tudo num arquivo proprietário, que só o nosso app leia.
+// Não precisa ser impossível de quebrar — precisa só não ser igual ao de todo
+// mundo. A primeira versão disto era um ZIP, justamente pra abrir com dois
+// cliques em qualquer computador; é o contrário do que se quer aqui.
 //
 // Então: container próprio, extensão `.nxsaves`, com o índice no fim e os bytes
 // embaralhados. **Isso é disfarce, não cofre** — o código está público no
-// conversa privada removida do historico
-// o arquivo não é um zip, não abre com duplo clique, e não entrega o save de
+// GitHub, então quem quiser ler consegue. O que ele resolve é só isto: o
+// arquivo não é um zip, não abre com duplo clique, e não entrega o save de
 // ninguém pra quem só topou com ele. Quem tem que ler é o nosso app.
 //
 // Por isso o modo padrão continua sendo uma pasta por jogo no Drive — save

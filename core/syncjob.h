@@ -1,8 +1,7 @@
-// syncjob.h — "faz o backup desse jogo", do save montado até o Drive, num
-// passo só.
+// syncjob.h — o backup de um jogo, do save montado até o Drive, num passo só.
 //
 // Existe porque agora tem dois programas querendo a mesma coisa: o app
-// gráfico (quando o Miguel aperta o botão) e o sysmodule de autosync (quando
+// gráfico (quando o usuário aperta o botão) e o sysmodule de autosync (quando
 // o jogo fecha). A sequência é idêntica e não é curta — montar read-only,
 // copiar pro staging, desmontar, achar/criar a pasta no Drive, subir a
 // árvore — então mora aqui em vez de estar copiada nos dois.
@@ -125,15 +124,15 @@ typedef enum
 // Sincroniza o save desse jogo com o Drive num clique só, decidindo sozinho
 // pra que lado vai. Quando não dá pra decidir com segurança (os dois lados
 // mudaram desde a última sync), devolve CONFLICT e NÃO escreve em lugar
-// nenhum — quem escolhe nessa hora é ele, pelo menu do Y.
+// nenhum — quem escolhe nessa hora é o usuário, pelo menu do Y.
 SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log);
 
 // ---------------------------------------------------------------------------
 // Tudo num arquivo só
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// continua sendo uma pasta por jogo no Drive. Ver core/nxsaves.h.
+// Todos os saves num arquivo proprietário, que só este app lê. É um caminho
+// separado do de cima, e de propósito: o padrão continua sendo uma pasta por
+// jogo no Drive. Ver core/nxsaves.h.
 // ---------------------------------------------------------------------------
 
 // Nome do arquivo único no Drive e no cartão.
@@ -175,9 +174,8 @@ bool syncjob_archive_restore_title(const TitleEntry *title, syncjob_log_cb log);
 // ---------------------------------------------------------------------------
 // Um arquivo por jogo, com todas as contas dentro
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
+// Quando um jogo tem save de mais de uma conta, dá pra guardar todas num
+// arquivo só. É o mesmo formato do arquivo geral, num arquivo separado — assim
 // juntar as contas de um jogo não passa por cima do arquivo com tudo.
 // ---------------------------------------------------------------------------
 
@@ -192,8 +190,7 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
 bool syncjob_archive_upload_path(const char *path, syncjob_log_cb log);
 
 // O arquivo de UM jogo, pra dentro da pasta daquele jogo na nuvem — e não pra
-// conversa privada removida do historico
-// conversa privada removida do historico
+// raiz, que é onde o de cima põe: na raiz não dá pra saber de que jogo ele é.
 bool syncjob_game_archive_upload(const TitleEntry *title, const char *path,
                                   syncjob_log_cb log);
 bool syncjob_archive_list_path(const char *path, syncjob_archive_cb cb, void *userdata);

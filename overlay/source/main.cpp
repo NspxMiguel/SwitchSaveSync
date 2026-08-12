@@ -2,12 +2,11 @@
 //
 // É a interface que roda POR CIMA do jogo, sem fechar nada. Serve pra:
 //   - ver o que o autosync está fazendo;
-//   - ligar/desligar o sysmodule (que não sobe no boot, de propósito —
-// conversa privada removida do historico
+//   - ligar/desligar o sysmodule (que não sobe no boot, de propósito);
 //   - ligar/desligar o autosync sem matar o sysmodule;
 //   - marcar jogo por jogo o que NÃO deve sincronizar. Essa é a lista do
-// conversa privada removida do historico
-// conversa privada removida do historico
+//     botão "Não puxar save da nuvem nesse jogo", e é aqui que ela se
+//     desmarca.
 //
 // É libtesla puro. O Ultrahand carrega .ovl de /switch/.overlays, e overlay
 // de libtesla funciona lá do mesmo jeito — não existe SDK "de Ultrahand"
@@ -56,7 +55,7 @@ static bool sysmoduleRunning()
 
 // Guarda o último erro de verdade (Result cru) pra tela poder dizer o que
 // aconteceu em vez de só "falhou". Sem isso, "nada acontece" era exatamente
-// o que ele via: o overlay tentava, falhava e não sobrava rastro nenhum.
+// o que se via: o overlay tentava, falhava e não sobrava rastro nenhum.
 static Result g_lastRc   = 0;
 static bool   g_pmshellOk = false;
 
@@ -132,9 +131,9 @@ public:
                 entries[i].name, !syncstate_is_excluded(id), "Sync", "Off");
 
             // Se a gravação falhar, o botão volta pro que ele era: o desenho na
-            // tela é a única coisa que ele tem pra saber se ficou gravado, e
-            // deixar "Off" aceso com a lista intacta no cartão é dizer que o
-            // jogo está protegido quando ele não está.
+            // tela é a única pista de que ficou gravado, e deixar "Off" aceso
+            // com a lista intacta no cartão é dizer que o jogo está protegido
+            // quando ele não está.
             item->setStateChangedListener([id, item](bool on) {
                 if (!syncstate_set_excluded(id, !on))
                     item->setState(!on);
@@ -204,8 +203,8 @@ public:
 
         list->addItem(new tsl::elm::CategoryHeader(TR("Onde salvar", "Where to save"), true));
 
-        // conversa privada removida do historico
-        // conversa privada removida do historico
+        // Salvar direto no cartao do console, e nao so na nuvem: os dois
+        // destinos sao independentes e valem um sem o outro.
         auto* localItem = new tsl::elm::ToggleListItem(
             TR("Cartao SD", "SD card"), syncstate_dest_local(), TR("Ligado", "On"), TR("Desligado", "Off"));
         localItem->setStateChangedListener([](bool on) {
@@ -311,14 +310,14 @@ public:
     // A tesla sobe sm, fs, hid, pl, pmdmnt, hidsys e setsys — e SÓ isso.
     virtual void initServices() override
     {
-        // Eu escrevi "a tesla já monta o sdmc" e não era verdade. Ela tem um
-        // helper (doWithSDCardHandle) que monta e desmonta dentro de um escopo,
-        // e esse helper não é chamado em lugar nenhum do tesla.hpp. Ou seja: sem
-        // esta linha, `sdmc:` não existe pro overlay e TODO fopen daqui falha
-        // conversa privada removida do historico
-        // o sysmodule vivo e o status.txt escrito no cartão. Mesma coisa valia
-        // pra lista de jogos excluídos, que ele marcava e não gravava.
-        // ( — fsInitialize já foi feito pelo __appInit da tesla.)
+        // A tesla NÃO monta o sdmc, por mais que pareça. Ela tem um helper
+        // (doWithSDCardHandle) que monta e desmonta dentro de um escopo, e esse
+        // helper não é chamado em lugar nenhum do tesla.hpp. Ou seja: sem esta
+        // linha, `sdmc:` não existe pro overlay e TODO fopen daqui falha
+        // calado — era por isso que aparecia "Rodando, mas sem status ainda"
+        // com o sysmodule vivo e o status.txt escrito no cartão. Mesma coisa
+        // valia pra lista de jogos excluídos, que era marcada e não gravava.
+        // (fsInitialize já foi feito pelo __appInit da tesla.)
         fsdevMountSdmc();
 
         // Depois do fsdevMountSdmc, nunca antes: o idioma mora num arquivo no

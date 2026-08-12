@@ -1,7 +1,7 @@
 // oauth.h — login OAuth 2.0 "Device Flow" (Limited Input) do Google.
 // O usuário loga no celular/PC visitando uma URL curta e digitando um
 // código — nada de browser no Switch. Mesmo esquema que o JKSV usa pro
-// Google Drive de quem usa.
+// Google Drive.
 #pragma once
 #include <stddef.h>
 #include <stdbool.h>
@@ -44,11 +44,11 @@ void oauth_set_device_cb(oauth_device_cb cb);
 
 // Por que o token não veio.
 //
-// Rede caindo e conta revogada davam os dois `false`, e isso custou uma sessão
-// de teste inteira: o `token.txt` no cartão tinha um refresh
-// token morto (as chaves do projeto tinham sido resetadas), toda sincronização
+// Rede caindo e conta revogada davam os dois `false`, e isso já custou uma
+// sessão de teste inteira: o `token.txt` no cartão tinha um refresh token
+// morto (as chaves do projeto tinham sido resetadas), toda sincronização
 // falhava, e a tela dizia só "nuvem FALHOU" — que é exatamente o que ela diz
-// quando o Wi-Fi cai. Uma passa sozinha, a outra só o dono resolve.
+// quando o Wi-Fi cai. Uma passa sozinha, a outra só um login novo resolve.
 typedef enum {
     OAUTH_OK = 0,
     OAUTH_FAIL_NETWORK,    // deu ruim agora; tentar de novo depois faz sentido

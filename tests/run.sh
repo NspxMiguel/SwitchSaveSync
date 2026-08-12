@@ -90,7 +90,7 @@ if [ "$QUAL" = tudo ] || [ "$QUAL" = webdav ]; then
     # macOS; não instala nada. Morre no fim, inclusive se o teste falhar.
     rm -rf "$DAV"
     mkdir -p "$DAV/root" "$DAV/logs" "$DAV/conf"
-    htpasswd -bc "$DAV/conf/users" miguel "$SENHA" >/dev/null 2>&1
+    htpasswd -bc "$DAV/conf/users" jogador "$SENHA" >/dev/null 2>&1
 
     cat > "$DAV/conf/httpd.conf" <<EOF
 ServerName localhost

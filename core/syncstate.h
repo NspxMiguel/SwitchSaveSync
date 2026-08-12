@@ -33,9 +33,8 @@ extern "C" {
 #define SYNC_DEST_PATH    SYNC_APP_DIR "/destino.cfg"
 
 // Backup local, sem nuvem nenhuma: uma copia do save numa pasta do proprio
-// conversa privada removida do historico
-// conversa privada removida do historico
-// espelhada (o backup novo substitui o antigo).
+// cartao. E o destino que funciona sem rede e sem conta Google. Um jogo = uma
+// pasta aqui dentro, espelhada (o backup novo substitui o antigo).
 #define SYNC_LOCAL_DIR    SYNC_APP_DIR "/backups"
 
 // Cria SYNC_APP_DIR se não existir. Idempotente.
@@ -88,13 +87,13 @@ void syncstate_sanitize_name(const char *in, char *out, size_t outsz);
 
 // --- em que pasta da nuvem esse save mora --------------------------------
 //
-// Existe por causa de um problema que ele achou: *"mudei d nome e foi nao"*.
+// Existe por causa de um problema real: renomear a conta e o backup sumir.
 //
 // Quando um jogo tem save de mais de uma conta, o nome da pasta na nuvem leva
-// o apelido junto — "Mario Kart 8 Deluxe (Player 1)". O apelido é o nome de
-// exibição da conta, e o console deixa trocar quando quiser. Trocou, o app
-// passa a procurar uma pasta que não existe, faz uma nova, e o backup antigo
-// fica órfão: não some, mas some da vista, e o app trata como primeira sync.
+// o apelido junto — "Jogo (apelido da conta)". O apelido é o nome de exibição
+// da conta, e o console deixa trocar quando quiser. Trocou, o app passa a
+// procurar uma pasta que não existe, faz uma nova, e o backup antigo fica
+// órfão: não some, mas some da vista, e o app trata como primeira sync.
 //
 // O conserto é não depender do nome pra achar de novo. A conta tem um uid, que
 // NÃO muda quando o apelido muda — então o que identifica de verdade é

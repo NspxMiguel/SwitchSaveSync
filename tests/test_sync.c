@@ -2,8 +2,8 @@
 //
 // Essa função decide sozinha se sobe, se baixa, se não mexe ou se recusa por
 // conflito. Errar aqui apaga progresso de jogo — e até agora a única forma de
-// exercitar isso era no console do Miguel, com o save de verdade dele, que é o
-// pior lugar do mundo pra descobrir um erro.
+// exercitar isso era no console, com o save de verdade, que é o pior lugar do
+// mundo pra descobrir um erro.
 //
 // A nuvem e o savedata são falsos (fake_cloud.c), mas o syncjob.c é o de
 // produção, sem uma linha alterada.
@@ -75,7 +75,7 @@ static void res_eq(SyncjobSyncResult got, SyncjobSyncResult want, const char *ms
 // app, porque quem cria esse nivel no Drive de verdade e o drive.c, e ele esta
 // substituido aqui. O que interessa testar e o que vem DEPOIS dele — <Jogo>/
 // <Dono>/ —, que e a regra do syncjob.
-#define NA_NUVEM(resto) "nuvem-falsa/Jogo de Teste/Miguel/" resto
+#define NA_NUVEM(resto) "nuvem-falsa/Jogo de Teste/Jogador/" resto
 
 // -------------------------------------------------------------- utilidades
 
@@ -123,7 +123,7 @@ static TitleEntry o_jogo(void)
 {
     TitleEntry t = {0};
     snprintf(t.name, sizeof(t.name), "Jogo de Teste");
-    snprintf(t.account, sizeof(t.account), "Miguel");
+    snprintf(t.account, sizeof(t.account), "Jogador");
     t.application_id = 0x0100152000022000ULL;
     t.uid.uid[0]     = 0x1000000000563F8CULL;
     t.uid.uid[1]     = 0x4FEBE4CDBD951CB7ULL;
@@ -184,7 +184,7 @@ static void caso_primeira_subida(void)
         "o arquivo caiu em <Jogo>/<Dono>/ na nuvem");
 }
 
-// ESTE e o teste que teria pego o pior bug: subir e sincronizar
+// ESTE e o teste que teria pego o pior bug do layout novo: subir e sincronizar
 // de novo. Se o caminho que ESCREVE e o que LE nao forem o mesmo, a segunda
 // chamada nao acha nada, cai em "primeira sync" outra vez e sobe de novo pra
 // sempre — que foi exatamente o que a pasta com barra no nome causou.
@@ -362,10 +362,10 @@ static void caso_subpasta_no_save(void)
 
 // ======================================================= mais de uma conta
 //
-// O caso do Miguel: quatro contas com save do mesmo Rayman Legends. Aqui mora
-// o risco que o layout aninhado criou — a pasta do jogo virou CONTAINER, com
-// as contas e o .nxsaves do jogo dentro. Se o prune ou o restore olharem pro
-// nivel errado, sincronizar a conta de um apaga ou entrega o save do outro.
+// O caso de um jogo com save de quatro contas. Aqui mora o risco que o layout
+// aninhado criou — a pasta do jogo virou CONTAINER, com as contas e o .nxsaves
+// do jogo dentro. Se o prune ou o restore olharem pro nivel errado,
+// sincronizar a conta de um apaga ou entrega o save do outro.
 
 static TitleEntry o_jogo_de(const char *apelido, u64 uid0)
 {
@@ -381,23 +381,23 @@ static void caso_duas_contas(void)
     printf("\n== duas contas do mesmo jogo ==\n");
     do_zero();
 
-    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
-    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+    TitleEntry a = o_jogo_de("Jogador",   0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado", 0x2222222222222222ULL);
 
-    escreve("save-falso/progresso.dat", "save do Miguel");
+    escreve("save-falso/progresso.dat", "save da conta A");
     res_eq(syncjob_sync_title(&a, NULL), SYNCJOB_SYNC_UPLOADED, "conta A sobe");
 
     // O savedata falso e um so, entao trocar o conteudo simula trocar de conta.
-    escreve("save-falso/progresso.dat", "save da Convidado");
+    escreve("save-falso/progresso.dat", "save da conta B");
     res_eq(syncjob_sync_title(&b, NULL), SYNCJOB_SYNC_UPLOADED, "conta B sobe");
 
     char buf[64];
-    le("nuvem-falsa/Jogo de Teste/Miguel/progresso.dat", buf, sizeof(buf));
-    ok(strcmp(buf, "save do Miguel") == 0,
+    le("nuvem-falsa/Jogo de Teste/Jogador/progresso.dat", buf, sizeof(buf));
+    ok(strcmp(buf, "save da conta A") == 0,
         "o save da conta A continua la, intacto, depois de B subir");
 
     le("nuvem-falsa/Jogo de Teste/Convidado/progresso.dat", buf, sizeof(buf));
-    ok(strcmp(buf, "save da Convidado") == 0, "e o de B esta no lugar dele");
+    ok(strcmp(buf, "save da conta B") == 0, "e o de B esta no lugar dele");
 }
 
 // O prune existe pra tirar da nuvem o que o save nao tem mais. Ele roda na
@@ -408,8 +408,8 @@ static void caso_prune_nao_come_o_vizinho(void)
     printf("\n== o prune nao pode encostar na conta vizinha ==\n");
     do_zero();
 
-    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
-    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+    TitleEntry a = o_jogo_de("Jogador",   0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado", 0x2222222222222222ULL);
 
     escreve("save-falso/progresso.dat", "A");
     syncjob_sync_title(&a, NULL);
@@ -424,7 +424,7 @@ static void caso_prune_nao_come_o_vizinho(void)
     escreve("save-falso/progresso.dat", "A mudou de novo");
     res_eq(syncjob_sync_title(&a, NULL), SYNCJOB_SYNC_UPLOADED, "A sobe de novo");
 
-    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/extra.dat"),
+    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Jogador/extra.dat"),
         "o prune tirou da nuvem o arquivo que o save nao tem mais");
     ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Convidado/progresso.dat"),
         "e NAO encostou na pasta da conta vizinha");
@@ -437,7 +437,7 @@ static void caso_arquivo_do_jogo_sobrevive(void)
     printf("\n== o .nxsaves do jogo sobrevive a um sync de conta ==\n");
     do_zero();
 
-    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
+    TitleEntry a = o_jogo_de("Jogador", 0x1111111111111111ULL);
     escreve("save-falso/progresso.dat", "A");
     syncjob_sync_title(&a, NULL);
 
@@ -457,21 +457,21 @@ static void caso_restore_nao_mistura(void)
     printf("\n== restaurar uma conta nao traz a outra junto ==\n");
     do_zero();
 
-    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
-    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+    TitleEntry a = o_jogo_de("Jogador",   0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado", 0x2222222222222222ULL);
 
-    escreve("save-falso/progresso.dat", "so do Miguel");
+    escreve("save-falso/progresso.dat", "so da conta A");
     syncjob_sync_title(&a, NULL);
-    escreve("save-falso/Convidado-only.dat", "so da Convidado");
+    escreve("save-falso/so-da-b.dat", "so da conta B");
     unlink("save-falso/progresso.dat");
     syncjob_sync_title(&b, NULL);
 
     // Console zerado; restaura so a conta A.
-    unlink("save-falso/Convidado-only.dat");
+    unlink("save-falso/so-da-b.dat");
     ok(syncjob_restore_title(&a, NULL), "o restore da conta A funciona");
 
     ok(tem_arquivo("save-falso/progresso.dat"), "trouxe o arquivo da conta A");
-    ok(!tem_arquivo("save-falso/Convidado-only.dat"),
+    ok(!tem_arquivo("save-falso/so-da-b.dat"),
         "e NAO trouxe o arquivo da conta B");
 }
 
@@ -497,7 +497,7 @@ static void caso_prune_falhou_nao_marca(void)
     res_eq(syncjob_sync_title(&t, NULL), SYNCJOB_SYNC_UPLOADED, "sobe mesmo assim");
     fake_remove_falha = 0;
 
-    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"),
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Jogador/b.dat"),
         "o arquivo sobrou na nuvem, como esperado");
 
     // A prova: o proximo sync NAO pode trazer o b.dat de volta pro savedata.
@@ -526,7 +526,7 @@ static void caso_arquivo_do_jogo_nao_vira_backup(void)
 
     // Agora some a pasta da conta: e o estado em que o resgate nao acha nada e
     // o fallback achatado e consultado.
-    apaga_pasta("nuvem-falsa/Jogo de Teste/Miguel");
+    apaga_pasta("nuvem-falsa/Jogo de Teste/Jogador");
 
     unlink("save-falso/progresso.dat");
     ok(!syncjob_restore_title(&t, NULL),
@@ -564,13 +564,13 @@ static void caso_backup_ex_conta_a_verdade(void)
     ok(!bate, "e AVISA que a nuvem nao bate — o autosync nao pode marcar");
     fake_remove_falha = 0;
 
-    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"),
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Jogador/b.dat"),
         "a sobra continua la, que e o motivo do aviso");
 
     // Com a limpeza funcionando, volta a bater.
     ok(syncjob_backup_title_ex(&t, NULL, &bate), "sobe de novo, agora sem falha");
     ok(bate, "e agora bate");
-    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/b.dat"), "a sobra saiu da nuvem");
+    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Jogador/b.dat"), "a sobra saiu da nuvem");
 
     // E o de sempre: nada disso encosta no savedata pra escrever.
     ok(fake_commits == 0, "backup nao commita no savedata em momento nenhum");

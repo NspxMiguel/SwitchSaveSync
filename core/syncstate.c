@@ -32,9 +32,9 @@ static bool read_first_line(const char *path, char *out, size_t outsz)
 bool syncstate_autosync_enabled(void)
 {
     // Sem arquivo = DESLIGADO. Era o contrário, e o contrário está errado:
-    // "não configurei nada ainda" virava "pode mexer sozinho nos meus saves".
-    // Escrever em save é irreversível; ficar quieto não é. Quem liga é ele, no
-    // overlay ou no app — nunca o padrão de fábrica.
+    // "não configurei nada ainda" virava "pode mexer sozinho nos saves".
+    // Escrever em save é irreversível; ficar quieto não é. Quem liga é quem
+    // usa, no overlay ou no app — nunca o padrão de fábrica.
     char line[64];
     if (!read_first_line(SYNC_CONFIG_PATH, line, sizeof(line)))
         return false;
@@ -105,10 +105,10 @@ void syncstate_set_dest(bool local, bool cloud)
 //
 // Streaming, sem array: a lista era lida pra um `u64 ids[128]` e o 129º jogo em
 // diante simplesmente não existia — o overlay desenhava "Sync LIGADO" num jogo
-// que ele acabou de desligar, e o autosync subia o save dele. Pior: o toggle
-// seguinte reescrevia o arquivo a partir dessa lista já cortada e APAGAVA os
-// registros do 129 em diante. Nada disso precisava de arquivo corrompido nem de
-// falta de energia: era determinístico a partir do 129º jogo.
+// que o usuário acabou de desligar, e o autosync subia o save dele. Pior: o
+// toggle seguinte reescrevia o arquivo a partir dessa lista já cortada e
+// APAGAVA os registros do 129 em diante. Nada disso precisava de arquivo
+// corrompido nem de falta de energia: era determinístico a partir do 129º jogo.
 static u64 le_id(const char *line)
 {
     const char *p = line;
@@ -323,7 +323,7 @@ void syncstate_sanitize_name(const char *in, char *out, size_t outsz)
         bool bad = c < 0x20 || strchr("/\\:*?\"<>|", c) != NULL;
         out[n] = bad ? '_' : (char)c;
     }
-    // espaço/ponto no fim atrapalha em FAT e no Windows quando ele copiar do SD
+    // espaço/ponto no fim atrapalha em FAT e no Windows na hora de copiar do SD
     while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '.'))
         n--;
     out[n] = '\0';
@@ -339,7 +339,8 @@ void syncstate_sanitize_name(const char *in, char *out, size_t outsz)
 //   <application_id> <uid alto> <uid baixo> <nome da pasta>
 //
 // Os três primeiros em hex de 16 dígitos, o nome é o resto da linha — pode ter
-// espaço e parêntese dentro, que é justamente o caso ("Mario Kart 8 (Player 1)").
+// espaço e parêntese dentro, que é justamente o caso ("Jogo (apelido da
+// conta)").
 //
 // Arquivo de texto, e não binário, pelo mesmo motivo do resto do syncstate: dá
 // pra abrir com o cartão no PC e entender o que está escrito quando algo der

@@ -4,7 +4,7 @@
 //      se ele errar, o login falha ou o app acha a pasta errada no Drive;
 //   2. o saneamento de nome de pasta (syncstate_sanitize_name);
 //   3. a regra do nome da pasta do save (syncjob_save_folder_name) — que é a
-//      suspeita do "mudei d nome e foi nao".
+//      suspeita de quando renomear a conta faz o backup parar de aparecer.
 //
 // O item 3 é o motivo real deste arquivo existir. A pergunta que ele responde
 // é: mudar o apelido da conta no console muda o nome da pasta na nuvem? Se
@@ -71,7 +71,7 @@ static void teste_json(void)
     ok(json_get_string(devicecode, "device_code", buf, sizeof(buf)), "achou o device_code");
     eq(buf, "AH-1Ng2b_xYz", "e o valor veio inteiro");
 
-    ok(json_get_string(devicecode, "user_code", buf, sizeof(buf)), "achou o codigo que ele digita");
+    ok(json_get_string(devicecode, "user_code", buf, sizeof(buf)), "achou o codigo que se digita");
     eq(buf, "GQVQ-JKEC", "com o hifen no meio");
 
     ok(json_get_string(devicecode, "verification_url", buf, sizeof(buf)), "achou a url");
@@ -89,11 +89,11 @@ static void teste_json(void)
     // O Google escapa as barras em algumas respostas. Se o unescape falhar, a
     // url fica "https:\/\/..." e o link na tela sai quebrado.
     const char *escapado = "{\"verification_url\":\"https:\\/\\/www.google.com\\/device\","
-                           "\"nome\":\"Jogo \\\"do\\\" Miguel\",\"quebra\":\"a\\nb\"}";
+                           "\"nome\":\"Jogo \\\"do\\\" Jogador\",\"quebra\":\"a\\nb\"}";
     ok(json_get_string(escapado, "verification_url", buf, sizeof(buf)), "achou a url escapada");
     eq(buf, "https://www.google.com/device", "desfez o \\/ das barras");
     ok(json_get_string(escapado, "nome", buf, sizeof(buf)), "achou o nome com aspas dentro");
-    eq(buf, "Jogo \"do\" Miguel", "desfez o \\\" sem parar no meio");
+    eq(buf, "Jogo \"do\" Jogador", "desfez o \\\" sem parar no meio");
     ok(json_get_string(escapado, "quebra", buf, sizeof(buf)), "achou o campo com quebra de linha");
     eq(buf, "a\nb", "virou quebra de linha de verdade");
 
@@ -191,7 +191,7 @@ static void teste_sanitize(void)
     syncstate_sanitize_name("...", out, sizeof(out));
     eq(out, "sem-nome", "so pontos tambem — senao viraria \".\" ou \"..\"");
 
-    // Acento e japones tem que sobreviver: metade dos jogos de quem usa tem.
+    // Acento e japones tem que sobreviver: metade dos jogos tem.
     syncstate_sanitize_name("Coração & Ação — ゼルダ", out, sizeof(out));
     eq(out, "Coração & Ação — ゼルダ", "acento, traco longo e japones passam inteiros");
 
@@ -219,7 +219,7 @@ static void teste_folder_name(void)
     {
         TitleEntry t = {0};
         snprintf(t.name, sizeof(t.name), "Super Mario 3D World");
-        snprintf(t.account, sizeof(t.account), "Miguel");
+        snprintf(t.account, sizeof(t.account), "Jogador");
         t.shared_game = false;
         syncjob_save_folder_name(&t, out, sizeof(out));
         eq(out, "Super Mario 3D World", "save unico: sem o apelido no nome");
@@ -242,14 +242,14 @@ static void teste_folder_name(void)
     {
         TitleEntry t = {0};
         snprintf(t.name, sizeof(t.name), "Mario Kart 8");
-        snprintf(t.account, sizeof(t.account), "Miguel");
+        snprintf(t.account, sizeof(t.account), "Jogador");
         t.shared_game = true;
         syncjob_save_folder_name(&t, out, sizeof(out));
-        eq(out, "Mario Kart 8 (Player 1)", "duas contas: o apelido entra no nome");
+        eq(out, "Mario Kart 8 (Jogador)", "duas contas: o apelido entra no nome");
 
-        snprintf(t.account, sizeof(t.account), "Miguelzinho");
+        snprintf(t.account, sizeof(t.account), "Jogador Novo");
         syncjob_save_folder_name(&t, out, sizeof(out));
-        eq(out, "Mario Kart 8 (Miguelzinho)",
+        eq(out, "Mario Kart 8 (Jogador Novo)",
             "!! duas contas: trocar o apelido MUDA a pasta — o backup antigo fica orfao");
     }
 
@@ -258,7 +258,7 @@ static void teste_folder_name(void)
     {
         TitleEntry t = {0};
         snprintf(t.name, sizeof(t.name), "Animal Crossing New Horizons");
-        snprintf(t.account, sizeof(t.account), "Miguel");
+        snprintf(t.account, sizeof(t.account), "Jogador");
         t.shared_game = true;
         t.device_save = true;
         syncjob_save_folder_name(&t, out, sizeof(out));
@@ -285,10 +285,10 @@ static void teste_folder_name(void)
     {
         TitleEntry t = {0};
         snprintf(t.name, sizeof(t.name), "Zelda: Tears of the Kingdom");
-        snprintf(t.account, sizeof(t.account), "Mi/gu:el");
+        snprintf(t.account, sizeof(t.account), "Jo/ga:dor");
         t.shared_game = true;
         syncjob_save_folder_name(&t, out, sizeof(out));
-        eq(out, "Zelda_ Tears of the Kingdom (Mi_gu_el)",
+        eq(out, "Zelda_ Tears of the Kingdom (Jo_ga_dor)",
             "limpou os proibidos do nome do jogo E do apelido");
     }
 
@@ -298,12 +298,12 @@ static void teste_folder_name(void)
         TitleEntry t = {0};
         for (int i = 0; i < 0x200; i++) t.name[i] = 'A';
         t.name[0x200] = '\0';
-        snprintf(t.account, sizeof(t.account), "Miguel");
+        snprintf(t.account, sizeof(t.account), "Jogador");
         t.shared_game = true;
         syncjob_save_folder_name(&t, out, sizeof(out));
 
         size_t len = strlen(out);
-        ok(len >= 8 && strcmp(out + len - 8, "(Player 1)") == 0,
+        ok(len >= 9 && strcmp(out + len - 9, "(Jogador)") == 0,
             "nome gigante: o sufixo sobreviveu ao corte (senao dois saves colidiriam)");
 
         // E o do OUTRO dono tem que sair diferente, mesmo com o nome gigante.
@@ -316,8 +316,8 @@ static void teste_folder_name(void)
 
 // ------------------------------------- o registro de qual pasta foi usada
 //
-// É o conserto do "mudei d nome e foi nao". O de cima prova o problema (o
-// apelido entra no nome da pasta); este prova a saída: o par
+// É o conserto de renomear a conta e o backup sumir. O de cima prova o
+// problema (o apelido entra no nome da pasta); este prova a saída: o par
 // (application_id + uid) aponta pro nome que foi realmente usado, e o uid não
 // muda quando o apelido muda.
 
@@ -338,56 +338,57 @@ static void teste_registro_de_pasta(void)
     const u64 MK8   = 0x0100152000022000ull;
     const u64 ZELDA = 0x01007EF00011E000ull;
 
-    AccountUid miguel = conta(0x1111111111111111ull, 0x2222222222222222ull);
-    AccountUid Convidado  = conta(0x3333333333333333ull, 0x4444444444444444ull);
+    AccountUid jogador   = conta(0x1111111111111111ull, 0x2222222222222222ull);
+    AccountUid convidado = conta(0x3333333333333333ull, 0x4444444444444444ull);
     AccountUid console = conta(0, 0);   // device save
 
     char out[0x201];
 
-    ok(!syncstate_recall_folder(MK8, miguel, out, sizeof(out)),
+    ok(!syncstate_recall_folder(MK8, jogador, out, sizeof(out)),
         "sem arquivo nenhum, nao inventa pasta");
 
-    syncstate_remember_folder(MK8, miguel, "Mario Kart 8 Deluxe (Player 1)");
-    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out)), "gravou e achou de volta");
-    ok(strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0, "e veio o nome certo");
+    syncstate_remember_folder(MK8, jogador, "Mario Kart 8 Deluxe (Jogador)");
+    ok(syncstate_recall_folder(MK8, jogador, out, sizeof(out)), "gravou e achou de volta");
+    ok(strcmp(out, "Mario Kart 8 Deluxe (Jogador)") == 0, "e veio o nome certo");
 
     // O CORACAO DO CONSERTO: o apelido mudou no console, o uid nao. O registro
     // continua apontando pra pasta antiga, entao o app acha o backup de volta
     // em vez de criar pasta nova e orfanar a velha.
-    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
-        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
+    ok(syncstate_recall_folder(MK8, jogador, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Jogador)") == 0,
         "!! trocar o apelido nao mexe no registro — e o uid que manda");
 
     // Outra conta do mesmo jogo tem que ser outra linha.
-    ok(!syncstate_recall_folder(MK8, Convidado, out, sizeof(out)),
+    ok(!syncstate_recall_folder(MK8, convidado, out, sizeof(out)),
         "a outra conta do mesmo jogo nao herda a pasta");
-    syncstate_remember_folder(MK8, Convidado, "Mario Kart 8 Deluxe (Convidado)");
-    ok(syncstate_recall_folder(MK8, Convidado, out, sizeof(out))
-        && strcmp(out, "Mario Kart 8 Deluxe (Convidado)") == 0, "e a dela e a dela");
-    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
-        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
-        "gravar a dela nao estragou a dele");
+    syncstate_remember_folder(MK8, convidado, "Mario Kart 8 Deluxe (Convidado)");
+    ok(syncstate_recall_folder(MK8, convidado, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Convidado)") == 0,
+        "e a da segunda conta e so dela");
+    ok(syncstate_recall_folder(MK8, jogador, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Jogador)") == 0,
+        "gravar a da segunda nao estragou a da primeira");
 
     // Device save: uid zerado e uma chave legitima, separada das contas.
     syncstate_remember_folder(MK8, console, "Mario Kart 8 Deluxe (console)");
     ok(syncstate_recall_folder(MK8, console, out, sizeof(out))
         && strcmp(out, "Mario Kart 8 Deluxe (console)") == 0,
         "o save do console e uma chave propria (uid zerado)");
-    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
-        && strcmp(out, "Mario Kart 8 Deluxe (Player 1)") == 0,
+    ok(syncstate_recall_folder(MK8, jogador, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Jogador)") == 0,
         "e nao atropelou o da conta");
 
     // Mesma conta, jogo diferente.
-    syncstate_remember_folder(ZELDA, miguel, "The Legend of Zelda_ Breath of the Wild");
-    ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out))
+    syncstate_remember_folder(ZELDA, jogador, "The Legend of Zelda_ Breath of the Wild");
+    ok(syncstate_recall_folder(ZELDA, jogador, out, sizeof(out))
         && strcmp(out, "The Legend of Zelda_ Breath of the Wild") == 0,
         "outro jogo da mesma conta e outra linha");
 
     // Regravar a mesma chave SUBSTITUI, nao duplica — senao o arquivo cresceria
     // pra sempre e o recall pegaria a linha velha.
-    syncstate_remember_folder(MK8, miguel, "Mario Kart 8 Deluxe (Miguelzinho)");
-    ok(syncstate_recall_folder(MK8, miguel, out, sizeof(out))
-        && strcmp(out, "Mario Kart 8 Deluxe (Miguelzinho)") == 0,
+    syncstate_remember_folder(MK8, jogador, "Mario Kart 8 Deluxe (Jogador Novo)");
+    ok(syncstate_recall_folder(MK8, jogador, out, sizeof(out))
+        && strcmp(out, "Mario Kart 8 Deluxe (Jogador Novo)") == 0,
         "regravar a mesma chave troca o nome");
     {
         int linhas = 0;
@@ -401,17 +402,18 @@ static void teste_registro_de_pasta(void)
     }
 
     // Nome com acento e parentese tem que voltar byte a byte: e o caso normal,
-    // nao a excecao ("Pokemon_ Let's Go, Pikachu! (Player 1)").
-    syncstate_remember_folder(0xAAull, miguel, "Pokémon_ Let's Go, Pikachu! (Player 1)");
-    ok(syncstate_recall_folder(0xAAull, miguel, out, sizeof(out))
-        && strcmp(out, "Pokémon_ Let's Go, Pikachu! (Player 1)") == 0,
+    // nao a excecao ("Pokemon_ Let's Go, Pikachu! (Jogador)").
+    syncstate_remember_folder(0xAAull, jogador, "Pokémon_ Let's Go, Pikachu! (Jogador)");
+    ok(syncstate_recall_folder(0xAAull, jogador, out, sizeof(out))
+        && strcmp(out, "Pokémon_ Let's Go, Pikachu! (Jogador)") == 0,
         "nome com acento, espaco, virgula e parentese volta igual");
 
     // Esquecer tira so o pedido.
-    syncstate_forget_folder(MK8, miguel);
-    ok(!syncstate_recall_folder(MK8, miguel, out, sizeof(out)), "esqueceu o pedido");
-    ok(syncstate_recall_folder(MK8, Convidado, out, sizeof(out)), "e nao levou os vizinhos junto");
-    ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out)), "nem o outro jogo");
+    syncstate_forget_folder(MK8, jogador);
+    ok(!syncstate_recall_folder(MK8, jogador, out, sizeof(out)), "esqueceu o pedido");
+    ok(syncstate_recall_folder(MK8, convidado, out, sizeof(out)),
+        "e nao levou os vizinhos junto");
+    ok(syncstate_recall_folder(ZELDA, jogador, out, sizeof(out)), "nem o outro jogo");
 
     // O arquivo e texto, pra dar pra entender com o cartao no PC.
     {
@@ -433,7 +435,7 @@ static void teste_registro_de_pasta(void)
             fprintf(f, "\n");
             fclose(f);
         }
-        ok(syncstate_recall_folder(ZELDA, miguel, out, sizeof(out))
+        ok(syncstate_recall_folder(ZELDA, jogador, out, sizeof(out))
             && strcmp(out, "The Legend of Zelda_ Breath of the Wild") == 0,
             "linha estragada no arquivo nao derruba a leitura");
         ok(!syncstate_recall_folder(0xBBull, conta(1, 2), out, sizeof(out)),
@@ -441,7 +443,7 @@ static void teste_registro_de_pasta(void)
     }
 
     remove(SYNC_FOLDERS_PATH);
-    ok(!syncstate_recall_folder(ZELDA, miguel, out, sizeof(out)),
+    ok(!syncstate_recall_folder(ZELDA, jogador, out, sizeof(out)),
         "apagar o pastas.txt volta ao estado de antes (nao quebra nada)");
 }
 

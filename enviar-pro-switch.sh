@@ -9,7 +9,7 @@
 #   sysmodule/toolbox.json       -> /atmosphere/contents/00FF0000535953FF/toolbox.json
 #   overlay/SwitchSaveSync.ovl   -> /switch/.overlays/SwitchSaveSync.ovl
 #
-# conversa privada removida do historico
+# O IP NAO fica escrito aqui: e endereco de rede de casa, e este arquivo vai
 # pro GitHub. Passa na hora de rodar:
 #
 #   ./enviar-pro-switch.sh 10.0.0.x

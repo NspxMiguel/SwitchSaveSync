@@ -1,7 +1,6 @@
 # Como save de Switch funciona (e o que isso exige do app)
 
-conversa privada removida do historico
-conversa privada removida do historico
+Levantamento de como os jogos guardam save, pra maximizar o suporte a todos.
 
 ## 1. Save no Switch nao e' um arquivo. E' um sistema de arquivos.
 
@@ -15,7 +14,7 @@ Consequencia pro app, e e' a decisao de projeto mais importante daqui:
 sentidos. Assim ele funciona em jogo que nunca foi testado, inclusive jogo que
 ainda nao saiu, sem precisar de uma lista de jogos suportados.
 
-## 2. O caso do Zelda (dados reais dele, conferidos no Drive)
+## 2. O caso do Zelda (estrutura real, conferida depois de um backup)
 
 `The Legend of Zelda: Breath of the Wild` subiu assim:
 
@@ -50,7 +49,8 @@ staging (`savemount_copy_tree`), staging -> Drive criando subpasta de verdade
 (`drive_upload_tree`), Drive -> staging (`drive_download_tree`) e staging ->
 `save:`. A impressao digital que compara os dois lados (`fingerprint_dir`)
 tambem desce nas subpastas, entao "mudou dos dois lados" enxerga arquivo
-aninhado. Conferido no Drive de quem usa: as 8 pastas e todos os arquivos chegaram.
+aninhado. Conferido na nuvem depois do backup: as 8 pastas e todos os arquivos
+chegaram.
 
 ## 3. Os tipos de save data — e o buraco que existia aqui
 
@@ -59,13 +59,13 @@ O `FsSaveDataType` da libnx tem sete valores. O que o app faz com cada um:
 | Tipo | O que e' | App |
 |---|---|---|
 | `Account` | Save de uma conta de usuario. O caso comum. | **sincroniza** |
-| `Device` | Save do CONSOLE, sem dono, compartilhado por todos os perfis. | **sincroniza** (desde) |
+| `Device` | Save do CONSOLE, sem dono, compartilhado por todos os perfis. | **sincroniza** |
 | `Cache` | Dado derivado que o jogo remonta sozinho se sumir. | ignora |
 | `Bcat` / `SystemBcat` | Conteudo que o servidor da Nintendo empurra (evento, brinde). Nao e' progresso. | ignora |
 | `Temporary` | Morre sozinho. | ignora |
 | `System` | Do sistema, nao de jogo. | ignora |
 
-**O buraco:** ate' o app so' olhava `Account`. Jogo que guarda
+**O buraco:** por um bom tempo o app so' olhava `Account`. Jogo que guarda
 progresso em `Device` simplesmente **nao aparecia na lista**.
 
 Quem usa `Device`:
@@ -90,7 +90,7 @@ caso exotico, e' um canto que os save managers costumam deixar de fora.
   device save (esse nao leva conta: nao tem dono).
 - Nome da pasta ganha ` (console)` **so' quando o jogo tem mais de um save**.
   Jogo de save unico continua com o nome de pasta de sempre — mudar isso
-  deixaria orfao tudo que ja' esta' no Drive de quem usa.
+  deixaria orfao tudo que ja' esta' na nuvem.
 
 ### Ressalva honesta
 
@@ -99,9 +99,9 @@ A libnx **nao tem** versao somente-leitura do mount de device save (so' existe
 sistema impede escrita; no device save a unica protecao e' o codigo nao
 escrever. Esta' anotado no `savemount.h`.
 
-E: nao da' pra testar device save sem um jogo que use. Se ele nao tiver Animal
-Crossing nem Pokemon no console, esse caminho vai continuar sem prova real —
-o que da' pra garantir e' que o caminho de save de conta nao mudou.
+E: nao da' pra testar device save sem um jogo que use. Num console sem Animal
+Crossing nem Pokemon instalado, esse caminho continua sem prova real — o que
+da' pra garantir e' que o caminho de save de conta nao mudou.
 
 ## 4. O que ainda pode morder
 

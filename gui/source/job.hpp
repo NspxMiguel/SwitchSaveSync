@@ -22,9 +22,9 @@ struct JobLine
     bool error;
 };
 
-// Uma saída possível pra um trabalho que parou porque só ele pode decidir.
-// Hoje só o conflito de save usa: os dois lados andaram, e escolher sozinho
-// apagaria progresso de um deles.
+// Uma saída possível pra um trabalho que parou porque só quem usa pode
+// decidir. Hoje só o conflito de save usa: os dois lados andaram, e escolher
+// sozinho apagaria progresso de um deles.
 struct JobChoice
 {
     std::string label;
@@ -67,8 +67,8 @@ class Job
 
     // Conflito de save: a thread de trabalho deixa aqui as saídas possíveis e
     // a JobPage desenha uma linha clicável pra cada, na mesma tela. Antes a
-    // mensagem mandava ele sair, achar o jogo na lista e apertar Y — três
-    // passos pra uma decisão que já estava tomada na cabeça dele.
+    // mensagem mandava sair da tela, achar o jogo na lista e apertar Y — três
+    // passos pra uma decisão que já estava tomada.
     void offerChoice(const std::string& label, const std::string& description,
         std::function<void()> action);
     std::vector<JobChoice> takeChoices();
