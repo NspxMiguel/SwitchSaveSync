@@ -20,7 +20,7 @@
   "service_access": [
     "fsp-srv",
     "pm:dmnt",
-    "pm:info",
+    "pm:info", "pdm:qry",
     "set", "set:sys",
     "time:s",
     "time:u",
