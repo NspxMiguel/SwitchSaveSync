@@ -1870,6 +1870,62 @@ static void openArchiveContents(std::string caminho, std::string titulo)
     brls::Application::pushView(frame);
 }
 
+// Refaz uma lista sem perder o foco.
+//
+// Refazer com o foco DENTRO dela mata o foco do app inteiro: o clear(true)
+// apaga a linha em foco e o destrutor da View zera o Application::currentFocus
+// (view.cpp:618) — ninguém devolve depois. E foco nulo trava tudo: o navigate
+// desiste na primeira linha (application.cpp:491, "if (!currentFocus...) return")
+// e o próprio X não volta, porque a ação está registrada NA LISTA e a busca por
+// ação começa no que está em foco (application.cpp:563). Resultado: apertar X
+// uma vez deixava a aba de pedra — nem D-pad, nem A, nem outro X — até sair da
+// aba e voltar.
+static void refillKeepingFocus(brls::List* list, const std::function<void()>& refill)
+{
+    // Onde o foco estava, em índice de filho da lista. -1 = o foco não estava
+    // aqui dentro, e aí não há o que devolver.
+    int indice = -1;
+    for (brls::View* v = brls::Application::getCurrentFocus(); v; v = v->getParent())
+    {
+        if (v->getParent() != list)
+            continue;
+
+        for (size_t i = 0; i < list->getViewsCount(); i++)
+            if (list->getChild(i) == v)
+            {
+                indice = (int)i;
+                break;
+            }
+        break;
+    }
+
+    refill();
+
+    if (indice < 0)
+        return;
+
+    // O mesmo lugar de antes, ou o primeiro dali pra baixo que aceite foco: a
+    // lista mudou porque foi atualizada, e a linha de antes pode não existir
+    // mais. getDefaultFocus() devolve nulo em Label, que é o que separa linha
+    // clicável de texto solto.
+    for (size_t i = (size_t)indice; i < list->getViewsCount(); i++)
+        if (brls::View* alvo = list->getChild(i)->getDefaultFocus())
+        {
+            brls::Application::giveFocus(alvo);
+            return;
+        }
+
+    brls::Application::giveFocus(list); // pega o primeiro que aceitar
+
+    // Lista sem nenhuma linha focável (ex: "nenhum jogo encontrado"): sobe até
+    // achar quem aceite — a barra lateral das abas aceita. Sem isto o app fica
+    // sem foco nenhum, que é exatamente o travamento que este helper existe
+    // pra evitar.
+    for (brls::View* v = list->getParent(); v && !brls::Application::getCurrentFocus();
+         v             = v->getParent())
+        brls::Application::giveFocus(v);
+}
+
 // A tela do arquivo com tudo. Todo o assunto ".nxsaves" mora aqui dentro.
 //
 // Estava tudo solto na aba "Tudo de uma vez", que ficou com quatro cabeçalhos,
@@ -1994,7 +2050,7 @@ static void openArchivePage(std::vector<TitleEntry> todos)
     // isto, depois de juntar ou de baixar ele teria que sair e voltar pra elas
     // aparecerem.
     list->registerAction(TR("Atualizar", "Refresh"), brls::Key::X, [list, todos] {
-        fillArchivePage(list, todos);
+        refillKeepingFocus(list, [list, todos] { fillArchivePage(list, todos); });
         return true;
     });
 
@@ -2176,7 +2232,7 @@ static brls::List* createGamesTab()
     // Recarregar a lista sem sair do app (útil depois de instalar um jogo novo
     // ou criar um save).
     list->registerAction(TR("Atualizar lista", "Refresh list"), brls::Key::X, [list] {
-        fillGamesList(list);
+        refillKeepingFocus(list, [list] { fillGamesList(list); });
         brls::Application::notify(TR("Lista atualizada", "List refreshed"));
         return true;
     });
@@ -2194,7 +2250,7 @@ static brls::List* createBulkTab()
     // baixar o arquivo do Drive, é o que faz o "ver o que tem dentro" aparecer.
     list->registerAction(TR("Atualizar", "Refresh"), brls::Key::X, [list] {
         g_titles_count = titles_list_with_savedata(g_titles, MAX_TITLES);
-        fillBulkList(list);
+        refillKeepingFocus(list, [list] { fillBulkList(list); });
         brls::Application::notify(TR("Atualizado", "Refreshed"));
         return true;
     });
@@ -2593,7 +2649,7 @@ static brls::List* createSettingsTab()
         // ela só se refaz no X. Sem isto ficaria dizendo o nome da nuvem
         // antiga até ele atualizar na mão.
         if (g_bulk_list)
-            fillBulkList(g_bulk_list);
+            refillKeepingFocus(g_bulk_list, [] { fillBulkList(g_bulk_list); });
 
         const char* falta = cloud_setup_hint(escolha);
         if (falta && falta[0])

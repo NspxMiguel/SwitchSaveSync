@@ -116,11 +116,28 @@ void JobPage::willAppear(bool resetState)
 // Um caminho só pro B e pro clique no botão — assim os dois nunca discordam.
 void JobPage::onBackPressed()
 {
-    if (this->job->isFinished())
+    // finishedHandled, e não job->isFinished(): quem termina o trabalho é a
+    // thread de fora, e ela liga o isFinished no meio de qualquer quadro. Se o
+    // B cair EXATAMENTE nesse quadro, o isFinished já é true mas o pump()
+    // ainda não rodou o fecho — e sair aqui pularia ele inteiro: o onFinished
+    // nunca é chamado (a linha "Conta Google" do menu de trás fica com o
+    // estado velho) e, pior, as escolhas de conflito nunca chegam a existir.
+    // Nesse caso o trabalho parou justamente PARA ele decidir, e a tela sumia
+    // levando a pergunta junto, como se nada tivesse acontecido.
+    //
+    // O pump() roda no draw, uma vez por quadro, então a espera é de um
+    // quadro: no quadro seguinte o fecho já rodou e o B sai normalmente.
+    if (this->finishedHandled)
     {
         brls::Application::popView();
         return;
     }
+
+    // Acabou agora, o fecho é no próximo quadro: engole o B em silêncio. Nem
+    // "cancelando" (não há mais o que cancelar) nem "não dá pra sair" (daqui a
+    // um quadro dá) seriam verdade.
+    if (this->job->isFinished())
+        return;
 
     if (this->cancellable)
     {
