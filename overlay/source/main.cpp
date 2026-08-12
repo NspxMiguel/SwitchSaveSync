@@ -161,9 +161,20 @@ public:
 
         list->addItem(new tsl::elm::CategoryHeader("Status", true));
 
-        this->statusItem = new tsl::elm::ListItem("");
-        this->statusItem->setValue("");
-        list->addItem(this->statusItem);
+        // O status NÃO é um ListItem.
+        //
+        // Era, e no console aparecia assim: "ame closed, preparing backup...".
+        // O ListItem rola o texto que não cabe, e a linha de status quase
+        // sempre não cabe — leva o nome do jogo junto. O que se via era o meio
+        // de uma frase, cortado nas duas pontas, mudando de posição sozinho.
+        //
+        // Aqui a frase é quebrada em linhas e mostrada inteira. Três linhas de
+        // altura, que é o que cabe sem empurrar os botões pra fora da tela.
+        list->addItem(new tsl::elm::CustomDrawer(
+            [this](tsl::gfx::Renderer* r, s32 x, s32 y, s32 w, s32 h) {
+                r->drawString(this->statusText, false, x + 20, y + 24, 20,
+                              a(tsl::style::color::ColorText), w - 40);
+            }), 76); // a altura vai no addItem, nao no CustomDrawer
 
         list->addItem(new tsl::elm::CategoryHeader(TR("Controle", "Controls"), true));
 
@@ -195,7 +206,7 @@ public:
         list->addItem(this->moduleItem);
 
         auto* autosyncItem = new tsl::elm::ToggleListItem(
-            TR("Backup ao fechar jogo", "Back up when a game closes"), syncstate_autosync_enabled(), TR("Ligado", "On"), TR("Desligado", "Off"));
+            TR("Backup ao fechar", "Back up on close"), syncstate_autosync_enabled(), TR("Ligado", "On"), TR("Desligado", "Off"));
         autosyncItem->setStateChangedListener([](bool on) {
             syncstate_set_autosync_enabled(on);
         });
@@ -276,7 +287,7 @@ public:
         // foi tentar ligar e não deu, é isso que ele precisa ler.
         if (this->failMsg[0])
         {
-            this->statusItem->setText(this->failMsg);
+            snprintf(this->statusText, sizeof(this->statusText), "%s", this->failMsg);
             return;
         }
 
@@ -288,15 +299,20 @@ public:
         // mesmo jeito: o resto dela e o que se le rolando o item.
         char status[640];
         if (syncstate_get_status(status, sizeof(status)))
-            this->statusItem->setText(status);
+            snprintf(this->statusText, sizeof(this->statusText), "%s", status);
         else if (sysmoduleRunning())
-            this->statusItem->setText(TR("Rodando, mas sem status ainda", "Running, no status yet"));
+            snprintf(this->statusText, sizeof(this->statusText), "%s",
+                TR("Rodando, mas sem status ainda", "Running, no status yet"));
         else
-            this->statusItem->setText(TR("Desligado (nunca escreveu status)", "Off (never wrote a status)"));
+            snprintf(this->statusText, sizeof(this->statusText), "%s",
+                TR("Desligado (nunca escreveu status)", "Off (never wrote a status)"));
     }
 
 private:
-    tsl::elm::ListItem* statusItem = nullptr;
+    // Lido pelo CustomDrawer do status a cada quadro. char[], e nao
+    // std::string, porque quem escreve aqui e o update() e quem le e o
+    // desenho — realocar no meio do quadro nao vale a pena por 640 bytes.
+    char statusText[640] = {0};
     tsl::elm::ListItem* backupItem = nullptr;
     tsl::elm::ToggleListItem* moduleItem = nullptr;
     char failMsg[128] = {0};

@@ -25,7 +25,7 @@ TARGET   := SwitchSaveSync
 # O nome que aparece no menu vem do NACP, dai o APP_TITLE.
 APP_TITLE   := SwitchSaveSync
 APP_AUTHOR  := miguel
-APP_VERSION := 1.0.0
+APP_VERSION := 0.4.0
 BUILD    := build
 SOURCES  := source
 DATA     := data
