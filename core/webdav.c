@@ -432,8 +432,18 @@ static bool webdav_be_remove(const char *auth, const char *id) {
     url_de(id, url, sizeof(url));
 
     HttpResponse r = http_request_raw("DELETE", url, auth, NULL, NULL, 0, NULL);
+
     // 404 conta como sucesso: o que se queria é que não esteja mais lá.
-    bool ok = r.ok && (r.status == 200 || r.status == 204 || r.status == 207 || r.status == 404);
+    //
+    // 207 NÃO conta, e contava. Num DELETE de coleção o 207 é exatamente a
+    // resposta de "apaguei o resto, mas ESTES aqui não deu" (RFC 4918 §9.6.1) —
+    // um arquivo travado ou sem permissão sai de lá dentro embrulhado num 207, e
+    // não como 423 no status. Aceitando isso como sucesso, o prune dizia que
+    // limpou, o marcador de "sincronizado" era gravado, e o sync seguinte via a
+    // nuvem mais nova e ressuscitava dentro do savedata o arquivo que o jogo
+    // tinha apagado. O caminho de falhar já existe e é bom: o syncjob avisa que
+    // sobrou coisa na nuvem e não marca nada.
+    bool ok = r.ok && (r.status == 200 || r.status == 204 || r.status == 404);
     http_response_free(&r);
     return ok;
 }

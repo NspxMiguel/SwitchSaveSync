@@ -51,10 +51,22 @@ static void json_escape(const char *in, char *out, size_t outsz) {
 // ele, ou diferente dele quando mime_negate — é assim que se pede "qualquer
 // coisa MENOS pasta", que não tem como escrever com '='). Devolve o id do
 // primeiro resultado.
+// Procura por nome. Devolve true se ACHOU.
+//
+// `erro_out` (pode ser NULL) separa as duas respostas que antes eram a mesma:
+// "não existe" e "não deu pra perguntar". Um 500 do Google ou o Wi-Fi do
+// console engasgando devolvia false igual a "não existe" — e quem chama usava
+// isso pra decidir entre atualizar o arquivo que já está lá e CRIAR outro. O
+// Drive aceita nome repetido na mesma pasta, então uma engasgada no meio de um
+// backup deixava dois "save.dat" lá dentro; no restore seguinte, os dois caem
+// no mesmo caminho do staging e sobrescreve quem chegou por último — ordem da
+// API, não data. Se o antigo ganhar, o savedata é apagado e regravado com o
+// save velho por cima do bom.
 static bool find_by_name(const char *access_token, const char *name,
                           const char *parent_id_or_null, const char *mime_type_or_null,
                           bool mime_negate,
-                          char *id_out, size_t outsz) {
+                          char *id_out, size_t outsz, bool *erro_out) {
+    if (erro_out) *erro_out = false;
     char name_escaped[256];
     size_t ni = 0;
     for (const char *p = name; *p && ni + 2 < sizeof(name_escaped); p++) {
@@ -96,6 +108,8 @@ static bool find_by_name(const char *access_token, const char *name,
                 found = json_get_string(first, "id", id_out, outsz);
             }
         }
+    } else if (erro_out) {
+        *erro_out = true; // a resposta não chegou: "não existe" seria chute
     }
     http_response_free(&r);
     return found;
@@ -103,10 +117,17 @@ static bool find_by_name(const char *access_token, const char *name,
 
 static bool ensure_folder(const char *access_token, const char *parent_id_or_null,
                            const char *name, char *out, size_t outsz) {
+    bool erro = false;
     if (find_by_name(access_token, name, parent_id_or_null,
-                      DRIVE_FOLDER_MIME, false, out, outsz)) {
+                      DRIVE_FOLDER_MIME, false, out, outsz, &erro)) {
         return true;
     }
+
+    // A busca falhou (não é "não achei", é "não deu pra perguntar"). Criar aqui
+    // faria uma SEGUNDA pasta com o mesmo nome, e o save do jogo passaria a
+    // viver dividido entre as duas.
+    if (erro)
+        return false;
 
     char name_json[300];
     json_escape(name, name_json, sizeof(name_json));
@@ -147,7 +168,7 @@ bool drive_ensure_subfolder(const char *access_token, const char *parent_id,
 bool drive_find_subfolder(const char *access_token, const char *parent_id,
                            const char *name, char *out, size_t outsz) {
     return find_by_name(access_token, name, parent_id,
-                        DRIVE_FOLDER_MIME, false, out, outsz);
+                        DRIVE_FOLDER_MIME, false, out, outsz, NULL);
 }
 
 // Acima disto, o multipart nao serve.
@@ -223,8 +244,15 @@ bool drive_upload(const char *access_token, const char *folder_id,
                    const char *remote_name, const char *local_path,
                    const char *mime_type) {
     char existing_id[128] = {0};
+    bool erro     = false;
     bool updating = find_by_name(access_token, remote_name, folder_id, NULL, false,
-                                  existing_id, sizeof(existing_id));
+                                  existing_id, sizeof(existing_id), &erro);
+
+    // Sem saber se o arquivo já está lá, subir é apostar: acertando, sobrescreve;
+    // errando, cria um duplicado com o mesmo nome. Falhar agora custa um item
+    // do backup, que a próxima passada refaz — o duplicado, não.
+    if (erro)
+        return false;
 
     long fsize = tamanho_do_arquivo(local_path);
     if (fsize < 0) return false;
@@ -263,7 +291,7 @@ bool drive_upload(const char *access_token, const char *folder_id,
 bool drive_download(const char *access_token, const char *folder_id,
                      const char *remote_name, const char *local_path) {
     char file_id[128] = {0};
-    if (!find_by_name(access_token, remote_name, folder_id, NULL, false, file_id, sizeof(file_id))) {
+    if (!find_by_name(access_token, remote_name, folder_id, NULL, false, file_id, sizeof(file_id), NULL)) {
         return false;
     }
     return drive_download_by_id(access_token, file_id, local_path);
@@ -386,7 +414,7 @@ static bool drive_be_find_child(const char *auth, const char *parent_id, const c
     // arquivo .nxsaves dele podem ter o mesmo nome dentro da mesma pasta, e
     // sem o filtro a busca por arquivo podia devolver a pasta.
     return find_by_name(auth, name, parent_id, DRIVE_FOLDER_MIME, !want_folder,
-                        id_out, outsz);
+                        id_out, outsz, NULL);
 }
 
 static bool drive_be_make_folder(const char *auth, const char *parent_id, const char *name,
