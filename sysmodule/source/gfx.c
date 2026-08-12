@@ -237,6 +237,22 @@ bool gfx_init(void)
     if (R_FAILED(framebufferMakeLinear(&g_fb)))
         goto fail_fb;
 
+    // Limpa os DOIS buffers antes de qualquer coisa.
+    //
+    // A camada fica visível no instante em que é criada, e o que ela mostra
+    // até alguém escrever é memória de vídeo que era de outro processo — no
+    // console apareceu como um retângulo com pedaços do menu do Switch dentro.
+    // Um framebufferBegin/End só limpa o buffer da vez; com duplo buffer, o
+    // outro continua com lixo e ele volta a aparecer no quadro seguinte.
+    for (int i = 0; i < 2; i++)
+    {
+        u32 stride = 0;
+        u16 *b = (u16 *)framebufferBegin(&g_fb, &stride);
+        if (b)
+            memset(b, 0, (size_t)stride * FB_H);
+        framebufferEnd(&g_fb);
+    }
+
     init_font(); // sem fonte ainda dá pra mostrar a barra; não é motivo pra desistir
 
     if (!g_pad_ready)

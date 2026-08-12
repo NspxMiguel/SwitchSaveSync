@@ -265,6 +265,12 @@ static void progress_cb(const char *action, const char *name, bool ok)
     g_files_done++;
     syncstate_set_status(TR("Puxando save da nuvem... (%d arquivos)", "Downloading save from the cloud... (%d files)"), g_files_done);
 
+    // Primeiro arquivo de verdade: agora sim vale acender a tela. Se o
+    // compositor recusar a camada, o pull continua sem tela — melhor puxar
+    // calado do que nao puxar.
+    if (!g_screen)
+        g_screen = gfx_init();
+
     snprintf(g_pull_line, sizeof(g_pull_line), "Baixando %s", name);
     pull_pump_input(false);
     pull_redraw(false);
@@ -601,13 +607,21 @@ static void pull_one_save_idle(const TitleEntry *entrada)
     syncstate_log(TR("Console parado: %s — puxando save da nuvem", "Console idle: %s — downloading save from the cloud"), rotulo(&title));
     syncstate_set_status(TR("Puxando save da nuvem...", "Downloading save from the cloud..."));
 
-    // A tela por cima do menu. Se o compositor recusar a camada, o pull
-    // continua sem tela — melhor puxar calado do que nao puxar.
-    g_screen = gfx_init();
-    pull_redraw(false);
+    // A camada NAO nasce aqui.
+    //
+    // Nascia, e o resultado no console era uma caixa de lixo grafico por cima
+    // do menu: a camada fica visivel no instante em que e criada, e o que ela
+    // mostra ate o primeiro desenho e memoria de video de outra pessoa. Como o
+    // download morria antes de comecar (era o CA bundle que faltava no
+    // sysmodule), a caixa aparecia, ficava parada e sumia — sem nunca ter tido
+    // nada pra dizer.
+    //
+    // Agora quem acende a tela e o progress_cb, no primeiro arquivo que chega
+    // de verdade. Falhou antes disso, ninguem ve tela nenhuma: so o log e o
+    // status, que e onde essa informacao serve pra alguma coisa.
+    g_screen = false;
 
     g_files_total = syncjob_cloud_file_count(&title);
-    pull_redraw(false);
 
     cloud_set_progress_cb(progress_cb);
     cloud_set_abort_cb(pull_abort_cb);
@@ -819,6 +833,18 @@ int main(int argc, char *argv[])
         g_socket_ok = false;
         syncstate_set_status(TR("curl nao iniciou — sysmodule sem funcao", "curl did not start — sysmodule has nothing to do"));
         syncstate_log(TR("http_init falhou", "http_init failed"));
+    }
+    else if (http_ca_bundle()[0] == '\0')
+    {
+        // A rede subiu, o curl subiu — e mesmo assim nenhuma conexão HTTPS vai
+        // fechar, porque não existe CA bundle pra este processo. Dizer isso
+        // aqui, na hora, é a diferença entre um problema de dois minutos e o
+        // que aconteceu de verdade: toda sincronização falhando com "sem token
+        // válido, entre na conta pelo app", com a conta certa.
+        syncstate_set_status(TR("Falta o cacert.pem no cartao — abra o app uma vez pra ele copiar",
+                                "cacert.pem is missing from the SD card — open the app once so it copies it"));
+        syncstate_log(TR("Sem CA bundle: nenhuma conexao HTTPS vai funcionar. O app grava o arquivo em sdmc:/switch/SwitchSaveSync/cacert.pem ao abrir.",
+                         "No CA bundle: no HTTPS connection will work. The app writes sdmc:/switch/SwitchSaveSync/cacert.pem when it opens."));
     }
     else
     {

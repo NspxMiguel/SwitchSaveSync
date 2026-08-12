@@ -2798,6 +2798,82 @@ static brls::List* createSettingsTab()
     return list;
 }
 
+// O sysmodule não tem romfs, e sem CA bundle nenhum handshake TLS fecha.
+//
+// Quem tem o arquivo é este app, no romfs dele. Então é este app que deixa uma
+// cópia no cartão, e é de lá que o sysmodule lê. Sem isso o autosync falhava
+// em TODA conexão e a tela dizia "sem token válido, entre na conta pelo app" —
+// com a conta certa, entrando normalmente aqui do lado.
+//
+// Copia só quando falta ou quando o tamanho não bate (bundle atualizado numa
+// versão nova, ou cópia truncada por cartão cheio). Não é a cada boot: são
+// 182 KB.
+static void ensureCaBundleOnSd()
+{
+    const char* origem  = "romfs:/cacert.pem";
+    const char* destino = "sdmc:/switch/SwitchSaveSync/cacert.pem";
+
+    FILE* f = fopen(origem, "rb");
+    if (!f)
+        return; // sem romfs não há o que copiar; o app usa o do romfs mesmo
+    fseek(f, 0, SEEK_END);
+    long tam_origem = ftell(f);
+
+    FILE* d = fopen(destino, "rb");
+    if (d)
+    {
+        fseek(d, 0, SEEK_END);
+        long tam_destino = ftell(d);
+        fclose(d);
+        if (tam_destino == tam_origem)
+        {
+            fclose(f);
+            return;
+        }
+    }
+
+    syncstate_ensure_dirs();
+    fseek(f, 0, SEEK_SET);
+
+    // Escreve num nome temporário e só então renomeia: se o cartão encher no
+    // meio, o que sobra é o arquivo velho inteiro, não um novo pela metade —
+    // e bundle pela metade é handshake falhando sem explicação nenhuma.
+    char temporario[128];
+    snprintf(temporario, sizeof(temporario), "%s.parcial", destino);
+
+    FILE* t = fopen(temporario, "wb");
+    if (!t)
+    {
+        fclose(f);
+        return;
+    }
+
+    char buf[8192];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    {
+        if (fwrite(buf, 1, n, t) != n)
+        {
+            ok = false;
+            break;
+        }
+    }
+    if (fclose(t) != 0)
+        ok = false;
+    fclose(f);
+
+    if (ok)
+    {
+        remove(destino); // o rename do newlib não sobrescreve no FAT
+        rename(temporario, destino);
+    }
+    else
+    {
+        remove(temporario);
+    }
+}
+
 static brls::List* createAboutTab()
 {
     brls::List* list = new brls::List();
@@ -3003,6 +3079,10 @@ int main(int argc, char* argv[])
     bool romfs_ok     = we_own_romfs
         || R_VALUE(rc) == MAKERESULT(Module_Libnx, LibnxError_AlreadyMapped)
         || R_VALUE(rc) == MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
+
+    // Com o romfs de pé, deixa a cópia do CA bundle no cartão pro sysmodule.
+    if (romfs_ok)
+        ensureCaBundleOnSd();
 
     // A rede.
     //
