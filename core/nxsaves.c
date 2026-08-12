@@ -460,6 +460,8 @@ static bool le_em(FILE *f, uint64_t pos, uint8_t *out, size_t n)
     return true;
 }
 
+static bool indice_confere(const Leitor *l);
+
 static bool abre(const char *path, Leitor *l)
 {
     memset(l, 0, sizeof(*l));
@@ -504,6 +506,14 @@ static bool abre(const char *path, Leitor *l)
         return false;
     }
 
+    // A contagem de entradas contra o índice de verdade. Ver indice_confere.
+    if (!indice_confere(l))
+    {
+        free(l->indice);
+        fclose(l->f);
+        return false;
+    }
+
     return true;
 }
 
@@ -534,11 +544,40 @@ static bool percorre(Leitor *l, cada_cb cb, void *userdata)
 
         if (!cb((const char *)(reg + ENTRADA_FIXA), tam_nome, reg[2], get32(reg + 4),
                 get64(reg + 8), get64(reg + 16), get64(reg + 24), userdata))
-            return true;
+            return true; // parada pedida por quem chamou: o que veio até aqui vale
 
         p += ENTRADA_FIXA + tam_nome;
     }
     return true;
+}
+
+// O índice bate com a contagem que o cabeçalho declara?
+//
+// A contagem era o único número do arquivo sem conferência nenhuma: o crc de
+// cab+20 é do ÍNDICE, e o índice não muda quando alguém troca o "4" da
+// contagem por "1". Com a contagem menor, a leitura parava cedo e devolvia
+// SUCESSO com um arquivo dos quatro — e o restore apagava o savedata inteiro
+// pra gravar esse pedaço, com "restaurado" escrito na tela.
+//
+// Confere ANTES de extrair qualquer coisa, e não no fim: arquivo recusado não
+// pode ter deixado meio save escrito no caminho. O escritor grava os registros
+// colados, sem sobra (nxsaves_close_write), então a soma tem que fechar exata.
+// Bit trocado no cartão cai aqui do mesmo jeito.
+static bool indice_confere(const Leitor *l)
+{
+    uint64_t p = 0;
+    for (uint32_t i = 0; i < l->entradas; i++)
+    {
+        if (p + ENTRADA_FIXA > l->tam)
+            return false;
+
+        size_t tam_nome = get16(l->indice + p);
+        if (tam_nome == 0 || p + ENTRADA_FIXA + tam_nome > l->tam)
+            return false;
+
+        p += ENTRADA_FIXA + tam_nome;
+    }
+    return p == l->tam;
 }
 
 bool nxsaves_is_box(const char *path)

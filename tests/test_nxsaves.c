@@ -388,6 +388,49 @@ int main(void)
         ok(!nxsaves_extract(torto, "", dest2), "recusa extrair arquivo cortado pela metade");
     }
 
+    {
+        // Um byte trocado: a CONTAGEM de entradas do cabecalho.
+        //
+        // E o unico numero do arquivo que o crc nao cobre — o crc de cab+20 e
+        // do indice, e o indice nao muda quando alguem mexe na contagem. Com
+        // ela menor, o leitor parava cedo e devolvia SUCESSO com meia duzia de
+        // arquivos; o restore entao apagava o savedata inteiro pra gravar esse
+        // pedaco. Save pela metade com "restaurado" escrito na tela.
+        char cortado[2048];
+        snprintf(cortado, sizeof(cortado), "%s/contagem-mentirosa.nxsaves", tmp);
+
+        long n = tamanho(caixa);
+        unsigned char *bytes = malloc((size_t)n);
+        FILE *fi = fopen(caixa, "rb");
+        fread(bytes, 1, (size_t)n, fi);
+        fclose(fi);
+
+        // Contagem em cab+16, little-endian. Poe 1 no lugar do numero real.
+        bytes[16] = 1; bytes[17] = 0; bytes[18] = 0; bytes[19] = 0;
+
+        FILE *fo = fopen(cortado, "wb");
+        fwrite(bytes, 1, (size_t)n, fo);
+        fclose(fo);
+        free(bytes);
+
+        char dest3[2048];
+        snprintf(dest3, sizeof(dest3), "%s/dacontagem", tmp);
+        mkdir(dest3, 0777);
+
+        ok(!nxsaves_extract(cortado, "", dest3),
+            "recusa extrair quando a contagem do cabecalho nao bate com o indice");
+
+        int saiu = 0;
+        DIR *d = opendir(dest3);
+        struct dirent *e;
+        while (d && (e = readdir(d))) if (e->d_name[0] != '.') saiu++;
+        if (d) closedir(d);
+        ok(saiu == 0, "e nao deixa meio save no destino");
+
+        ok(!nxsaves_list(cortado, conta_cb, &(Conta){0}),
+            "e a listagem tambem recusa, em vez de mostrar so uma parte");
+    }
+
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);
     printf("=========================================\n\n");
