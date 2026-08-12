@@ -250,13 +250,31 @@ void syncjob_cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
     cloud_folder_path(title, out, outsz);
 }
 
-// Tem arquivo solto no primeiro nível desta pasta?
+// Tem arquivo solto no primeiro nível desta pasta — sem contar os nossos?
 typedef struct { bool tem_arquivo; } TemArquivoCtx;
+
+// O arquivo por jogo (<Jogo>.nxsaves) NÃO conta.
+//
+// Ele mora justamente aqui, no primeiro nível da pasta do jogo, posto pelo
+// syncjob_game_archive_upload — ou seja, o próprio app cria o "arquivo solto"
+// que o cloud_flat_backup usa como prova de backup antigo. Sem esta exceção,
+// quem guardou um jogo no arquivo único e depois pediu restore recebia o ID do
+// CONTAINER, e o write_over_save limpava o savedata e escrevia lá dentro um
+// .nxsaves de 29 MB mais uma pasta chamada "Miguel". Save do console destruído,
+// com a mensagem "Save de %s veio da nuvem" na tela.
+//
+// Savedata de jogo nenhum contém arquivo nosso, então ignorar a extensão não
+// esconde backup de verdade nenhum.
+static bool eh_arquivo_nosso(const char *name)
+{
+    size_t n = strlen(name), e = strlen("." NXSAVES_EXT);
+    return n > e && strcmp(name + n - e, "." NXSAVES_EXT) == 0;
+}
 
 static void marca_se_arquivo(const char *id, const char *name, bool is_folder, void *ud)
 {
-    (void)id; (void)name;
-    if (!is_folder)
+    (void)id;
+    if (!is_folder && !eh_arquivo_nosso(name))
         ((TemArquivoCtx *)ud)->tem_arquivo = true;
 }
 
@@ -444,6 +462,15 @@ static void lembra_pasta(const TitleEntry *title, const char *pasta)
 
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
 {
+    return syncjob_backup_title_ex(title, log, NULL);
+}
+
+bool syncjob_backup_title_ex(const TitleEntry *title, syncjob_log_cb log,
+                              bool *nuvem_bate)
+{
+    if (nuvem_bate)
+        *nuvem_bate = false;
+
     char safe[0x201];
     save_folder_name(title, safe, sizeof(safe));
 
@@ -512,7 +539,18 @@ bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log)
     // Subir só escreve. O que o save não tem mais precisa sair da nuvem, senão
     // volta no próximo restore. No Drive vai pra lixeira e não some; no
     // WebDAV depende do servidor ter lixeira — ver o aviso no cloud.h.
-    cloud_prune_extras(token, game_id, staging);
+    bool limpou = cloud_prune_extras(token, game_id, staging);
+
+    if (!limpou)
+        say(log, TR("Subiu, mas não consegui tirar da nuvem o que o save não tem mais",
+                    "Uploaded, but couldn't remove from the cloud what the save no longer has"));
+
+    // Quem chama é que grava o marcador (o sysmodule, quando o jogo fecha), e
+    // ele precisa saber disto: marcar "sincronizado" com sobra na nuvem faz o
+    // sync seguinte achar a nuvem mais nova e ressuscitar dentro do savedata o
+    // arquivo que o jogo apagou.
+    if (nuvem_bate)
+        *nuvem_bate = limpou;
 
     say(log, TR("Backup de %s concluído", "Backup of %s done"), title->name);
     return true;
@@ -1125,8 +1163,27 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
             return SYNCJOB_SYNC_FAILED;
         }
         lembra_pasta(title, pasta_nuvem);
-        cloud_prune_extras(token, game_id, console_dir);
-        syncjob_mark_synced(title, local_fp);
+        bool limpou = cloud_prune_extras(token, game_id, console_dir);
+
+        // O marcador só vale se o prune deu certo, e isso não é preciosismo.
+        //
+        // O marcador quer dizer "os dois lados estavam iguais neste ponto". Se
+        // o prune falhou — o Drive recusou o DELETE, o WebDAV devolveu 423, ou
+        // conversa privada removida do historico
+        // apagou, e os dois lados NÃO estão iguais. Gravar o marcador assim
+        // mente pro sync seguinte: ele vê o console parado e a nuvem "mais
+        // nova", desce por cima do savedata e RESSUSCITA o arquivo apagado
+        // dentro do save. É o save metade de ontem, metade de hoje que o
+        // write_over_save descreve.
+        //
+        // Sem marcador, o próximo sync não decide sozinho: pergunta. Um
+        // diálogo a mais é barato; save remendado não.
+        if (limpou)
+            syncjob_mark_synced(title, local_fp);
+        else
+            say(log, TR("Subiu, mas não consegui tirar da nuvem o que o save não tem mais",
+                        "Uploaded, but couldn't remove from the cloud what the save no longer has"));
+
         say(log, TR("Save de %s guardado na nuvem", "%s's save stored in the cloud"), title->name);
         return SYNCJOB_SYNC_UPLOADED;
     }
@@ -1202,8 +1259,26 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         say(log, TR("Upload falhou", "Upload failed"));
         return SYNCJOB_SYNC_FAILED;
     }
-    cloud_prune_extras(token, game_id, console_dir);
-    syncjob_mark_synced(title, local_fp);
+    bool limpou = cloud_prune_extras(token, game_id, console_dir);
+
+    // O marcador só vale se o prune deu certo, e isso não é preciosismo.
+    //
+    // O marcador quer dizer "os dois lados estavam iguais neste ponto". Se o
+    // prune falhou — o Drive recusou o DELETE, o WebDAV devolveu 423, ou ele
+    // apertou B no meio —, a nuvem ficou com um arquivo que o jogo apagou e os
+    // dois lados NÃO estão iguais. Gravar o marcador assim mente pro sync
+    // seguinte: ele vê o console parado e a nuvem "mais nova", desce por cima
+    // do savedata e RESSUSCITA o arquivo apagado dentro do save. É o save
+    // metade de ontem, metade de hoje que o write_over_save descreve.
+    //
+    // Sem marcador, o próximo sync não decide sozinho: pergunta. Um diálogo a
+    // mais é barato; save remendado não.
+    if (limpou)
+        syncjob_mark_synced(title, local_fp);
+    else
+        say(log, TR("Subiu, mas não consegui tirar da nuvem o que o save não tem mais",
+                    "Uploaded, but couldn't remove from the cloud what the save no longer has"));
+
     say(log, TR("Save de %s subiu pra nuvem", "%s's save went up to the cloud"), title->name);
     return SYNCJOB_SYNC_UPLOADED;
 }

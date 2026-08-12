@@ -85,10 +85,15 @@ static void apaga_recursivo(const char *dir)
 // não são a mesma coisa que "o resultado deu UPLOADED".
 int fake_puts = 0, fake_gets = 0, fake_removes = 0;
 
+// O teste liga isto pra simular o que acontece de verdade: o Drive recusando o
+// DELETE por rate limit, o WebDAV devolvendo 423, ou ele apertando B no meio.
+int fake_remove_falha = 0;
+
 void fake_cloud_reset(void)
 {
     apaga_recursivo(RAIZ_NUVEM);
     fake_puts = fake_gets = fake_removes = 0;
+    fake_remove_falha = 0;
 }
 
 static const char *f_name(void)  { return "Nuvem de teste"; }
@@ -152,6 +157,7 @@ static bool f_rm(const char *a, const char *id)
 {
     (void)a;
     fake_removes++;
+    if (fake_remove_falha) return false;
     apaga_recursivo(id);
     return true;
 }

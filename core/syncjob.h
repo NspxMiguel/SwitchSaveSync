@@ -30,6 +30,15 @@ bool syncjob_find_title(u64 application_id, TitleEntry *out);
 // tem como corromper save, no pior caso ela falha.
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log);
 
+// Igual à de cima, contando também se a nuvem ficou IGUAL ao save no fim.
+//
+// Devolver true com *nuvem_bate false quer dizer: subiu, mas sobrou na nuvem
+// arquivo que o save não tem mais (o prune falhou). Quem grava o marcador de
+// "sincronizado" precisa saber — marcar nessa situação faz o sync seguinte ver
+// a nuvem como mais nova e ressuscitar o arquivo apagado dentro do savedata.
+bool syncjob_backup_title_ex(const TitleEntry *title, syncjob_log_cb log,
+                              bool *nuvem_bate);
+
 // Backup local: copia o save pra SYNC_LOCAL_DIR/<jogo>, no proprio cartao.
 // Nao encosta em rede nenhuma — funciona sem internet e sem conta Google.
 // Mount read-only, igual ao backup pra nuvem: nao tem como estragar o save.

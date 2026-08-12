@@ -343,6 +343,7 @@ static void backup_now(u64 application_id)
     syncstate_log(TR("Jogo fechou: %s", "Game closed: %s"), title.name);
 
     bool local_ok = false, cloud_ok = false;
+    bool nuvem_bate = false; // o prune limpou tudo? ver syncjob_backup_title_ex
 
     // Cartao primeiro: e' rapido, nao depende de rede nem de login, e serve
     // de rede de seguranca caso o upload falhe no meio.
@@ -364,15 +365,25 @@ static void backup_now(u64 application_id)
                 return;
             }
         }
-        else if (syncjob_backup_title(&title, log_line))
+        else if (syncjob_backup_title_ex(&title, log_line, &nuvem_bate))
         {
             cloud_ok = true;
 
             // Marca o estado que acabou de subir. É contra isso que o pull
             // compara pra decidir se pode escrever por cima do save local.
+            //
+            // Só quando a nuvem ficou IGUAL ao save. Subiu mas sobrou coisa lá
+            // (o prune falhou)? Então os dois lados não estão iguais, e marcar
+            // faria a varredura ociosa achar a nuvem mais nova e ressuscitar,
+            // dentro do savedata, o arquivo que o jogo tinha apagado — sozinha,
+            // sem ninguém na frente do console pra desconfiar.
             u64 fp = 0;
-            if (syncjob_fingerprint(&title, &fp))
+            if (nuvem_bate && syncjob_fingerprint(&title, &fp))
                 syncjob_mark_synced(&title, fp);
+            else if (!nuvem_bate)
+                syncstate_log(TR("%s: sobrou coisa na nuvem — nao marquei como sincronizado",
+                                 "%s: leftovers in the cloud — did not mark as synced"),
+                    title.name);
         }
     }
 
