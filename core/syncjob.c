@@ -399,7 +399,7 @@ static bool cloud_title_folder(const char *token, const char *root_id,
     if (create)
         return false;
 
-    // Resgate, só na leitura: a pasta do jogo existe, mas não tem uma conta com
+    // Resgate, só na leitura: a pasta do jogo existe, mas não tem conta com
     // esse nome. Se lá dentro houver EXATAMENTE UMA conta, é ela.
     //
     // conversa privada removida do historico
@@ -408,11 +408,24 @@ static bool cloud_title_folder(const char *token, const char *root_id,
     // ter renomeado a conta depois do backup: o save está lá, com o nome de
     // antes, e recusar por causa do nome seria esconder do dono um backup bom.
     //
-    // Com DUAS ou mais contas lá dentro não existe palpite honesto: escolher uma
-    // seria entregar pra ele o save de outra pessoa, e isso o app não faz. Nada
-    // é criado aqui em nenhum caso — criar na leitura devolveria pasta vazia
-    // recém-nascida em vez de "não tem backup", que é como save bom vira save
-    // vazio (está contado no cloud.h).
+    // O shared_game é a trava, e ela não é opcional. Sem ela este resgate
+    // ENTREGA O SAVE DE UMA PESSOA PRA OUTRA: num console com duas contas do
+    // mesmo jogo, a segunda conta a sincronizar não acha a pasta dela, encontra
+    // a única que existe — a da primeira — e recebe o save do vizinho. Foi o
+    // teste de duas contas que pegou isso, com o save da Convidado caindo na pasta
+    // do Miguel.
+    //
+    // A distinção é exata: shared_game falso quer dizer que este console só tem
+    // UM save deste jogo, e aí "a única pasta lá" só pode ser dele, com o nome
+    // de antes. Verdadeiro quer dizer que existe mais de um dono, e aí nome é
+    // identidade — não tem palpite honesto a dar.
+    //
+    // Nada é criado aqui em nenhum caso: criar na leitura devolveria pasta
+    // vazia recém-nascida em vez de "não tem backup", que é como save bom vira
+    // save vazio (está contado no cloud.h).
+    if (title->shared_game)
+        return false;
+
     UnicaSubpasta u = { .quantas = 0 };
     if (!cloud_list_children(token, pai, conta_subpasta, &u) || u.quantas != 1)
         return false;

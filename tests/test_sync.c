@@ -344,6 +344,121 @@ static void caso_subpasta_no_save(void)
         "e o fingerprint da arvore fecha na volta");
 }
 
+// ======================================================= mais de uma conta
+//
+// O caso do Miguel: quatro contas com save do mesmo Rayman Legends. Aqui mora
+// o risco que o layout aninhado criou — a pasta do jogo virou CONTAINER, com
+// as contas e o .nxsaves do jogo dentro. Se o prune ou o restore olharem pro
+// nivel errado, sincronizar a conta de um apaga ou entrega o save do outro.
+
+static TitleEntry o_jogo_de(const char *apelido, u64 uid0)
+{
+    TitleEntry t = o_jogo();
+    snprintf(t.account, sizeof(t.account), "%s", apelido);
+    t.uid.uid[0]  = uid0;
+    t.shared_game = true; // duas contas com save do mesmo jogo
+    return t;
+}
+
+static void caso_duas_contas(void)
+{
+    printf("\n== duas contas do mesmo jogo ==\n");
+    do_zero();
+
+    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+
+    escreve("save-falso/progresso.dat", "save do Miguel");
+    res_eq(syncjob_sync_title(&a, NULL), SYNCJOB_SYNC_UPLOADED, "conta A sobe");
+
+    // O savedata falso e um so, entao trocar o conteudo simula trocar de conta.
+    escreve("save-falso/progresso.dat", "save da Convidado");
+    res_eq(syncjob_sync_title(&b, NULL), SYNCJOB_SYNC_UPLOADED, "conta B sobe");
+
+    char buf[64];
+    le("nuvem-falsa/Jogo de Teste/Miguel/progresso.dat", buf, sizeof(buf));
+    ok(strcmp(buf, "save do Miguel") == 0,
+        "o save da conta A continua la, intacto, depois de B subir");
+
+    le("nuvem-falsa/Jogo de Teste/Convidado/progresso.dat", buf, sizeof(buf));
+    ok(strcmp(buf, "save da Convidado") == 0, "e o de B esta no lugar dele");
+}
+
+// O prune existe pra tirar da nuvem o que o save nao tem mais. Ele roda na
+// pasta do DONO. Se rodasse na pasta do jogo, veria as outras contas como
+// "sobra" — porque elas nao existem no staging — e apagaria o backup delas.
+static void caso_prune_nao_come_o_vizinho(void)
+{
+    printf("\n== o prune nao pode encostar na conta vizinha ==\n");
+    do_zero();
+
+    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+
+    escreve("save-falso/progresso.dat", "A");
+    syncjob_sync_title(&a, NULL);
+    escreve("save-falso/progresso.dat", "B");
+    syncjob_sync_title(&b, NULL);
+
+    // A conta A perde um arquivo e sobe de novo: e aqui que o prune dispara.
+    escreve("save-falso/progresso.dat", "A mudou");
+    escreve("save-falso/extra.dat", "vai sumir depois");
+    syncjob_sync_title(&a, NULL);
+    unlink("save-falso/extra.dat");
+    escreve("save-falso/progresso.dat", "A mudou de novo");
+    res_eq(syncjob_sync_title(&a, NULL), SYNCJOB_SYNC_UPLOADED, "A sobe de novo");
+
+    ok(!tem_arquivo("nuvem-falsa/Jogo de Teste/Miguel/extra.dat"),
+        "o prune tirou da nuvem o arquivo que o save nao tem mais");
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Convidado/progresso.dat"),
+        "e NAO encostou na pasta da conta vizinha");
+}
+
+// O .nxsaves do jogo mora na pasta do JOGO, um nivel acima das contas. Um
+// sync de conta nao pode leva-lo embora.
+static void caso_arquivo_do_jogo_sobrevive(void)
+{
+    printf("\n== o .nxsaves do jogo sobrevive a um sync de conta ==\n");
+    do_zero();
+
+    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
+    escreve("save-falso/progresso.dat", "A");
+    syncjob_sync_title(&a, NULL);
+
+    // Simula o arquivo unico do jogo, que o jobGameArchive poe aqui.
+    escreve("nuvem-falsa/Jogo de Teste/Jogo de Teste.nxsaves", "conteudo do arquivao");
+
+    escreve("save-falso/progresso.dat", "A mudou");
+    res_eq(syncjob_sync_title(&a, NULL), SYNCJOB_SYNC_UPLOADED, "a conta sobe de novo");
+
+    ok(tem_arquivo("nuvem-falsa/Jogo de Teste/Jogo de Teste.nxsaves"),
+        "o arquivo unico do jogo continua la");
+}
+
+// Restaurar a conta A nao pode trazer arquivo da conta B junto.
+static void caso_restore_nao_mistura(void)
+{
+    printf("\n== restaurar uma conta nao traz a outra junto ==\n");
+    do_zero();
+
+    TitleEntry a = o_jogo_de("Miguel", 0x1111111111111111ULL);
+    TitleEntry b = o_jogo_de("Convidado",  0x2222222222222222ULL);
+
+    escreve("save-falso/progresso.dat", "so do Miguel");
+    syncjob_sync_title(&a, NULL);
+    escreve("save-falso/Convidado-only.dat", "so da Convidado");
+    unlink("save-falso/progresso.dat");
+    syncjob_sync_title(&b, NULL);
+
+    // Console zerado; restaura so a conta A.
+    unlink("save-falso/Convidado-only.dat");
+    ok(syncjob_restore_title(&a, NULL), "o restore da conta A funciona");
+
+    ok(tem_arquivo("save-falso/progresso.dat"), "trouxe o arquivo da conta A");
+    ok(!tem_arquivo("save-falso/Convidado-only.dat"),
+        "e NAO trouxe o arquivo da conta B");
+}
+
 int main(void)
 {
     mkdir("sdmc:", 0777);
@@ -362,6 +477,11 @@ int main(void)
     caso_os_dois_andaram();
     caso_jogo_aberto();
     caso_subpasta_no_save();
+
+    caso_duas_contas();
+    caso_prune_nao_come_o_vizinho();
+    caso_arquivo_do_jogo_sobrevive();
+    caso_restore_nao_mistura();
 
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);
