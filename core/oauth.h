@@ -53,7 +53,13 @@ typedef enum {
     OAUTH_OK = 0,
     OAUTH_FAIL_NETWORK,    // deu ruim agora; tentar de novo depois faz sentido
     OAUTH_FAIL_LOGGED_OUT, // o Google recusou o refresh token: tem que entrar de novo
+    OAUTH_FAIL_LIMITE,     // o servidor freou este endereço: passa em minutos
+    OAUTH_FAIL_ATAQUE,     // o servidor está apanhando de alguém: não é você
 } OauthResult;
+
+// A frase pronta pra tela, no idioma do app. Devolve NULL quando o motivo não
+// tem frase própria — aí vale o texto que a tela já usava.
+const char *oauth_motivo_texto(OauthResult r);
 
 // Troca o refresh_token salvo por um access_token novo (o Google não deixa
 // reusar um access_token por muito tempo, então é mais simples pedir um

@@ -16,6 +16,7 @@ extern "C" {
 #include "http.h"
 #include "lang.h"
 #include "oauth.h"
+#include "credencial.h"
 #include "savemount.h"
 #include "syncjob.h"
 #include "syncstate.h"
@@ -2784,6 +2785,15 @@ static brls::List* createSettingsTab()
                 : "");
     }
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION, net, true));
+
+    // De qual das três fontes a credencial do Google está vindo. Sem isto,
+    // quem escreve um google.cfg não tem como saber se o arquivo foi lido —
+    // e um erro de digitação lá vira "continua funcionando", pela chave
+    // errada, sem nenhum sinal na tela.
+    char cred[420];
+    snprintf(cred, sizeof(cred), TR("Credencial do Google: %s.", "Google credential: %s."),
+        credencial_descricao());
+    list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION, cred, true));
 
     return list;
 }

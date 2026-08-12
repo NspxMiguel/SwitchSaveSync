@@ -133,6 +133,35 @@ Teu usuário e tua senha ficam no cartão, em texto puro, em
 
 **Ou sem nuvem nenhuma:** o backup no cartão funciona sem conta e sem rede.
 
+### Credencial própria (google.cfg)
+
+Não é preciso, e a maioria não vai querer. Está aqui pra quem prefere **não
+depender da credencial do projeto** — nem da que vem no app, nem do servidor
+que a guarda.
+
+Crie um projeto no Google Cloud (as instruções estão em
+[core/config.h.example](core/config.h.example), leva uns 10 minutos) e escreva
+`sdmc:/switch/SwitchSaveSync/google.cfg`:
+
+```ini
+client_id=SEU_ID.apps.googleusercontent.com
+client_secret=SEU_SEGREDO
+```
+
+A partir daí o app fala direto com o Google com a **sua** chave: nenhum servidor
+nosso entra no caminho, e nenhum limite nosso te alcança. Vale mais que tudo:
+existindo esse arquivo completo, ele ganha do endpoint e da chave embutida.
+
+Quem só quer sair do nosso servidor, sem criar chave nenhuma, escreve
+`endpoint=direto` — aí volta a valer a credencial embutida no app.
+
+> **Por que isso existe.** Em app instalado não há segredo: o
+> [RFC 6749 §2.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.1)
+> chama isso de *public client* e assume que a chave é extraível do binário. O
+> que protege você é o escopo `drive.file` (o app só enxerga o que ele mesmo
+> criou), a tela de consentimento, e — se quiser — usar a sua própria chave.
+> Ajustes → Diagnóstico mostra qual das três está valendo agora.
+
 ### Conferir que funcionou
 
 **Ajustes → Diagnóstico → Testar conexão** sobe e baixa um arquivinho. Não encosta em save
@@ -213,6 +242,7 @@ O overlay mostra a última linha de status. A versão longa é o
 /switch/SwitchSaveSync/                                 tudo o que o app lembra
     token.txt          login do Google       webdav.cfg     servidor, usuário e senha
     nuvem.cfg          qual nuvem vale       idioma.txt     idioma
+    google.cfg         credencial sua (opcional)
     autosync.cfg       autosync lig/desl     destino.cfg    cartão e/ou nuvem
     excluidos.txt      jogos que você tirou  pastas.txt     pasta na nuvem de cada save
     status.txt         último status         autosync.log   a versão longa

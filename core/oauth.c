@@ -2,6 +2,8 @@
 #include "http.h"
 #include "minijson.h"
 #include "config.h"
+#include "credencial.h"
+#include "lang.h"
 
 #include <switch.h>
 #include <stdio.h>
@@ -11,6 +13,85 @@
 
 #define TOKEN_DIR  "sdmc:/switch/SwitchSaveSync"
 #define TOKEN_PATH TOKEN_DIR "/token.txt"
+
+// ---------------------------------------------------------------------------
+// Falar com o Google, direto ou pelo nosso endpoint
+//
+// As duas rotas devolvem exatamente o mesmo JSON — o servidor repassa a
+// resposta do Google sem tocar. Por isso só a montagem do pedido muda aqui, e
+// todo o resto do arquivo (o parse, o loop de poll, os códigos de erro)
+// continua sendo um só caminho.
+// ---------------------------------------------------------------------------
+
+static bool via_backend(void) { return credencial_origem() == CRED_BACKEND; }
+
+static void junta_url(char *out, size_t sz, const char *rota) {
+    const char *base = credencial_endpoint();
+    size_t n = strlen(base);
+    while (n > 0 && base[n - 1] == '/') n--; // barra sobrando é erro de digitação, não de configuração
+    snprintf(out, sz, "%.*s%s", (int)n, base, rota);
+}
+
+static HttpResponse pede_device_code(void) {
+    char fields[512];
+    if (via_backend()) {
+        char url[400];
+        junta_url(url, sizeof(url), "/device");
+        snprintf(fields, sizeof(fields), "scope=%s", GOOGLE_OAUTH_SCOPE);
+        return http_post_form(url, fields);
+    }
+    snprintf(fields, sizeof(fields), "client_id=%s&scope=%s",
+             credencial_client_id(), GOOGLE_OAUTH_SCOPE);
+    return http_post_form("https://oauth2.googleapis.com/device/code", fields);
+}
+
+static HttpResponse troca_device_code(const char *device_code) {
+    char fields[700];
+    if (via_backend()) {
+        char url[400];
+        junta_url(url, sizeof(url), "/token");
+        snprintf(fields, sizeof(fields), "device_code=%s", device_code);
+        return http_post_form(url, fields);
+    }
+    snprintf(fields, sizeof(fields),
+             "client_id=%s&client_secret=%s&device_code=%s"
+             "&grant_type=urn:ietf:params:oauth:grant-type:device_code",
+             credencial_client_id(), credencial_client_secret(), device_code);
+    return http_post_form("https://oauth2.googleapis.com/token", fields);
+}
+
+static HttpResponse renova(const char *refresh_token) {
+    char fields[900];
+    if (via_backend()) {
+        char url[400];
+        junta_url(url, sizeof(url), "/refresh");
+        snprintf(fields, sizeof(fields), "refresh_token=%s", refresh_token);
+        return http_post_form(url, fields);
+    }
+    snprintf(fields, sizeof(fields),
+             "client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token",
+             credencial_client_id(), credencial_client_secret(), refresh_token);
+    return http_post_form("https://oauth2.googleapis.com/token", fields);
+}
+
+// 429 é o servidor cortando a chamada: ou este IP passou do limite, ou o
+// endpoint inteiro está apanhando e entrou em modo de defesa. São situações
+// diferentes pro usuário — uma é "calma", a outra é "não é você" — e por isso
+// têm texto diferente.
+static bool freou(const HttpResponse *r) {
+    return r->ok && r->status == 429;
+}
+
+static bool freou_por_ataque(const HttpResponse *r) {
+    return freou(r) && r->body && strstr(r->body, "under_attack") != NULL;
+}
+
+static const char *texto_do_freio(const HttpResponse *r) {
+    // Mesma frase que a tela de sincronização mostra pelo código de erro; ter
+    // duas redações pro mesmo acontecimento é como se descobre, meses depois,
+    // que uma delas nunca foi traduzida.
+    return oauth_motivo_texto(freou_por_ataque(r) ? OAUTH_FAIL_ATAQUE : OAUTH_FAIL_LIMITE);
+}
 
 static char g_refresh_token[512] = {0};
 
@@ -65,12 +146,12 @@ static oauth_device_cb g_device_cb = NULL;
 void oauth_set_device_cb(oauth_device_cb cb) { g_device_cb = cb; }
 
 bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_cancel) {
-    char fields[512];
-    snprintf(fields, sizeof(fields),
-             "client_id=%s&scope=%s",
-             GOOGLE_CLIENT_ID, GOOGLE_OAUTH_SCOPE);
-
-    HttpResponse r = http_post_form("https://oauth2.googleapis.com/device/code", fields);
+    HttpResponse r = pede_device_code();
+    if (freou(&r)) {
+        if (on_status) on_status(texto_do_freio(&r));
+        http_response_free(&r);
+        return false;
+    }
     if (!r.ok || r.status != 200) {
         char msg[300];
         snprintf(msg, sizeof(msg), "Falha ao pedir device code (status %ld): %s",
@@ -143,13 +224,19 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
         svcSleepThread((u64)(interval * 1000000000.0));
         elapsed += interval;
 
-        char poll_fields[700];
-        snprintf(poll_fields, sizeof(poll_fields),
-                 "client_id=%s&client_secret=%s&device_code=%s"
-                 "&grant_type=urn:ietf:params:oauth:grant-type:device_code",
-                 GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, device_code);
+        HttpResponse poll = troca_device_code(device_code);
 
-        HttpResponse poll = http_post_form("https://oauth2.googleapis.com/token", poll_fields);
+        // Freada no meio do poll não é motivo pra jogar o login fora: o código
+        // na tela do usuário vale meia hora e o limite passa em minutos. Diz o
+        // que houve, espaça as tentativas e continua — quem não quiser esperar
+        // aperta B.
+        if (freou(&poll)) {
+            if (on_status) on_status(texto_do_freio(&poll));
+            if (interval < 30) interval += 10;
+            http_response_free(&poll);
+            continue;
+        }
+
         if (!poll.ok) {
             // erro de rede pontual (ex: wifi soneca) — tenta de novo no próximo tick
             falhas_rede++;
@@ -224,12 +311,15 @@ bool oauth_start_device_flow(oauth_status_cb on_status, oauth_cancel_cb should_c
 OauthResult oauth_refresh_access_token(char *out, size_t outsz) {
     if (!oauth_is_logged_in()) return OAUTH_FAIL_LOGGED_OUT;
 
-    char fields[900];
-    snprintf(fields, sizeof(fields),
-             "client_id=%s&client_secret=%s&refresh_token=%s&grant_type=refresh_token",
-             GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, g_refresh_token);
+    HttpResponse r = renova(g_refresh_token);
 
-    HttpResponse r = http_post_form("https://oauth2.googleapis.com/token", fields);
+    // Freio do servidor não é token morto nem rede caída: some sozinho. Tem
+    // código próprio pra tela não mandar ninguém logar de novo à toa.
+    if (freou(&r)) {
+        bool ataque = freou_por_ataque(&r);
+        http_response_free(&r);
+        return ataque ? OAUTH_FAIL_ATAQUE : OAUTH_FAIL_LIMITE;
+    }
 
     // "invalid_grant" é o Google dizendo que esse refresh token morreu e não
     // vai ressuscitar: conta desconectada em myaccount.google.com, senha
@@ -254,4 +344,21 @@ OauthResult oauth_refresh_access_token(char *out, size_t outsz) {
 
 bool oauth_get_fresh_access_token(char *out, size_t outsz) {
     return oauth_refresh_access_token(out, outsz) == OAUTH_OK;
+}
+
+const char *oauth_motivo_texto(OauthResult r) {
+    switch (r) {
+        case OAUTH_FAIL_ATAQUE:
+            return TR("Foi detectado um ataque nos servidores do SwitchSaveSync. "
+                      "Favor, tente novamente mais tarde.",
+                      "An attack on the SwitchSaveSync servers was detected. "
+                      "Please try again later.");
+        case OAUTH_FAIL_LIMITE:
+            return TR("Muitas tentativas deste endereco em pouco tempo. "
+                      "Espere alguns minutos e tente de novo.",
+                      "Too many tries from this address in a short time. "
+                      "Wait a few minutes and try again.");
+        default:
+            return NULL;
+    }
 }

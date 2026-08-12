@@ -131,6 +131,35 @@ password are stored on the card, in the clear, at `sdmc:/switch/SwitchSaveSync/w
 
 **Or no cloud at all:** the SD-card backup works with no account and no network.
 
+### Your own credential (google.cfg)
+
+Not required, and most people won't want it. It's here for anyone who'd rather
+**not depend on the project's credential** — neither the one in the app nor the
+server that holds it.
+
+Create a Google Cloud project (instructions in
+[core/config.h.example](core/config.h.example), about 10 minutes) and write
+`sdmc:/switch/SwitchSaveSync/google.cfg`:
+
+```ini
+client_id=YOUR_ID.apps.googleusercontent.com
+client_secret=YOUR_SECRET
+```
+
+From then on the app talks straight to Google with **your** key: no server of
+ours in the path, and no rate limit of ours reaching you. This wins over
+everything — a complete file here beats both the endpoint and the built-in key.
+
+To leave our server without creating a key at all, write `endpoint=direto`; the
+built-in credential takes over again.
+
+> **Why this exists.** An installed app holds no secrets:
+> [RFC 6749 §2.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.1)
+> calls it a *public client* and assumes the key is extractable from the binary.
+> What protects you is the `drive.file` scope (the app only ever sees what it
+> created), the consent screen, and — if you want it — your own key. Settings →
+> Diagnostics shows which of the three is in effect.
+
 ### Check that it works
 
 **Settings → Diagnostics → Test connection** uploads and downloads a small file. It never
@@ -210,6 +239,7 @@ The overlay shows the last status line. The long version is
 /switch/SwitchSaveSync/                                 everything the app remembers
     token.txt          Google login          webdav.cfg     server, user and password
     nuvem.cfg          which cloud is on     idioma.txt     language
+    google.cfg         your own credential (optional)
     autosync.cfg       autosync on/off       destino.cfg    card and/or cloud
     excluidos.txt      games you excluded    pastas.txt     cloud folder per save
     status.txt         last status           autosync.log   the long version

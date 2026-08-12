@@ -13,7 +13,8 @@
 #
 #   ./tests/run.sh          roda tudo
 #   ./tests/run.sh nomes    roda só um
-#                           (nxsaves | webdav | nomes | pastas | sync | arquivo)
+#                           (nxsaves | webdav | nomes | pastas | sync | arquivo
+#                            | credencial | servidor)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -75,6 +76,25 @@ if [ "$QUAL" = tudo ] || [ "$QUAL" = arquivo ]; then
     roda arquivo test_arquivo.c fake_cloud.c \
         $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
         $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+fi
+
+# ---- 3e. de onde vem a credencial do Google ----
+# Nao fala com o Google: testa so a ORDEM das tres fontes (google.cfg do
+# usuario > endpoint > chave do build) e o parser do arquivo torto.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = credencial ]; then
+    roda credencial test_credencial.c $CORE/credencial.c
+fi
+
+# ---- 3f. o freio do servidor de autenticacao ----
+# JavaScript, entao roda separado e so se tiver node. E o unico pedaco do
+# servidor com logica de verdade, e erro nele so aparece no dia do ataque.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = servidor ]; then
+    printf '\n########## servidor ##########\n'
+    if command -v node >/dev/null 2>&1; then
+        node ../servidor/teste.mjs || falhou=1
+    else
+        echo "  (pulado: node nao esta instalado)"
+    fi
 fi
 
 # ---- 2. WebDAV, contra um servidor de verdade ----

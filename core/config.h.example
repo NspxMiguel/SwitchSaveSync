@@ -21,6 +21,20 @@
 #define GOOGLE_CLIENT_ID     "COLOQUE_SEU_CLIENT_ID.apps.googleusercontent.com"
 #define GOOGLE_CLIENT_SECRET "COLOQUE_SEU_CLIENT_SECRET"
 
+// Endpoint que guarda a credencial do projeto em vez do binário (ver
+// servidor/README.md). Deixe VAZIO pra compilar como sempre foi: o app fala
+// direto com o Google usando as duas chaves acima, e o servidor não entra na
+// história. É assim que se compila em casa.
+//
+// A release oficial preenche isto. Não é segredo — é uma URL pública; o
+// segredo fica na variável de ambiente do servidor, e é lá que mora o limite
+// por IP e o corte de rajada.
+//
+// Quem instala pode passar por cima disso a qualquer momento com um
+// google.cfg no cartão (ver credencial.h): chave própria ganha do endpoint,
+// e "endpoint=direto" cai na chave embutida.
+#define SSS_AUTH_ENDPOINT    ""
+
 // drive.file = o app só enxerga/mexe nos arquivos que ELE MESMO criou no
 // seu Drive. Não dá acesso ao resto do seu Drive. Ver ANALISE.md — é a
 // recomendação de segurança de escopo mínimo.
