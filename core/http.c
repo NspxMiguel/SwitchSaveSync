@@ -4,21 +4,54 @@
 #include <stdlib.h>
 #include <string.h>
 
-// CA bundle da Mozilla embutido no romfs (ver romfs/cacert.pem). Sem isso o
-// handshake TLS falha, porque o Switch não expõe um trust store utilizável
-// pra libcurl/mbedTLS.
+// CA bundle da Mozilla. Sem isso o handshake TLS falha, porque o Switch não
+// expõe um trust store utilizável pra libcurl/mbedTLS.
 //
-// NOTA PRA TESTAR: isso assume que fopen("romfs:/cacert.pem", ...) funciona
-// por baixo do capô do curl+mbedTLS (o devoptab do romfs registrado pela
-// libnx deveria deixar isso transparente). Se o build reclamar de TLS/CAINFO
-// na hora H, o plano B é copiar romfs:/cacert.pem pra sdmc:/switch/
-// SwitchSaveSync/cacert.pem no primeiro boot e apontar o CAINFO pra lá.
-#define CA_BUNDLE_PATH "romfs:/cacert.pem"
+// Duas cópias, e não uma, porque os dois programas deste projeto são
+// diferentes por dentro:
+//
+//   - o app é um .nro e leva o bundle no romfs dele;
+//   - o SYSMODULE NÃO TEM ROMFS NENHUM. Não é que o arquivo esteja faltando:
+//     um exefs.nsp de sysmodule não carrega romfs e ninguém chama romfsInit().
+//
+// Enquanto o CAINFO apontava só pra "romfs:/cacert.pem", TODA conexão HTTPS do
+// sysmodule morria no handshake — e o erro chegava na tela como "Sem token
+// válido, entre na conta pelo app", com o token certo salvo no cartão e o app
+// entrando normalmente. Foi assim que apareceu no console: o app sincronizava,
+// o autosync nunca.
+//
+// A saída é o próprio plano B que já estava escrito aqui: uma cópia no cartão,
+// que o app garante que existe, e que serve aos dois.
+#define CA_ROMFS "romfs:/cacert.pem"
+#define CA_SDMC  "sdmc:/switch/SwitchSaveSync/cacert.pem"
 
 static bool g_http_ready = false;
+static char g_ca_path[64];
+
+static bool da_pra_ler(const char *caminho) {
+    FILE *f = fopen(caminho, "rb");
+    if (!f) return false;
+    // Existir não basta: arquivo truncado (cartão cheio no meio da cópia) vira
+    // handshake falhando sem explicação. Um byte lido já separa os dois casos.
+    char c;
+    bool ok = fread(&c, 1, 1, f) == 1;
+    fclose(f);
+    return ok;
+}
+
+// Qual bundle vale, "" se nenhum. Quem chama pode dizer isso na tela em vez de
+// culpar a conta do usuário.
+const char *http_ca_bundle(void) { return g_ca_path; }
 
 bool http_init(void) {
     if (g_http_ready) return true;
+
+    g_ca_path[0] = '\0';
+    if (da_pra_ler(CA_ROMFS))
+        snprintf(g_ca_path, sizeof(g_ca_path), "%s", CA_ROMFS);
+    else if (da_pra_ler(CA_SDMC))
+        snprintf(g_ca_path, sizeof(g_ca_path), "%s", CA_SDMC);
+
     CURLcode rc = curl_global_init(CURL_GLOBAL_DEFAULT);
     g_http_ready = (rc == CURLE_OK);
     return g_http_ready;
@@ -65,7 +98,10 @@ static CURL *make_easy_handle(void) {
 
     CURL *curl = curl_easy_init();
     if (!curl) return NULL;
-    curl_easy_setopt(curl, CURLOPT_CAINFO, CA_BUNDLE_PATH);
+    // Sem bundle nenhum não adianta apontar o CAINFO pra um caminho que não
+    // existe: o erro que sai do curl é genérico e some no meio do resto.
+    if (g_ca_path[0])
+        curl_easy_setopt(curl, CURLOPT_CAINFO, g_ca_path);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);

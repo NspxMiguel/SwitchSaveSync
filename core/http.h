@@ -25,6 +25,11 @@ void http_shutdown(void);
 // socket sem socketInitialize aborta o processo em vez de dar erro.
 bool http_is_ready(void);
 
+// Caminho do CA bundle que o http_init achou, ou "" se não achou nenhum —
+// e nesse caso TODA conexão HTTPS vai falhar no handshake. O sysmodule não tem
+// romfs, então pra ele isto é a cópia no cartão; ver http.c.
+const char *http_ca_bundle(void);
+
 void http_response_free(HttpResponse *r);
 
 // POST com Content-Type: application/x-www-form-urlencoded.
