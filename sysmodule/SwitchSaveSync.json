@@ -21,7 +21,7 @@
     "fsp-srv",
     "pm:dmnt",
     "pm:info",
-    "set:sys",
+    "set", "set:sys",
     "time:s",
     "time:u",
     "acc:su",

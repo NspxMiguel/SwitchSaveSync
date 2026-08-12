@@ -286,6 +286,32 @@ static void log_line(const char *msg)
     snprintf(g_last_log, sizeof(g_last_log), "%s", msg);
 }
 
+// O nome do jogo com o dono do save junto, quando o jogo tem mais de um.
+//
+// Sem isto o log ficava assim, com três segundos de diferença:
+//
+//   SUPER MARIO ODYSSEY: nunca subiu pra nuvem por aqui — nao puxei
+//   Console parado: SUPER MARIO ODYSSEY — puxando save da nuvem
+//
+// Que lido de fora é uma contradição — e não era: são duas CONTAS, uma sem
+// registro de sync e outra com. A varredura é por save, não por jogo, e o log
+// escondia exatamente a informação que explicava as duas linhas.
+static const char *rotulo(const TitleEntry *t)
+{
+    static char buf[0x201 + 0x28];
+
+    if (!t->shared_game)
+        snprintf(buf, sizeof(buf), "%s", t->name);
+    else if (t->device_save)
+        snprintf(buf, sizeof(buf), TR("%s (console)", "%s (console)"), t->name);
+    else if (t->account[0])
+        snprintf(buf, sizeof(buf), "%s (%s)", t->name, t->account);
+    else
+        snprintf(buf, sizeof(buf), "%s", t->name);
+
+    return buf;
+}
+
 // Devolve o title id do jogo em primeiro plano, ou 0 se não tem nenhum.
 // Escreve o pid em *pid_out (precisa dele pra congelar o processo).
 static u64 foreground_title_id(u64 *pid_out)
@@ -541,14 +567,14 @@ static void pull_one_save_idle(const TitleEntry *entrada)
 
     if (!have_synced)
     {
-        syncstate_log(TR("%s: nunca subiu pra nuvem por aqui — nao puxei", "%s: never uploaded from here — did not download"), title.name);
+        syncstate_log(TR("%s: nunca subiu pra nuvem por aqui — nao puxei", "%s: never uploaded from here — did not download"), rotulo(&title));
         return;
     }
 
     if (have_now && now_fp != synced_fp)
     {
         syncstate_log(TR("%s: save local mudou desde o ultimo upload — nao puxei", "%s: local save changed since the last upload — did not download"),
-            title.name);
+            rotulo(&title));
         syncstate_set_status(TR("Save local mais novo que a nuvem — mantive o local", "Local save is newer than the cloud — kept the local one"));
         return;
     }
@@ -559,7 +585,7 @@ static void pull_one_save_idle(const TitleEntry *entrada)
     if (!syncjob_backup_title_local(&title, NULL))
     {
         syncstate_log(TR("%s: nao consegui salvar copia local antes de puxar — abortei", "%s: could not save a local copy before downloading — aborted"),
-            title.name);
+            rotulo(&title));
         syncstate_set_status(TR("Sem copia de seguranca — nao puxei %s", "No safety copy — did not download %s"), title.name);
         return;
     }
@@ -572,7 +598,7 @@ static void pull_one_save_idle(const TitleEntry *entrada)
     snprintf(g_pull_game, sizeof(g_pull_game), "%s", title.name);
     snprintf(g_pull_line, sizeof(g_pull_line), "Conectando...");
 
-    syncstate_log(TR("Console parado: %s — puxando save da nuvem", "Console idle: %s — downloading save from the cloud"), title.name);
+    syncstate_log(TR("Console parado: %s — puxando save da nuvem", "Console idle: %s — downloading save from the cloud"), rotulo(&title));
     syncstate_set_status(TR("Puxando save da nuvem...", "Downloading save from the cloud..."));
 
     // A tela por cima do menu. Se o compositor recusar a camada, o pull
@@ -585,7 +611,10 @@ static void pull_one_save_idle(const TitleEntry *entrada)
 
     cloud_set_progress_cb(progress_cb);
     cloud_set_abort_cb(pull_abort_cb);
-    bool ok = syncjob_restore_title(&title, NULL);
+    // log_line, e nao NULL: era NULL, e por isso o autosync.log terminava em
+    // "puxando save da nuvem" e nunca dizia o que aconteceu depois. O motivo da
+    // falha existia lá dentro e era jogado fora na saída da função.
+    bool ok = syncjob_restore_title(&title, log_line);
     cloud_set_progress_cb(NULL);
     cloud_set_abort_cb(NULL);
 
@@ -619,12 +648,18 @@ static void pull_one_save_idle(const TitleEntry *entrada)
         if (syncjob_fingerprint(&title, &fp))
             syncjob_mark_synced(&title, fp);
 
-        syncstate_set_status(TR("Save da nuvem carregado: %s", "Cloud save loaded: %s"), title.name);
+        syncstate_log(TR("%s: save da nuvem carregado", "%s: cloud save loaded"), rotulo(&title));
+        syncstate_set_status(TR("Save da nuvem carregado: %s", "Cloud save loaded: %s"), rotulo(&title));
         snprintf(g_pull_line, sizeof(g_pull_line), "Save carregado. Bom jogo.");
     }
     else
     {
         // Falhou: fica o save local, do jeito que estava. Nada foi commitado.
+        //
+        // A linha de log tem que existir mesmo com o motivo já registrado pelo
+        // log_line acima: sem ela, quem lê o arquivo depois não sabe se o
+        // download terminou, foi abortado no meio, ou se o sysmodule morreu.
+        syncstate_log(TR("%s: NAO consegui puxar — save local mantido", "%s: could NOT download — kept the local save"), rotulo(&title));
         syncstate_set_status(TR("Nao consegui puxar — save local mantido", "Could not download — kept the local save"));
         snprintf(g_pull_line, sizeof(g_pull_line), "Nao consegui puxar — o save local ficou como estava");
     }
