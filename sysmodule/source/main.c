@@ -227,9 +227,28 @@ static void pull_pump_input(bool done)
     }
 }
 
+static u64 foreground_title_id(u64 *pid_out);
+
+// Devolve true se NENHUM jogo está vivo agora.
+//
+// É a pergunta que separa "puxar da nuvem" de "corromper save". O download da
+// varredura ociosa começa com o console parado no menu, mas ele demora — e
+// nada impede que um jogo seja aberto no meio. A tela que a gente desenha por
+// cima do menu não toma o controle: o A dela chega no menu de baixo e abre
+// justamente o jogo em destaque, que é o mesmo que está sendo puxado.
+static bool nenhum_jogo_vivo(void)
+{
+    u64 pid = 0;
+    return foreground_title_id(&pid) == 0;
+}
+
 static bool pull_abort_cb(void)
 {
-    return g_pull_never;
+    // Aborta também quando um jogo aparece. Parar aqui é de graça: o que baixou
+    // foi pro staging no cartão e o savedata só seria tocado no fim. O guarda de
+    // escrita (syncjob_set_write_guard) fecha o resto da janela; este aborto é o
+    // que evita continuar baixando o save de um jogo que já está sendo jogado.
+    return g_pull_never || !nenhum_jogo_vivo();
 }
 
 // Conta quantos arquivos tem no backup desse jogo no Drive, pra barra ter uma
@@ -332,42 +351,81 @@ static void backup_now(u64 application_id)
         return;
     }
 
-    TitleEntry title;
-    if (!syncjob_find_title(application_id, &title))
+    // TODAS as contas que têm save deste jogo, e não só a primeira.
+    //
+    // O sysmodule só sabe o application_id do jogo que fechou — nunca a conta.
+    // Com duas pessoas jogando o mesmo jogo no mesmo console, pegar a primeira
+    // da enumeração era pegar a ordem que o fsSaveDataInfoReader devolveu, que
+    // não tem nada a ver com quem acabou de jogar: a Convidado fechava o Rayman, o
+    // save do Miguel (que não mudou) subia de novo, e a tela dizia "nuvem OK".
+    // O progresso dela não ia pra lugar nenhum.
+    //
+    // Subir todas custa pouco: quem não mudou tem a mesma impressão digital do
+    // último upload e o backup sai barato. O que não dá é adivinhar.
+    TitleEntry saves[8]; // um console tem 8 perfis, no máximo
+    size_t quantos = syncjob_find_all_titles(application_id, saves, 8);
+
+    if (quantos == 0)
     {
         syncstate_log(TR("%016lX nao tem save data de usuario — nada a subir", "%016lX has no user save data — nothing to upload"), application_id);
         syncstate_set_status(TR("Ultimo jogo nao tem save pra subir", "Last game has no save to upload"));
         return;
     }
 
+    TitleEntry title = saves[0]; // o nome do jogo é o mesmo em todas
     syncstate_log(TR("Jogo fechou: %s", "Game closed: %s"), title.name);
 
-    bool local_ok = false, cloud_ok = false;
-    bool nuvem_bate = false; // o prune limpou tudo? ver syncjob_backup_title_ex
+    if (quantos > 1)
+        syncstate_log(TR("%s tem save de %d contas — vou subir todas", "%s has saves from %d accounts — uploading all of them"),
+            title.name, (int)quantos);
+
+    // Começam em true e caem no primeiro tropeço: com várias contas, "deu
+    // certo" só vale se deu certo em TODAS. Só são lidos quando o destino
+    // correspondente está ligado.
+    bool local_ok = true, cloud_ok = true;
+    bool tem_login = false;
 
     // Cartao primeiro: e' rapido, nao depende de rede nem de login, e serve
     // de rede de seguranca caso o upload falhe no meio.
     if (want_local)
-    {
-        local_ok = syncjob_backup_title_local(&title, log_line);
-        if (!local_ok)
-            syncstate_log(TR("%s: backup no cartao falhou", "%s: backup to the SD card failed"), title.name);
-    }
+        for (size_t i = 0; i < quantos; i++)
+            if (!syncjob_backup_title_local(&saves[i], log_line))
+            {
+                local_ok = false;
+                syncstate_log(TR("%s: backup no cartao falhou", "%s: backup to the SD card failed"), saves[i].name);
+            }
 
     if (want_cloud)
     {
-        if (!oauth_load_saved_login())
+        // O resumo lá embaixo usa a ÚLTIMA linha de log como motivo da falha da
+        // nuvem. A linha do CARTÃO, que acabou de passar por aqui dizendo
+        // "guardado", não pode ocupar esse lugar: sem login nenhum, o overlay
+        // mostrava "Cartao OK, nuvem: Backup de Zelda guardado em sdmc:/..." —
+        // uma frase de sucesso no campo da nuvem, com zero bytes enviados.
+        g_last_log[0] = '\0';
+
+        tem_login = oauth_load_saved_login();
+
+        if (!tem_login)
         {
-            syncstate_log(TR("Sem conta Google salva — abra o app e faca login", "No Google account saved — open the app and sign in"));
+            cloud_ok = false;
+            log_line(TR("Sem conta Google salva — abra o app e faca login", "No Google account saved — open the app and sign in"));
             if (!want_local)
             {
                 syncstate_set_status(TR("Sem conta Google — faca login no app", "No Google account — sign in from the app"));
                 return;
             }
         }
-        else if (syncjob_backup_title_ex(&title, log_line, &nuvem_bate))
+
+        for (size_t i = 0; tem_login && i < quantos; i++)
         {
-            cloud_ok = true;
+            bool nuvem_bate = false; // o prune limpou tudo? ver syncjob_backup_title_ex
+
+            if (!syncjob_backup_title_ex(&saves[i], log_line, &nuvem_bate))
+            {
+                cloud_ok = false;
+                continue;
+            }
 
             // Marca o estado que acabou de subir. É contra isso que o pull
             // compara pra decidir se pode escrever por cima do save local.
@@ -378,12 +436,12 @@ static void backup_now(u64 application_id)
             // dentro do savedata, o arquivo que o jogo tinha apagado — sozinha,
             // sem ninguém na frente do console pra desconfiar.
             u64 fp = 0;
-            if (nuvem_bate && syncjob_fingerprint(&title, &fp))
-                syncjob_mark_synced(&title, fp);
+            if (nuvem_bate && syncjob_fingerprint(&saves[i], &fp))
+                syncjob_mark_synced(&saves[i], fp);
             else if (!nuvem_bate)
                 syncstate_log(TR("%s: sobrou coisa na nuvem — nao marquei como sincronizado",
                                  "%s: leftovers in the cloud — did not mark as synced"),
-                    title.name);
+                    saves[i].name);
         }
     }
 
@@ -401,20 +459,34 @@ static void backup_now(u64 application_id)
         else
             syncstate_set_status(TR("Nuvem: %s", "Cloud: %s"), g_last_log);
     }
+    // O resultado na FRENTE e o nome do jogo atrás.
+    //
+    // Era ao contrário, e o nome do jogo tem até 0x201 bytes (titles.h): um
+    // título japonês come a faixa inteira do overlay e empurra o "OK/FALHOU"
+    // pra fora da tela. Quem lê "Zelda…" sem o fim conclui que deu certo. O que
+    // importa é o resultado; o nome é o detalhe, e é ele que pode faltar.
     else if (want_local && want_cloud)
-        syncstate_set_status(TR("%s: cartao %s, nuvem %s", "%s: SD card %s, cloud %s"),
-            title.name, local_ok ? ok : fail, cloud_ok ? ok : fail);
+        syncstate_set_status(TR("Cartao %s, nuvem %s — %s", "SD card %s, cloud %s — %s"),
+            local_ok ? ok : fail, cloud_ok ? ok : fail, title.name);
     else if (want_local)
-        syncstate_set_status(TR("%s: cartao %s", "%s: SD card %s"),
-            title.name, local_ok ? ok : fail);
+        syncstate_set_status(TR("Cartao %s — %s", "SD card %s — %s"),
+            local_ok ? ok : fail, title.name);
     else
-        syncstate_set_status(TR("%s: nuvem %s", "%s: cloud %s"),
-            title.name, cloud_ok ? ok : fail);
+        syncstate_set_status(TR("Nuvem %s — %s", "Cloud %s — %s"),
+            cloud_ok ? ok : fail, title.name);
 }
 
+static void pull_one_save_idle(const TitleEntry *entrada);
+
 // Puxa o save da nuvem com o console PARADO — nenhum jogo rodando. Quem chama
-// é a varredura ociosa, e a garantia de que não há processo do jogo vivo é
-// pré-condição dela, não desta função.
+// é a varredura ociosa; que não haja processo de jogo vivo é pré-condição dela.
+//
+// Só que "pré-condição" não basta e essa foi a lição: o download demora, e o
+// jogo pode ser aberto no meio dele. Por isso, além da condição de entrada,
+// existem duas travas que valem DURANTE: o pull_abort_cb (para de baixar assim
+// que um jogo aparece) e o guarda de escrita registrado no main (recusa montar
+// pra escrita se aparecer). A pré-condição diz quando começar; as travas dizem
+// quando desistir.
 static void pull_title_idle(u64 application_id)
 {
     if (!syncstate_autosync_enabled() || syncstate_is_excluded(application_id))
@@ -431,9 +503,22 @@ static void pull_title_idle(u64 application_id)
         return;
     }
 
-    TitleEntry title;
-    if (!syncjob_find_title(application_id, &title))
+    // Mesma história do backup: com duas contas jogando o mesmo jogo, o
+    // application_id não diz de quem é o save. Puxa pra todas, uma de cada vez.
+    TitleEntry saves[8];
+    size_t quantos = syncjob_find_all_titles(application_id, saves, 8);
+    if (quantos == 0)
         return; // jogo sem save data de usuário: não há o que puxar
+
+    for (size_t i = 0; i < quantos; i++)
+        pull_one_save_idle(&saves[i]);
+}
+
+// Uma conta, um save. Quem separa as contas é o pull_title_idle acima.
+static void pull_one_save_idle(const TitleEntry *entrada)
+{
+    TitleEntry title = *entrada;
+    u64 application_id = title.application_id;
 
     // A trava que evita atropelar progresso: se o save local mudou desde o
     // último upload, quem está atrasado é a NUVEM, não o console. Nesse caso
@@ -503,10 +588,22 @@ static void pull_title_idle(u64 application_id)
     {
         // "Nao puxar save da nuvem nesse jogo" — vale pra sempre, e da pra
         // conversa privada removida do historico
-        syncstate_set_excluded(application_id, true);
-        syncstate_log(TR("%s: mandaram nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), title.name);
-        syncstate_set_status(TR("Nao vou mais puxar save de %s", "Will not download saves for %s anymore"), title.name);
-        snprintf(g_pull_line, sizeof(g_pull_line), "Cancelado. Esse jogo nao puxa mais.");
+        //
+        // Se a lista nao foi gravada, dizer "marcado" e mentira que custa caro:
+        // na proxima varredura este jogo e puxado de novo, exatamente o que ele
+        // acabou de mandar nao fazer.
+        if (syncstate_set_excluded(application_id, true))
+        {
+            syncstate_log(TR("%s: mandaram nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), title.name);
+            syncstate_set_status(TR("Nao vou mais puxar save de %s", "Will not download saves for %s anymore"), title.name);
+            snprintf(g_pull_line, sizeof(g_pull_line), "Cancelado. Esse jogo nao puxa mais.");
+        }
+        else
+        {
+            syncstate_log(TR("%s: NAO consegui gravar a lista de excluidos", "%s: could NOT write the excluded list"), title.name);
+            syncstate_set_status(TR("Parei o download, mas nao consegui marcar %s — cartao cheio?", "Stopped the download, but couldn't mark %s — SD card full?"), title.name);
+            snprintf(g_pull_line, sizeof(g_pull_line), "Parei agora, mas nao consegui marcar o jogo.");
+        }
         ok = false;
     }
     else if (ok)
@@ -576,6 +673,9 @@ static void pull_title_idle(u64 application_id)
 // a biblioteca inteira em looping.
 #define IDLE_QUIET_NS   30000000000ULL  // 30 s sem jogo antes de começar
 #define IDLE_GAP_NS     10000000000ULL  // respiro entre um título e o próximo
+
+// Respiro depois de uma passada que não teve o que fazer. Ver o main.
+#define IDLE_QUIET_GAP_NS (5ULL * 60ULL * 1000000000ULL)
 
 // Quanto tempo uma varredura vale antes de o título poder ser olhado de novo.
 //
@@ -661,6 +761,13 @@ int main(int argc, char *argv[])
     syncstate_ensure_dirs();
     syncstate_log("--- sysmodule iniciado ---");
 
+    // A última trava antes de qualquer escrita em savedata, registrada UMA vez
+    // e válida pro processo inteiro. O core pergunta isso dentro do
+    // write_over_save, imediatamente antes de montar pra escrita — inclusive
+    // depois de um download demorado, que é justamente quando a resposta pode
+    // ter mudado desde que a varredura decidiu que o console estava parado.
+    syncjob_set_write_guard(nenhum_jogo_vivo);
+
     if (!g_socket_ok)
     {
         // Sem rede não dá pra fazer nada, mas morrer aqui só deixaria o
@@ -684,6 +791,7 @@ int main(int argc, char *argv[])
     u64 pending_at  = 0;   // tick em que ele fechou
     u64 idle_since  = armGetSystemTick(); // desde quando não tem jogo aberto
     u64 last_idle_work = 0;               // última varredura ociosa
+    u64 idle_gap       = IDLE_GAP_NS;     // vira 5 min quando não tem o que fazer
 
     while (true)
     {
@@ -740,6 +848,7 @@ int main(int argc, char *argv[])
             }
             last_tid   = tid;
             idle_since = armGetSystemTick(); // acabou de voltar pro menu
+            idle_gap   = IDLE_GAP_NS;        // jogou: tem coisa nova pra olhar
         }
 
         // "Fazer backup agora", pedido pelo overlay. Só atende com nenhum jogo
@@ -774,9 +883,15 @@ int main(int argc, char *argv[])
         // que dá pra escrever num savedata sem disputar com o dono dele.
         if (tid == 0 && pending_tid == 0 && g_socket_ok
             && armTicksToNs(armGetSystemTick() - idle_since) >= IDLE_QUIET_NS
-            && armTicksToNs(armGetSystemTick() - last_idle_work) >= IDLE_GAP_NS)
+            && armTicksToNs(armGetSystemTick() - last_idle_work) >= idle_gap)
         {
-            idle_pull_sweep();
+            // A passada que não fez nada custa a enumeração inteira dos saves:
+            // por jogo, uma consulta de instalação, o perfil da conta e um
+            // NsApplicationControlData de 384 KB, mais o pdm. Numa biblioteca de
+            // 30 jogos isso é ~11 MB de IPC — e estava acontecendo a cada 10 s,
+            // pra sempre, num console parado no menu que já não tinha nada a
+            // fazer. Fez alguma coisa: volta em 10 s. Não fez: volta em 5 min.
+            idle_gap       = idle_pull_sweep() ? IDLE_GAP_NS : IDLE_QUIET_GAP_NS;
             last_idle_work = armGetSystemTick();
         }
 
