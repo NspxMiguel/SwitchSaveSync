@@ -505,7 +505,13 @@ static void pull_title_idle(u64 application_id)
 
     // Mesma história do backup: com duas contas jogando o mesmo jogo, o
     // application_id não diz de quem é o save. Puxa pra todas, uma de cada vez.
-    TitleEntry saves[8];
+    //
+    // static, e não na pilha: esta função é chamada de dentro da varredura, que
+    // já carrega um TitleEntry[64] (38 KB) no mesmo caminho, e daqui ainda se
+    // desce pro curl e pro mbedtls no meio de um handshake TLS. São 128 KB de
+    // pilha no total (o main_thread_stack_size do NPDM) e 4,7 KB a mais aqui
+    // sairiam justo do trecho mais fundo. Uma thread só chama isto.
+    static TitleEntry saves[8];
     size_t quantos = syncjob_find_all_titles(application_id, saves, 8);
     if (quantos == 0)
         return; // jogo sem save data de usuário: não há o que puxar
