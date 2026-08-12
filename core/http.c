@@ -617,9 +617,12 @@ bool http_download_to_file_raw(const char *url, const char *auth_raw,
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    fclose(out);
 
-    return rc == CURLE_OK && status >= 200 && status < 300;
+    // O fclose é a gravação de verdade: é nele que o buffer da stdio vai pro
+    // cartão. Ver o gêmeo abaixo — mesmo motivo, mesmo estrago.
+    bool gravou = (fclose(out) == 0);
+
+    return gravou && rc == CURLE_OK && status >= 200 && status < 300;
 }
 
 bool http_download_to_file(const char *url, const char *bearer, const char *local_file_path) {
@@ -660,7 +663,20 @@ bool http_download_to_file(const char *url, const char *bearer, const char *loca
 
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    fclose(out);
 
-    return rc == CURLE_OK && status >= 200 && status < 300;
+    // O retorno do fclose FAZ diferença, e aqui ele fazia a pior diferença
+    // possível.
+    //
+    // O curl entrega os bytes pro fwrite, que só enche o buffer da stdio: com
+    // um arquivo pequeno, NENHUM byte encostou no cartão quando o
+    // curl_easy_perform devolve CURLE_OK e 200. A gravação acontece no fclose —
+    // e é ele que falha com o cartão cheio. Ignorando isso, o download dizia
+    // "deu certo" com um arquivo de zero byte no lugar, o cloud_download_tree
+    // concordava, o dir_is_empty passava (o arquivo existe!) e o restore
+    // APAGAVA o savedata pra gravar o nada por cima, com "Save veio da nuvem"
+    // escrito na tela. O oauth.c já fazia essa conferência, com este mesmo
+    // comentário; aqui tinha ficado de fora.
+    bool gravou = (fclose(out) == 0);
+
+    return gravou && rc == CURLE_OK && status >= 200 && status < 300;
 }
