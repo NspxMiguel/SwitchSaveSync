@@ -326,9 +326,15 @@ baixa() {
     tentativa=1
     while [ "$tentativa" -le 3 ]; do
         if [ -t 2 ]; then barra="--progress-bar"; else barra="-sS"; fi
-        if curl -fL $barra --connect-timeout 20 -o "$2" "$1"; then
-            return 0
-        fi
+        http=$(curl -fL $barra --connect-timeout 20 -o "$2" -w '%{http_code}' "$1" 2>/dev/null)
+        [ $? = 0 ] && return 0
+        # Quem manda aqui e o codigo HTTP, nao o codigo de saida do curl: num
+        # 404 servido por HTTP/2 ele sai com 56 ("conexao morreu"), que e
+        # exatamente a mentira que faria o instalador repetir tres vezes e
+        # depois culpar a rede por um arquivo que nao existe.
+        case "$http" in
+            4*) return 22 ;;
+        esac
         if [ "$tentativa" -lt 3 ]; then
             printf '%s\n' "$(t "  a conexao caiu, tentando de novo ($tentativa/3)..." \
                                 "  the connection dropped, retrying ($tentativa/3)...")"
@@ -399,9 +405,14 @@ principal() {
             "couldn't find the release zip. No internet? Download it from $PAGINA/latest and use --zip"
         printf '%s\n' "$(basename "$url")"
         printf '  %s' "$(t "baixando... " "downloading... ")"
-        baixa "$url" "$zip" || morre \
-            "o download falhou depois de tres tentativas — a conexao caiu no meio" \
-            "the download failed after three tries — the connection kept dropping"
+        baixa "$url" "$zip"
+        case $? in
+            0)  : ;;
+            22) morre "o servidor recusou o arquivo da release (ele saiu do lugar?)" \
+                      "the server refused the release file (did it move?)" ;;
+            *)  morre "o download falhou depois de tres tentativas — a conexao caiu no meio" \
+                      "the download failed after three tries — the connection kept dropping" ;;
+        esac
         printf '%s\n' "$(humano "$(tamanho_de "$zip")")"
     fi
 
