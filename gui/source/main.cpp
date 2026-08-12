@@ -1884,20 +1884,20 @@ static void refillKeepingFocus(brls::List* list, const std::function<void()>& re
 {
     // Onde o foco estava, em índice de filho da lista. -1 = o foco não estava
     // aqui dentro, e aí não há o que devolver.
+    //
+    // Sobe do foco comparando com os filhos da lista, em vez de comparar
+    // getParent() com a lista: brls::List é uma ScrollView que guarda as linhas
+    // num BoxLayout de dentro (list.cpp:581), então o pai de uma linha NUNCA é
+    // a List — é o ListContentView. Comparar com o pai não acharia nada e este
+    // helper viraria um nada que parece consertar.
     int indice = -1;
-    for (brls::View* v = brls::Application::getCurrentFocus(); v; v = v->getParent())
-    {
-        if (v->getParent() != list)
-            continue;
-
+    for (brls::View* v = brls::Application::getCurrentFocus(); v && indice < 0; v = v->getParent())
         for (size_t i = 0; i < list->getViewsCount(); i++)
             if (list->getChild(i) == v)
             {
                 indice = (int)i;
                 break;
             }
-        break;
-    }
 
     refill();
 
