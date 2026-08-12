@@ -126,6 +126,7 @@ jobs:
           SSS_API: 'https://api.github.com/repos/este-repo-nao-existe-xyz/nada/releases'
         run: |
           $alvo = Join-Path $env:RUNNER_TEMP 'planoB'
+          New-Item -ItemType Directory -Force -Path $alvo | Out-Null
           .\install.ps1 -Card $alvo -Yes
           if (-not (Test-Path (Join-Path $alvo 'switch\SwitchSaveSync.nro'))) { exit 1 }
 
