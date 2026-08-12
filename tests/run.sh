@@ -12,7 +12,7 @@
 # testa.
 #
 #   ./tests/run.sh          roda tudo
-#   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes | pastas)
+#   ./tests/run.sh nomes    roda só um (nxsaves | webdav | nomes | pastas | sync)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -56,6 +56,13 @@ fi
 # continua valendo pro backup do cartao, e este testa a de agora.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = pastas ]; then
     roda pastas test_pastas.c stubs_console.c \
+        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+fi
+
+# ---- 3c. a decisao do sync, com nuvem e savedata falsos ----
+if [ "$QUAL" = tudo ] || [ "$QUAL" = sync ]; then
+    roda sync test_sync.c fake_cloud.c \
         $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
         $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi

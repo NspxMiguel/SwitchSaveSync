@@ -118,3 +118,37 @@ Corrigido, as três mutações são pegas:
 | tirar a reserva de espaço da truncagem | 3 |
 | voltar a deixar save único solto na raiz do jogo | 6 |
 | voltar a obedecer registro achatado do `pastas.txt` | 2 |
+
+## `sync` — a decisão de subir, baixar ou recusar
+
+O `syncjob_sync_title` decide **sozinho** se sobe o save, se baixa, se não mexe
+ou se recusa por conflito. Errar essa decisão apaga progresso de jogo, e até
+agora a única forma de exercitar isso era no console do Miguel, com o save de
+verdade dele — o pior lugar do mundo pra descobrir um erro.
+
+O `fake_cloud.c` põe uma nuvem e um savedata falsos em cima de pastas de
+verdade no disco. O `syncjob.c` que roda é o de produção, sem uma linha
+alterada. Os oito ramos da decisão são cobertos, mais o jogo aberto e o save com
+subpasta.
+
+Dois detalhes do falso que valem saber:
+
+- **A raiz da nuvem falsa já é a pasta do app.** Quem cria o nível
+  `Nintendo Switch Saves` no Drive de verdade é o `drive.c`, que está
+  substituído. O que interessa testar é o que vem depois dele.
+- **O commit é observado.** `savemount_unmount(true)` num mount read-only marca
+  o contador com um número absurdo, pra ficar impossível de passar batido — é
+  exatamente esse engano que corrompeu dois jogos.
+
+### Mutação
+
+| mutação | testes que acusam |
+| --- | --- |
+| primeira sync volta a usar `ensure_subfolder` com o caminho de dois níveis | **10** |
+| "mudou dos dois lados" vira download em vez de conflito | 4 |
+| "sem marcador" vira upload em vez de conflito | 2 |
+
+A primeira é o bug de verdade que passou hoje. O teste que o pega é o de **ida e
+volta**: subir e sincronizar de novo. Se o caminho que escreve e o que lê não
+forem o mesmo, a segunda chamada não acha nada, cai em "primeira sync" outra vez
+e sobe pra sempre — foi isso que a pasta com barra no nome causou.
