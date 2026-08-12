@@ -146,8 +146,8 @@ bool ScrollView::updateScrolling(bool animated)
     // Pode não ter foco nenhum: uma página que só tem texto (a tela de um Job
     // rodando, por exemplo) não tem onde pousar o foco, e aí getCurrentFocus()
     // devolve nullptr. Sem essa checagem é null deref na hora — foi o crash do
-    // "Testar conexao" (crash report: Data Abort em
-    // ScrollView::updateScrolling -> View::getY).
+    // "Testar conexao": Data Abort em ScrollView::updateScrolling ->
+    // View::getY, visto no crash report do console.
     if (!focusedView)
         return false;
 
