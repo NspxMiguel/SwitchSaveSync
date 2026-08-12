@@ -318,6 +318,27 @@ acha_url_do_zip() {
 
 # ------------------------------------------------------------- instalar
 
+# Baixar de novo quando a conexao cai. Nao e' teoria: a CDN do GitHub derrubou
+# a conexao no meio do download em duas maquinas ao mesmo tempo, e wi-fi de
+# quem esta instalando cai muito mais que isso. Uma queda nao pode virar
+# "deu errado, se vira".
+baixa() {
+    tentativa=1
+    while [ "$tentativa" -le 3 ]; do
+        if [ -t 2 ]; then barra="--progress-bar"; else barra="-sS"; fi
+        if curl -fL $barra --connect-timeout 20 -o "$2" "$1"; then
+            return 0
+        fi
+        if [ "$tentativa" -lt 3 ]; then
+            printf '%s\n' "$(t "  a conexao caiu, tentando de novo ($tentativa/3)..." \
+                                "  the connection dropped, retrying ($tentativa/3)...")"
+            sleep $((tentativa * 3))
+        fi
+        tentativa=$((tentativa + 1))
+    done
+    return 1
+}
+
 tamanho_de() {
     if [ "$sistema" = Darwin ]; then stat -f %z "$1" 2>/dev/null; else stat -c %s "$1" 2>/dev/null; fi
 }
@@ -378,8 +399,9 @@ principal() {
             "couldn't find the release zip. No internet? Download it from $PAGINA/latest and use --zip"
         printf '%s\n' "$(basename "$url")"
         printf '  %s' "$(t "baixando... " "downloading... ")"
-        if [ -t 2 ]; then barra="--progress-bar"; else barra="-sS"; fi
-        curl -fL $barra -o "$zip" "$url" || morre "o download falhou" "the download failed"
+        baixa "$url" "$zip" || morre \
+            "o download falhou depois de tres tentativas — a conexao caiu no meio" \
+            "the download failed after three tries — the connection kept dropping"
         printf '%s\n' "$(humano "$(tamanho_de "$zip")")"
     fi
 
