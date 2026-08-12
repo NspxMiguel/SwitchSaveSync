@@ -135,7 +135,18 @@ void __appInit(void)
 
     syncstate_set_status(TR("Ligando: ns/account", "Starting: ns/account"));
     nsInitialize();   // nome do jogo via NACP
-    accountInitialize(AccountServiceType_System);
+    // Administrator, e nao System.
+    //
+    // Os nomes da libnx enganam: AccountServiceType_System abre **acc:u1**, e
+    // acc:u1 nao esta no service_access deste NPDM. A chamada falhava calada,
+    // o servico nunca subia, e todo apelido de conta saia vazio — no Drive a
+    // pasta do dono virava "conta-10012EE7DE4B4164" em vez de "Miguel".
+    // Comparado lado a lado: o app, que abre acc:u0, resolvia o MESMO uid como
+    // "Miguel" no mesmo cartao.
+    //
+    // AccountServiceType_Administrator abre acc:su, que e o que sysmodule usa
+    // e o que este NPDM ja permitia desde sempre.
+    accountInitialize(AccountServiceType_Administrator);
 
     syncstate_set_status(TR("Ligando: rede", "Starting: network"));
 

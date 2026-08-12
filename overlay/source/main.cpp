@@ -172,9 +172,10 @@ public:
         // altura, que é o que cabe sem empurrar os botões pra fora da tela.
         list->addItem(new tsl::elm::CustomDrawer(
             [this](tsl::gfx::Renderer* r, s32 x, s32 y, s32 w, s32 h) {
-                r->drawString(this->statusText, false, x + 20, y + 24, 20,
-                              a(tsl::style::color::ColorText), w - 40);
-            }), 76); // a altura vai no addItem, nao no CustomDrawer
+                this->rewrap(r, w - 40);
+                r->drawString(this->wrapped, false, x + 20, y + 26, 20,
+                              a(tsl::style::color::ColorText));
+            }), 96); // a altura vai no addItem, nao no CustomDrawer
 
         list->addItem(new tsl::elm::CategoryHeader(TR("Controle", "Controls"), true));
 
@@ -309,10 +310,65 @@ public:
     }
 
 private:
+    // Quebra a linha de status no espaco disponivel.
+    //
+    // O maxWidth do drawString da libtesla NAO quebra linha: ele para de
+    // desenhar no meio da frase. Era isso que aparecia no console —
+    // "Nao consegui puxar — save local", sem o "mantido". Quem quebra tem que
+    // ser quem escreve, e a unica coisa que a libtesla entende e o '\n'.
+    //
+    // Medir e o proprio drawString com cor transparente: e o jeito que a
+    // libtesla usa internamente pra saber o tamanho de um texto.
+    void rewrap(tsl::gfx::Renderer* r, s32 maxW)
+    {
+        if (strcmp(this->statusText, this->wrappedFrom) == 0)
+            return; // mesma frase de antes: nada a refazer neste quadro
+        snprintf(this->wrappedFrom, sizeof(this->wrappedFrom), "%s", this->statusText);
+
+        char linha[sizeof(this->statusText)] = {0};
+        size_t linhas = 1;
+        this->wrapped[0] = '\0';
+
+        const char* p = this->statusText;
+        while (*p)
+        {
+            // Uma palavra, com o espaco que vier depois dela.
+            char palavra[128];
+            size_t n = 0;
+            while (*p && *p != ' ' && n < sizeof(palavra) - 2) palavra[n++] = *p++;
+            while (*p == ' ' && n < sizeof(palavra) - 1) { palavra[n++] = *p++; }
+            palavra[n] = '\0';
+            if (n == 0) break;
+
+            char tentativa[sizeof(linha)];
+            snprintf(tentativa, sizeof(tentativa), "%s%s", linha, palavra);
+
+            auto [larg, alt] = r->drawString(tentativa, false, 0, 0, 20,
+                                             tsl::style::color::ColorTransparent);
+            if ((s32)larg > maxW && linha[0] != '\0')
+            {
+                if (linhas >= 3)
+                    break; // mais que isso empurraria os botoes pra fora da tela
+                strncat(this->wrapped, linha, sizeof(this->wrapped) - strlen(this->wrapped) - 2);
+                strncat(this->wrapped, "\n", sizeof(this->wrapped) - strlen(this->wrapped) - 1);
+                linhas++;
+                snprintf(linha, sizeof(linha), "%s", palavra);
+            }
+            else
+            {
+                snprintf(linha, sizeof(linha), "%s", tentativa);
+            }
+        }
+
+        strncat(this->wrapped, linha, sizeof(this->wrapped) - strlen(this->wrapped) - 1);
+    }
+
     // Lido pelo CustomDrawer do status a cada quadro. char[], e nao
     // std::string, porque quem escreve aqui e o update() e quem le e o
     // desenho — realocar no meio do quadro nao vale a pena por 640 bytes.
     char statusText[640] = {0};
+    char wrapped[768]    = {0};
+    char wrappedFrom[640] = {0};
     tsl::elm::ListItem* backupItem = nullptr;
     tsl::elm::ToggleListItem* moduleItem = nullptr;
     char failMsg[128] = {0};
