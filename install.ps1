@@ -291,7 +291,11 @@ try {
         Copy-Item -LiteralPath $Zip -Destination $zipLocal -Force
         Write-Host ('  ' + (T 'arquivo: ' 'file: ') + $Zip)
     } else {
-        Write-Host ('  ' + (T 'procurando a versao mais nova... ' 'looking for the newest release... ')) -NoNewline
+        if ($Version) {
+            Write-Host ('  ' + (T "procurando a versao $Version... " "looking for release $Version... ")) -NoNewline
+        } else {
+            Write-Host ('  ' + (T 'procurando a versao mais nova... ' 'looking for the newest release... ')) -NoNewline
+        }
         $url = UrlDoZip
         if (-not $url) {
             Morre "nao achei o zip da release. Sem internet? Baixa a mao em $pagina/latest e roda com -Zip" `

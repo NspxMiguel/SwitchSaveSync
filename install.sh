@@ -363,7 +363,11 @@ principal() {
         cp "$ZIP_LOCAL" "$zip" || morre "nao consegui ler $ZIP_LOCAL" "couldn't read $ZIP_LOCAL"
         printf '  %s %s\n' "$(t "arquivo:" "file:")" "$ZIP_LOCAL"
     else
-        printf '  %s' "$(t "procurando a versao mais nova... " "looking for the newest release... ")"
+        if [ -n "$VERSAO" ]; then
+            printf '  %s' "$(t "procurando a versao $VERSAO... " "looking for release $VERSAO... ")"
+        else
+            printf '  %s' "$(t "procurando a versao mais nova... " "looking for the newest release... ")"
+        fi
         url=$(acha_url_do_zip)
         [ -n "$url" ] || morre \
             "nao achei o zip da release. Sem internet? Baixa a mao em $PAGINA/latest e roda com --zip" \
