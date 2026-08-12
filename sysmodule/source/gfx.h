@@ -1,10 +1,9 @@
 // gfx.h — a tela de "Puxando save da nuvem".
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
+// Uma mensagem no estilo da interface do próprio console: "Puxando save da
+// nuvem", a porcentagem embaixo, e o jogo só abre quando termina. A tela fica
+// de pé por pelo menos 5 segundos, com dois botões — "Nao puxar save da nuvem
+// nesse jogo" (que depois dá pra desmarcar no Ultrahand) e um OK.
 //
 // Quem desenha isso é o sysmodule, não o jogo — então não dá pra usar a tela do
 // jogo. O jeito de um processo de sistema aparecer por cima de tudo é criar uma

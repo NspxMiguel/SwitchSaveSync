@@ -4,7 +4,7 @@
 // Por que isto existe: o syncjob_sync_title decide SOZINHO se sobe, se baixa,
 // se não faz nada ou se recusa por conflito — e errar essa decisão apaga
 // progresso de jogo. Até hoje essa decisão só era exercitada no console, com
-// o save real do Miguel, o que é o pior lugar possível pra descobrir um erro.
+// o save real, o que é o pior lugar possível pra descobrir um erro.
 //
 // Nada aqui simula rede, latência ou erro do Google. O que se testa é a
 // DECISÃO, e ela não depende disso.
@@ -86,7 +86,8 @@ static void apaga_recursivo(const char *dir)
 int fake_puts = 0, fake_gets = 0, fake_removes = 0;
 
 // O teste liga isto pra simular o que acontece de verdade: o Drive recusando o
-// DELETE por rate limit, o WebDAV devolvendo 423, ou ele apertando B no meio.
+// DELETE por rate limit, o WebDAV devolvendo 423, ou o usuário apertando B no
+// meio.
 int fake_remove_falha = 0;
 
 void fake_cloud_reset(void)
@@ -195,7 +196,7 @@ const CloudBackend *drive_backend(void)
 //
 // O savedata do jogo vira a pasta save-falso/. O "commit" é o detalhe que
 // importa: montar sem commitar tem que deixar o save como estava, e é essa a
-// regra que custou dois jogos de verdade.
+// regra que já custou save de jogo de verdade.
 
 static bool g_montado    = false;
 static bool g_escrita    = false;
@@ -288,6 +289,6 @@ size_t titles_list_with_savedata(TitleEntry *o, size_t m) { (void)o; (void)m; re
 
 bool titles_current_account_name(char *out, size_t outsz)
 {
-    snprintf(out, outsz, "Miguel");
+    snprintf(out, outsz, "Jogador");
     return true;
 }

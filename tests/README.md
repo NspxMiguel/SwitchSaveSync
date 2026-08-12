@@ -105,10 +105,10 @@ pro backup no cartão e pro nome de pasta dentro do arquivo `.nxsaves`.
 Este arquivo passou verde de primeira, o que é motivo pra desconfiar — teste que
 não sabe falhar não vale nada. Rodando mutação (quebrar o código de propósito e
 conferir que o teste acusa), **o teste da truncagem não pegou**: o apelido usado
-era "Miguel", de 6 letras, e 512 + 1 + 6 ainda cabia no buffer de 544. O pior
-caso de verdade é o apelido no tamanho que o console entrega — `account[0x21]`,
-32 caracteres — onde 512 + 1 + 32 estoura por um byte e quem perde o fim é o
-dono. Com dois apelidos de 32 que diferem só no último caractere, os dois donos
+tinha 6 letras, e 512 + 1 + 6 ainda cabia no buffer de 544. O pior caso de
+verdade é o apelido no tamanho que o console entrega — `account[0x21]`, 32
+caracteres — onde 512 + 1 + 32 estoura por um byte e quem perde o fim é o dono.
+Com dois apelidos de 32 que diferem só no último caractere, os dois donos
 colidem no mesmo caminho e um escreve por cima do save do outro.
 
 Corrigido, as três mutações são pegas:
@@ -123,8 +123,8 @@ Corrigido, as três mutações são pegas:
 
 O `syncjob_sync_title` decide **sozinho** se sobe o save, se baixa, se não mexe
 ou se recusa por conflito. Errar essa decisão apaga progresso de jogo, e até
-agora a única forma de exercitar isso era no console do Miguel, com o save de
-verdade dele — o pior lugar do mundo pra descobrir um erro.
+agora a única forma de exercitar isso era no console, com o save de verdade —
+o pior lugar do mundo pra descobrir um erro.
 
 O `fake_cloud.c` põe uma nuvem e um savedata falsos em cima de pastas de
 verdade no disco. O `syncjob.c` que roda é o de produção, sem uma linha
@@ -138,7 +138,7 @@ Dois detalhes do falso que valem saber:
   substituído. O que interessa testar é o que vem depois dele.
 - **O commit é observado.** `savemount_unmount(true)` num mount read-only marca
   o contador com um número absurdo, pra ficar impossível de passar batido — é
-  exatamente esse engano que corrompeu dois jogos.
+  exatamente esse engano que já corrompeu save de jogo.
 
 ### Mutação
 
@@ -159,7 +159,7 @@ Com o save local vazio isso vira download do save de outra pessoa por cima do
 savedata. Consertado com a trava do `shared_game`; a ultima linha da tabela
 acima e a mutacao que prova o conserto.
 
-A primeira é o bug de verdade que passou hoje. O teste que o pega é o de **ida e
-volta**: subir e sincronizar de novo. Se o caminho que escreve e o que lê não
+A primeira é o bug de verdade que passou batido. O teste que o pega é o de **ida
+e volta**: subir e sincronizar de novo. Se o caminho que escreve e o que lê não
 forem o mesmo, a segunda chamada não acha nada, cai em "primeira sync" outra vez
 e sobe pra sempre — foi isso que a pasta com barra no nome causou.

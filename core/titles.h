@@ -59,8 +59,7 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries);
 // O apelido da conta que está usando o console agora.
 //
 // Existe pro caso do save cujo dono não deu pra ler: tendo um save só, o dono é
-// conversa privada removida do historico
-// conversa privada removida do historico
+// quem está com o console aberto agora — é essa conta que vale.
 //
 // Vale igual no app e no sysmodule — accountGetLastOpenedUser é do serviço
 // account, não do applet, e os dois já abrem esse serviço. Importa que os dois

@@ -1,7 +1,7 @@
 // Teste do backend WebDAV contra um servidor WebDAV de verdade (Apache com
 // mod_dav rodando em 127.0.0.1:8088).
 //
-// É o código mais novo do projeto e o que ele vai testar primeiro. Aqui a
+// É o código mais novo do projeto e o primeiro a ser testado. Aqui a
 // gente exercita as sete primitivas do CloudBackend e, principalmente, o
 // espelhamento inteiro do cloud.c: subir árvore, baixar árvore e apagar da
 // nuvem o que não existe mais no console — que é a operação que pode destruir
@@ -168,14 +168,14 @@ int main(void)
         // as duas sairia "//", que servidor nenhum trata igual.
         WebdavConfig c = {0};
         snprintf(c.url,  sizeof(c.url),  "http://127.0.0.1:8088/");
-        snprintf(c.user, sizeof(c.user), "miguel");
+        snprintf(c.user, sizeof(c.user), "jogador");
         snprintf(c.pass, sizeof(c.pass), "senha de teste 123");
         webdav_set_config(&c);
 
         WebdavConfig d;
         ok(webdav_get_config(&d), "depois de gravar, o get diz que tem");
         ok(strcmp(d.url, "http://127.0.0.1:8088") == 0, "tirou a barra do fim do endereco");
-        ok(strcmp(d.user, "miguel") == 0, "guardou o usuario");
+        ok(strcmp(d.user, "jogador") == 0, "guardou o usuario");
         ok(strcmp(d.pass, "senha de teste 123") == 0, "guardou a senha com espaco dentro");
     }
 
@@ -241,19 +241,19 @@ int main(void)
     printf("     raiz: %s\n", raiz);
 
     char jogo[CLOUD_ID_MAX];
-    ok(cloud_ensure_subfolder(auth, raiz, "Zelda (Player 1)", jogo, sizeof(jogo)),
+    ok(cloud_ensure_subfolder(auth, raiz, "Zelda (Jogador)", jogo, sizeof(jogo)),
         "criou a pasta do jogo com parentese e espaco no nome");
 
     {
         char denovo[CLOUD_ID_MAX];
-        ok(cloud_ensure_subfolder(auth, raiz, "Zelda (Player 1)", denovo, sizeof(denovo)),
+        ok(cloud_ensure_subfolder(auth, raiz, "Zelda (Jogador)", denovo, sizeof(denovo)),
             "chamar de novo nao quebra");
         ok(strcmp(jogo, denovo) == 0, "e devolve a mesma pasta, sem duplicar");
     }
 
     {
         char achada[CLOUD_ID_MAX];
-        ok(cloud_find_subfolder(auth, raiz, "Zelda (Player 1)", achada, sizeof(achada)),
+        ok(cloud_find_subfolder(auth, raiz, "Zelda (Jogador)", achada, sizeof(achada)),
             "acha a pasta pelo nome");
         ok(!cloud_find_subfolder(auth, raiz, "Jogo Que Nao Existe", achada, sizeof(achada)),
             "e nao inventa pasta que nao existe");

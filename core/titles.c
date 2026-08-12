@@ -17,10 +17,10 @@
 
 // "Esse jogo esta instalado no console?"
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// ficou na NAND) e o caso comum — o console guarda o save mesmo depois de
-// desinstalar o jogo, entao a lista vinha cheia de coisa que ele nao pode usar.
+// So entra jogo instalado: save de jogo que nao esta mais no console nao tem
+// pra que sincronizar. Save orfao (o jogo foi apagado mas o save ficou na NAND)
+// e o caso comum — o console guarda o save mesmo depois de desinstalar o jogo,
+// entao a lista vinha cheia de coisa que nao da pra usar.
 //
 // nsIsAnyApplicationEntityInstalled e a pergunta literal, respondida pelo ns.
 // Nao da pra usar o nome como pista: nsGetApplicationControlData com
@@ -28,7 +28,8 @@
 // mais instalado, entao um save orfao ainda devolve o nome bonito do jogo.
 //
 // Em erro, o padrao e EXCLUIR: se eu nao consegui confirmar que esta instalado,
-// mostrar assim mesmo e trazer de volta exatamente a lista que mandaram tirar.
+// mostrar assim mesmo traria de volta exatamente a lista de save orfao que este
+// filtro existe pra tirar.
 static bool is_installed(uint64_t application_id) {
     bool installed = false;
     Result rc = nsIsAnyApplicationEntityInstalled(application_id, &installed);
@@ -251,7 +252,7 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 // não são de jogo; Bcat é conteúdo que o servidor da Nintendo
                 // empurra (evento, não progresso); Temporary morre sozinho; e
                 // Cache é dado derivado que o jogo remonta quando falta.
-                // Nenhum deles é progresso do jogador, que é o que ele quer
+                // Nenhum deles é progresso do jogador, que é o que se quer
                 // sincronizar.
                 bool device = (info->save_data_type == FsSaveDataType_Device);
                 if (info->save_data_type != FsSaveDataType_Account && !device) continue;
@@ -266,12 +267,11 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 //
                 // Antes bastava o application_id bater pra pular, então o save
                 // da segunda conta era descartado aqui: nunca aparecia na
-                // conversa privada removida do historico
-                // conversa privada removida do historico
-                // conversa privada removida do historico
-                // pode ter save de conta E save do console ao mesmo tempo (é o
-                // caso do Pokémon Sword/Shield) — são dois saves de verdade, e
-                // não um repetido.
+                // lista e não tinha como ser sincronizado. Havendo mais de um
+                // save do mesmo jogo, cada conta tem que ter o seu na lista.
+                // O tipo entrou na chave junto porque um jogo pode ter save de
+                // conta E save do console ao mesmo tempo (é o caso do Pokémon
+                // Sword/Shield) — são dois saves de verdade, e não um repetido.
                 bool dup = false;
                 for (size_t j = 0; j < count; j++) {
                     if (out[j].application_id == application_id &&

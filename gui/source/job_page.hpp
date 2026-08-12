@@ -42,8 +42,7 @@ class JobPage : public brls::AppletFrame
 
     // QR, código e link. Ficam guardados porque precisam SUMIR quando o login
     // termina: enquanto eles continuavam na tela, acabar o login não mudava
-    // conversa privada removida do historico
-    // conversa privada removida do historico
+    // nada visível — a tela ficava idêntica, e o login parecia quebrado.
     std::vector<brls::View*> loginViews;
 
     // A última linha de log escrita. Guardada pra receber o foco quando o

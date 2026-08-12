@@ -16,9 +16,9 @@ extern "C" {
 //
 // Sem ilusão sobre o que isso é: 4 dígitos são 10 mil combinações, então quem
 // tiver o arquivo e vontade descobre a senha em segundos. O que resolve é o
-// caso real desta casa — a criança abrir o cartão no PC (ou o FTP do DBI) e
-// LER a senha do pai escrita em texto puro. Pra isso basta, e não arrasta uma
-// biblioteca de criptografia pra dentro de um app de save.
+// caso real — a criança abrir o cartão no PC (ou o FTP do DBI) e LER a senha
+// escrita em texto puro. Pra isso basta, e não arrasta uma biblioteca de
+// criptografia pra dentro de um app de save.
 //
 // FNV-1a de 64 bits, com um tempero fixo só pra o resultado não bater com o de
 // qualquer outra tabela FNV pronta que exista por aí.
@@ -65,7 +65,7 @@ bool Parental::save(const std::string& pin)
     fprintf(f, "%016llx\n", (unsigned long long)hash_pin(pin));
     // fclose devolve erro quando o cartão encheu ou saiu no meio da escrita.
     // Sem conferir, o app diria "senha gravada" e na próxima vez abriria
-    // conversa privada removida do historico
+    // destravado — que é exatamente o contrário do que foi pedido.
     return fclose(f) == 0;
 }
 
@@ -89,7 +89,7 @@ bool Parental::matches(const std::string& pin)
 // ele passa o que foi digitado por std::stol, o que (a) come o zero da frente
 // — "0123" viraria 123, e senha de criança começa com zero o tempo todo — e
 // (b) joga exceção se o texto não for número. Aqui a senha fica sendo a
-// string exata que ele digitou.
+// string exata que foi digitada.
 bool Parental::prompt(const std::string& header, const std::string& sub, std::string& out)
 {
     out.clear();
@@ -107,7 +107,7 @@ bool Parental::prompt(const std::string& header, const std::string& sub, std::st
     swkbdConfigSetPasswordFlag(&cfg, 1); // esconde os dígitos com bolinha
     swkbdConfigSetBlurBackground(&cfg, true);
     // Sem tecla extra nos cantos do teclado numérico: assim só entra dígito, e
-    // a senha nunca ganha um "-" ou "." que ele não conseguiria repetir.
+    // a senha nunca ganha um "-" ou "." que depois não dá pra repetir.
     swkbdConfigSetLeftOptionalSymbolKey(&cfg, "");
     swkbdConfigSetRightOptionalSymbolKey(&cfg, "");
 

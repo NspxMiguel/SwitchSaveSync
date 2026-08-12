@@ -10,9 +10,9 @@
 // barata o bastante pra rodar a cada 100 ms.
 //
 // O que ele NÃO faz, de propósito: subir no boot. Não existe boot2.flag nessa
-// conversa privada removida do historico
-// overlay do Ultrahand, na mão. Se ele quebrar numa atualização de firmware,
-// é só não lançar, e o console boota igual.
+// pasta e não vai existir. Quem lança é o overlay do Ultrahand, na mão. Se ele
+// quebrar numa atualização de firmware, é só não lançar, e o console boota
+// igual.
 
 #include <switch.h>
 
@@ -44,7 +44,7 @@
 // que veio da nuvem antes de qualquer leitura do jogo.
 #define POLL_INTERVAL_NS  100000000ULL    // 100 ms
 #define SETTLE_DELAY_NS   3000000000ULL   // 3 s antes de subir save de jogo que fechou
-# conversa privada removida do historico
+#define MIN_PULL_HOLD_NS  5000000000ULL   // a tela fica de pe pelo menos 5 s
 
 u32 __nx_applet_type = AppletType_None;
 u32 __nx_fs_num_sessions = 1;
@@ -109,7 +109,7 @@ void __appInit(void)
     // Antes do primeiro TR: o idioma mora em idioma.txt, no cartão que acabou
     // de ser montado. Sem esta chamada o sysmodule escreve tudo em inglês
     // (é o padrão do lang.c) enquanto o app aparece em português — foi o que
-    // conversa privada removida do historico
+    // aparecia no overlay.
     lang_load();
 
     syncstate_set_status(TR("Ligando: cartao montado", "Starting: SD card mounted"));
@@ -272,11 +272,11 @@ static void progress_cb(const char *action, const char *name, bool ok)
 
 // A última linha que o job escreveu, guardada pro resumo lá embaixo.
 //
-// Sem isto,: o refresh token no cartão estava revogado, o job
-// escreveu "Sem token válido — precisa entrar na conta pelo app" no status, e
-// meio segundo depois o resumo passou por cima com "cartao OK, nuvem FALHOU".
-// Ele olhou a tela e não tinha como saber que era só refazer o login — a
-// palavra "FALHOU" é a mesma que aparece quando o Wi-Fi cai.
+// Sem isto: com o refresh token do cartão revogado, o job escrevia "Sem token
+// válido — precisa entrar na conta pelo app" no status, e meio segundo depois
+// o resumo passava por cima com "cartao OK, nuvem FALHOU". Quem lê a tela não
+// tem como saber que era só refazer o login — a palavra "FALHOU" é a mesma que
+// aparece quando o Wi-Fi cai.
 static char g_last_log[160];
 
 static void log_line(const char *msg)
@@ -320,8 +320,7 @@ static u64 foreground_title_id(u64 *pid_out)
 // sessão de filesystem que ele já abriu no savedata**. O jogo para de executar,
 // mas continua sendo dono daquele save. Montar o mesmo savedata aqui em modo
 // escrita e chamar fsdevCommitDevice finaliza um estado que o dono não conhece.
-// Foi assim que dois jogos do Miguel foram parar em "dados corrompidos" em
-//.
+// Foi assim que save de jogo já foi parar em "dados corrompidos".
 //
 // Congelar não é exclusividade. A regra que ficou no lugar: nenhuma escrita em
 // savedata de jogo com processo vivo — o download acontece com o console parado
@@ -356,9 +355,9 @@ static void backup_now(u64 application_id)
     // O sysmodule só sabe o application_id do jogo que fechou — nunca a conta.
     // Com duas pessoas jogando o mesmo jogo no mesmo console, pegar a primeira
     // da enumeração era pegar a ordem que o fsSaveDataInfoReader devolveu, que
-    // não tem nada a ver com quem acabou de jogar: a Convidado fechava o Rayman, o
-    // save do Miguel (que não mudou) subia de novo, e a tela dizia "nuvem OK".
-    // O progresso dela não ia pra lugar nenhum.
+    // não tem nada a ver com quem acabou de jogar: uma conta fechava o jogo, o
+    // save de OUTRA conta (que não mudou) subia de novo, e a tela dizia "nuvem
+    // OK". O progresso de quem tinha acabado de jogar não ia pra lugar nenhum.
     //
     // Subir todas custa pouco: quem não mudou tem a mesma impressão digital do
     // último upload e o backup sai barato. O que não dá é adivinhar.
@@ -593,14 +592,14 @@ static void pull_one_save_idle(const TitleEntry *entrada)
     if (g_pull_never)
     {
         // "Nao puxar save da nuvem nesse jogo" — vale pra sempre, e da pra
-        // conversa privada removida do historico
+        // desmarcar depois no overlay do Ultrahand.
         //
         // Se a lista nao foi gravada, dizer "marcado" e mentira que custa caro:
-        // na proxima varredura este jogo e puxado de novo, exatamente o que ele
-        // acabou de mandar nao fazer.
+        // na proxima varredura este jogo e puxado de novo, exatamente o que o
+        // usuario acabou de mandar nao fazer.
         if (syncstate_set_excluded(application_id, true))
         {
-            syncstate_log(TR("%s: mandaram nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), title.name);
+            syncstate_log(TR("%s: pedido pra nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), title.name);
             syncstate_set_status(TR("Nao vou mais puxar save de %s", "Will not download saves for %s anymore"), title.name);
             snprintf(g_pull_line, sizeof(g_pull_line), "Cancelado. Esse jogo nao puxa mais.");
         }
@@ -630,9 +629,8 @@ static void pull_one_save_idle(const TitleEntry *entrada)
         snprintf(g_pull_line, sizeof(g_pull_line), "Nao consegui puxar — o save local ficou como estava");
     }
 
-    // "esperar pelo menos 5 segundos" e "ai tem um botao ... e um OK": a tela
-    // fica de pe com o OK aceso ate ele apertar. Os 5 s valem tambem como
-    // tempo minimo antes de o OK responder, pra ninguem apertar sem ler.
+    // A tela fica de pe com o OK aceso ate alguem apertar. Os 5 s valem tambem
+    // como tempo minimo antes de o OK responder, pra ninguem apertar sem ler.
     // Aqui ninguém está preso esperando: o console está no menu.
     if (g_screen)
     {
@@ -650,8 +648,8 @@ static void pull_one_save_idle(const TitleEntry *entrada)
             if (can_ok && (k & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_Plus)))
                 break;
 
-            // Rede caiu, ele largou o console na mesa, sei la: em 60 s a tela
-            // sai sozinha. O jogo nunca fica preso aqui.
+            // Rede caiu, o console ficou largado na mesa, sei la: em 60 s a
+            // tela sai sozinha. O jogo nunca fica preso aqui.
             if (waited >= 60000000000ULL)
                 break;
 
@@ -670,7 +668,7 @@ static void pull_one_save_idle(const TitleEntry *entrada)
 }
 
 // Varredura ociosa: com o console parado no menu, deixa os saves locais em dia
-// com a nuvem, pra quando ele abrir o jogo já estar certo. É aqui que mora o
+// com a nuvem, pra quando o jogo abrir já estar certo. É aqui que mora o
 // "auto-download" do projeto — só que num momento em que não existe processo de
 // jogo pra atropelar.
 //
@@ -692,7 +690,7 @@ static void pull_one_save_idle(const TitleEntry *entrada)
 // horas antes, que aquele título já estava resolvido.
 //
 // Meia hora é longa o bastante pra não ficar batendo no Drive à toa e curta o
-// bastante pra que "fui almoçar e voltei" já traga o save de fora.
+// bastante pra que uma pausa pro almoço já traga o save de fora.
 #define IDLE_RECHECK_NS (30ULL * 60ULL * 1000000000ULL)
 
 typedef struct {
@@ -825,11 +823,11 @@ int main(int argc, char *argv[])
             {
                 // Jogo abriu.
                 //
-                // Aqui ANTES eu congelava o processo e escrevia o save da nuvem
-                // por cima. Isso está proibido, e o motivo custou caro em
-                //: svcDebugActiveProcess para a CPU do jogo, mas NÃO
-                // fecha a sessão de filesystem que ele já tem aberta no
-                // savedata. Montar esse mesmo savedata em outro processo e dar
+                // Aqui ANTES o processo era congelado e o save da nuvem escrito
+                // por cima. Isso está proibido, e o motivo custou caro:
+                // svcDebugActiveProcess para a CPU do jogo, mas NÃO fecha a
+                // sessão de filesystem que ele já tem aberta no savedata.
+                // Montar esse mesmo savedata em outro processo e dar
                 // fsdevCommitDevice finaliza um estado que o jogo não conhece —
                 // é assim que save corrompe. Congelar não é exclusividade.
                 //

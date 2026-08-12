@@ -19,15 +19,14 @@ namespace
 //
 // Como toda linha de log é uma Label, o único item focável desta tela era o
 // botão — que fica em cima do log. Resultado: a lista nunca descia, e com
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
+// muitos jogos só dava pra ler as primeiras linhas do log — sincronizando
+// vários de uma vez, o resto ficava inalcançável.
 //
 // É o mesmo bug que já tinha comido a aba Sobre, e lá a saída foi um item
 // focável por seção. Aqui não dava pra usar ListItem por linha: ele tem altura
-// fixa e separador, e cem deles viram uma parede — justamente numa tela que ele
-// já achou bagunçada. Uma Label que aceita foco deixa o texto igualzinho e faz
-// o D-pad andar por ele, com o realce mostrando onde você está.
+// fixa e separador, e cem deles viram uma parede — justamente numa tela que já
+// é carregada de texto. Uma Label que aceita foco deixa o texto igualzinho e
+// faz o D-pad andar por ele, com o realce mostrando onde você está.
 class LogLabel : public brls::Label
 {
   public:
@@ -55,9 +54,9 @@ JobPage::JobPage(Job* job, bool cancellable)
     // isso era o bug inteiro: a área útil é 475 px (720 de tela − 88 do
     // cabeçalho − 73 do rodapé − 42+42 de margem da lista), e cinco vãos de 61
     // comiam 305 px — mais espaço em branco do que o QR ocupa. O QR começava no
-    // conversa privada removida do historico
-    //). Com 10 px de vão o login inteiro fecha em 429 px e sobra
-    // folga. De quebra, na sincronização cabe muito mais linha de log por tela.
+    // pixel 433 e sobrava um talo de 42 px na tela: aparecia cortado embaixo.
+    // Com 10 px de vão o login inteiro fecha em 429 px e sobra folga. De
+    // quebra, na sincronização cabe muito mais linha de log por tela.
     this->list->setSpacing(10);
 
     this->statusLabel = new brls::Label(brls::LabelStyle::DIALOG, TR("Começando...", "Starting..."), true);
@@ -69,10 +68,10 @@ JobPage::JobPage(Job* job, bool cancellable)
     // focável. Label não recebe foco, então uma página só de texto deixa
     // Application::currentFocus nulo, e daí pra frente qualquer coisa que
     // mexa em foco (rolagem, navegação, dica de rodapé) trabalha em cima de
-    // ponteiro nulo. Foi assim que o "Testar conexao" morreu,
-    // e a tela de login é exatamente a mesma armadilha. Com um item focável
+    // ponteiro nulo. Foi assim que a tela do "Testar conexao" já morreu uma
+    // vez, e a de login é exatamente a mesma armadilha. Com um item focável
     // desde o primeiro quadro o problema deixa de existir por construção,
-    // em vez de depender de eu tapar cada buraco um por um.
+    // em vez de depender de tapar cada buraco um por um.
     this->backItem = new brls::ListItem(cancellable ? TR("Cancelar", "Cancel") : TR("Aguarde...", "Please wait..."));
     this->backItem->getClickEvent()->subscribe([this](brls::View* view) {
         this->onBackPressed();
@@ -90,8 +89,7 @@ JobPage::JobPage(Job* job, bool cancellable)
 // pilha (application.cpp, dentro do pushView). Numa tela de trabalho isso é
 // derrubar o processo com a thread de sync no meio do caminho — e ela pode
 // estar com um savedata MONTADO pra escrita. É o mesmo caminho que já corrompeu
-// dois jogos de quem usa. "cliquei o botao + e crashou o switch"
-//.
+// save de jogo, e apertar + no meio do trabalho já derrubou o console.
 //
 // Dá pra tomar a tecla de volta porque registerAction SUBSTITUI a ação da mesma
 // tecla (view.cpp:359) e o willAppear roda DEPOIS do registro da borealis, no
@@ -122,8 +120,8 @@ void JobPage::onBackPressed()
     // ainda não rodou o fecho — e sair aqui pularia ele inteiro: o onFinished
     // nunca é chamado (a linha "Conta Google" do menu de trás fica com o
     // estado velho) e, pior, as escolhas de conflito nunca chegam a existir.
-    // Nesse caso o trabalho parou justamente PARA ele decidir, e a tela sumia
-    // levando a pergunta junto, como se nada tivesse acontecido.
+    // Nesse caso o trabalho parou justamente PARA quem usa decidir, e a tela
+    // sumia levando a pergunta junto, como se nada tivesse acontecido.
     //
     // O pump() roda no draw, uma vez por quadro, então a espera é de um
     // quadro: no quadro seguinte o fecho já rodou e o B sai normalmente.
@@ -144,10 +142,10 @@ void JobPage::onBackPressed()
         this->job->requestCancel();
         this->backItem->setLabel(TR("Cancelando...", "Cancelling..."));
 
-        // conversa privada removida do historico
-        // olhando pra tela grande, onde continuava escrito "Sincronizando
-        // fulano..." — do lado de fora, cancelar não tinha acontecido. O rodapé
-        // é o único texto que nada mais sobrescreve enquanto o trabalho roda.
+        // No rodapé também, e não só no botão. Sem isso dá pra apertar B várias
+        // vezes olhando pra tela grande, onde continua escrito "Sincronizando
+        // fulano..." — do lado de fora, cancelar não acontece. O rodapé é o
+        // único texto que nada mais sobrescreve enquanto o trabalho roda.
         this->setFooterText(TR("Cancelando — parando assim que der",
             "Cancelling — stopping as soon as it can"));
         brls::Application::notify(TR("Cancelando...", "Cancelling..."));
@@ -186,8 +184,7 @@ void JobPage::pump()
         // Endereço e código numa linha só, ACIMA do QR. Em duas linhas
         // separadas eram 40 px de texto + 10 de vão a mais empurrando o QR pra
         // baixo, e o QR é justamente quem não tem onde encolher. Acima porque a
-        // conversa privada removida do historico
-        // conversa privada removida do historico
+        // lista rola: embaixo do QR, o que cabia na tela era só o QR.
         brls::Label* infoLabel = new brls::Label(brls::LabelStyle::DIALOG,
             url + TR("   —   código: ", "   —   code: ") + code, true);
         infoLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
@@ -231,8 +228,8 @@ void JobPage::pump()
         this->setFooterText(success ? TR("Concluído", "Done") : TR("Falhou", "Failed"));
 
         // Some com o endereço, o código e o QR. Sem isso, acabar o login não
-        // mudava nada de visível — o QR continuava ocupando a tela inteira, e
-        // ele leu isso como login quebrado.
+        // mudava nada de visível — o QR continuava ocupando a tela inteira, o
+        // que passa a impressão de login quebrado.
         //
         // collapse(), e não hide(): as duas somem da tela, mas o BoxLayout só
         // pula filho ESCONDIDO na conta da altura total — ele continua somando
@@ -251,11 +248,11 @@ void JobPage::pump()
 
         this->backItem->setLabel(TR("Voltar", "Back"));
 
-        // Conflito de save: o trabalho parou porque só ele pode decidir. As
-        // saídas viram linha clicável aqui mesmo, logo abaixo dos números dos
-        // dois lados. Antes a mensagem mandava ele sair da tela, achar o jogo
-        // e apertar Y — três passos depois de uma decisão que ele já tinha
-        // tomado antes de ler a frase até o fim.
+        // Conflito de save: o trabalho parou porque só quem usa pode decidir.
+        // As saídas viram linha clicável aqui mesmo, logo abaixo dos números
+        // dos dois lados. Antes a mensagem mandava sair da tela, achar o jogo
+        // e apertar Y — três passos depois de uma decisão que já estava tomada
+        // antes de a frase acabar.
         // Sem escolha pra fazer, o foco vai pro fim do log em vez do botão: é
         // onde está o resumo, e daí se lê pra cima. O B continua saindo da tela
         // de qualquer lugar, então nada fica preso.

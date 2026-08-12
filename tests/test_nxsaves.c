@@ -210,7 +210,7 @@ int main(void)
     if (!w) return 1;
 
     ok(nxsaves_add_dir(w, "Jogo A/", origem), "guardou a arvore como \"Jogo A/\"");
-    ok(nxsaves_add_dir(w, "Jogo B (Player 1)/", origem), "guardou de novo como \"Jogo B (Player 1)/\"");
+    ok(nxsaves_add_dir(w, "Jogo B (Jogador)/", origem), "guardou de novo como \"Jogo B (Jogador)/\"");
 
     size_t entradas = nxsaves_entry_count(w);
     unsigned long long escritos = nxsaves_bytes_written(w);
@@ -244,7 +244,7 @@ int main(void)
             cab[0], cab[1], cab[2], cab[3], cab[4], cab[5], cab[6], cab[7]);
     }
 
-    // conversa privada removida do historico
+    // O disfarce: quem topar com o arquivo nao le save de ninguem.
     // Procuro no arquivo inteiro a sequencia de 256 bytes que esta dentro do
     // save. Se aparecer em claro, o embaralhamento nao esta valendo.
     {
@@ -313,9 +313,9 @@ int main(void)
 
         char a[2048], b[2048];
         snprintf(a, sizeof(a), "%s/Jogo A", tudo);
-        snprintf(b, sizeof(b), "%s/Jogo B (Player 1)", tudo);
+        snprintf(b, sizeof(b), "%s/Jogo B (Jogador)", tudo);
         ok(comparar_arvore(origem, a) == 6, "a pasta \"Jogo A\" saiu inteira");
-        ok(comparar_arvore(origem, b) == 6, "a pasta \"Jogo B (Player 1)\" saiu inteira");
+        ok(comparar_arvore(origem, b) == 6, "a pasta \"Jogo B (Jogador)\" saiu inteira");
     }
 
     {

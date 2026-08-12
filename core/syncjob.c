@@ -37,8 +37,9 @@ static void say(syncjob_log_cb log, const char *fmt, ...)
 // chama — o sysmodule — só sabe o application_id do jogo que fechou. Pegar só
 // o primeiro da lista era pior do que parece: com duas contas jogando o mesmo
 // jogo, a ordem entre as duas é a que o fsSaveDataInfoReader devolveu, não a
-// de quem acabou de jogar. Quem fechou o jogo era a Convidado e subia o save do
-// Miguel, sem mudança nenhuma, e a tela dizia "nuvem OK".
+// de quem acabou de jogar. Com duas contas do mesmo console, quem fechava o
+// jogo era uma e o save que subia era o da outra, sem mudança nenhuma, e a
+// tela dizia "nuvem OK".
 size_t syncjob_find_all_titles(u64 application_id, TitleEntry *out, size_t max)
 {
     // Estático: são ~70 KB de TitleEntry, e no sysmodule a heap é apertada.
@@ -118,14 +119,16 @@ void syncjob_save_folder_name(const TitleEntry *title, char *out, size_t outsz)
 // ---------------------------------------------------------------------------
 // O layout na nuvem: <raiz>/<Jogo>/<Dono>  — sempre os dois níveis
 //
-// conversa privada removida do historico
-// Rayman Legends ("(Player 1)", "(Convidado)", "(Convidado)", "(Convidado)"): "Vai ter o
-// jogo com o nome normal. ai dentro vai ter uma subpasta com os usuarios".
+// O layout achatado espalhava o MESMO jogo por várias pastas de topo, uma por
+// apelido de conta: um jogo com save de quatro contas virava quatro pastas
+// "Jogo (Fulano)" lado a lado na raiz, sem nada dizendo que eram o mesmo jogo.
+// Aninhado, o jogo aparece uma vez só, com o nome normal, e as contas são
+// subpastas dele.
 //
-// A primeira tentativa só criava a subpasta quando havia mais de um save, e ele
-// vetou no mesmo dia: "separa com contas de qualquer jeito, colar só na raiz do
-// jogo fica estranho". Então é sempre dois níveis, sem exceção — inclusive pro
-// device save, que fica em "console".
+// A primeira tentativa só criava a subpasta quando havia mais de um save. Não
+// serve: um jogo com pasta de conta e outro com arquivo solto na raiz é a
+// mesma bagunça, só disfarçada. Então é sempre dois níveis, sem exceção —
+// inclusive pro device save, que fica em "console".
 //
 // O staging e o backup do cartão continuam com o nome achatado do
 // save_folder_name, de propósito: são pastas nossas e descartáveis, e mexer
@@ -147,20 +150,17 @@ static void cloud_game_folder_name(const TitleEntry *title, char *out, size_t ou
 // O nome da subpasta do dono. SEMPRE devolve alguma coisa.
 //
 // A primeira versão disto só criava a subpasta quando o jogo tinha mais de um
-// conversa privada removida do historico
-// "separa com contas de qualquer jeito, colar só na raiz do jogo fica
-// estranho". E está certo — do lado de quem abre o Drive, um jogo com pasta de
-// conta e outro com arquivos soltos é a mesma bagunça de antes, só que
-// disfarçada.
+// save, e deixava o save único solto na pasta do jogo. Não presta — do lado de
+// quem abre o Drive, um jogo com pasta de conta e outro com arquivos soltos é
+// a mesma bagunça de antes, só que disfarçada.
 //
 // A ordem de quem dá nome à pasta:
 //   1. save do console (device save) — "console". Não é chute: esse save é do
 //      aparelho mesmo, não tem dono.
 //   2. o apelido da conta dona, quando o console soube dizer. É o caso normal.
-// conversa privada removida do historico
-// conversa privada removida do historico
-//      com um save porque aí não há dúvida de quem é; com dois, chutar o dono
-//      seria misturar save de gente diferente.
+//   3. com UM save só e sem apelido: a conta que está usando o app agora. Só
+//      vale com um save porque aí não há dúvida de quem é; com dois, chutar o
+//      dono seria misturar save de gente diferente.
 //   4. o uid, em hexa. Feio, mas é o único que sobra, e é estável: a mesma
 //      conta cai sempre na mesma pasta, hoje e daqui a seis versões. Um nome
 //      inventado não teria essa propriedade, e é por isso que não invento.
@@ -206,12 +206,13 @@ static void cloud_folder_path(const TitleEntry *title, char *out, size_t outsz)
     {
         // Só registro COM barra vale, e a razão é que agora todo save mora em
         // <Jogo>/<Dono> — registro sem barra é necessariamente do layout velho,
-        // achatado, e obedecer ele recriaria a bagunça que mandaram desfazer.
+        // achatado, e obedecer ele recriaria a bagunça que o aninhamento veio
+        // desfazer.
         //
         // O que o registro salva continua sendo o mesmo de sempre: o apelido da
         // conta pode mudar, e sem ele o app procuraria uma pasta que não existe,
-        // trataria como primeira sync e deixaria o backup antigo órfão — o
-        // "mudei d nome e foi nao".
+        // trataria como primeira sync e deixaria o backup antigo órfão — é o
+        // que acontecia ao renomear a conta depois de um backup.
         snprintf(out, outsz, "%s", rec);
         return;
     }
@@ -274,8 +275,8 @@ typedef struct { bool tem_arquivo; } TemArquivoCtx;
 // que o cloud_flat_backup usa como prova de backup antigo. Sem esta exceção,
 // quem guardou um jogo no arquivo único e depois pediu restore recebia o ID do
 // CONTAINER, e o write_over_save limpava o savedata e escrevia lá dentro um
-// .nxsaves de 29 MB mais uma pasta chamada "Miguel". Save do console destruído,
-// com a mensagem "Save de %s veio da nuvem" na tela.
+// .nxsaves de 29 MB mais uma pasta com nome de conta. Save do console
+// destruído, com a mensagem "Save de %s veio da nuvem" na tela.
 //
 // Savedata de jogo nenhum contém arquivo nosso, então ignorar a extensão não
 // esconde backup de verdade nenhum.
@@ -299,7 +300,7 @@ static void marca_se_arquivo(const char *id, const char *name, bool is_folder, v
 // o save_folder_name devolve exatamente o mesmo nome que a pasta do jogo de
 // hoje. Procurar cegamente por ele devolve o container, cujos filhos são as
 // pastas das contas e o .nxsaves do jogo — e restaurar ISSO por cima do
-// savedata escreveria uma pasta chamada "Miguel" e um arquivo de 29 MB dentro
+// savedata escreveria uma pasta com nome de conta e um arquivo de 29 MB dentro
 // do save do jogo. É o pior tipo de bug que este projeto pode ter.
 //
 // A distinção está no conteúdo e é confiável: backup antigo tem ARQUIVO solto
@@ -434,8 +435,6 @@ static bool cloud_title_folder(const char *token, const char *root_id,
     // Resgate, só na leitura: a pasta do jogo existe, mas não tem conta com
     // esse nome. Se lá dentro houver EXATAMENTE UMA conta, é ela.
     //
-    // conversa privada removida do historico
-    // conversa privada removida do historico
     // É o caso de restaurar num console onde o perfil tem outro apelido, ou de
     // ter renomeado a conta depois do backup: o save está lá, com o nome de
     // antes, e recusar por causa do nome seria esconder do dono um backup bom.
@@ -444,8 +443,7 @@ static bool cloud_title_folder(const char *token, const char *root_id,
     // ENTREGA O SAVE DE UMA PESSOA PRA OUTRA: num console com duas contas do
     // mesmo jogo, a segunda conta a sincronizar não acha a pasta dela, encontra
     // a única que existe — a da primeira — e recebe o save do vizinho. Foi o
-    // teste de duas contas que pegou isso, com o save da Convidado caindo na pasta
-    // do Miguel.
+    // teste com duas contas do mesmo console que pegou isso.
     //
     // A distinção é exata: shared_game falso quer dizer que este console só tem
     // UM save deste jogo, e aí "a única pasta lá" só pode ser dele, com o nome
@@ -653,9 +651,9 @@ static void dir_stats(const char *dir, int *files, u64 *bytes)
 //
 // Sem isso a tela dizia "os dois mudaram, escolha" e não dava NADA em cima do
 // que escolher — e é justamente aí que uma escolha errada apaga progresso. O
-// conversa privada removida do historico
-// de estreia no console contra o save de verdade no Drive. Na tela os dois são
-// "um save"; em número, um tem alguns KB e o outro não.
+// caso típico: jogo reinstalado, aberto uma vez, save de estreia no console
+// contra o save de verdade no Drive. Na tela os dois são "um save"; em número,
+// um tem alguns KB e o outro não.
 static void say_dois_lados(syncjob_log_cb log, const char *console_dir, const char *cloud_dir)
 {
     int cf = 0, nf = 0;
@@ -1002,9 +1000,9 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     // quem apagou o pastas.txt ou trouxe o cartão de outro console (vale a
     // calculada, que é o que sempre valeu).
     // A terceira tentativa é o layout achatado antigo ("Jogo (Dono)" na raiz),
-    // que é onde mora o backup de quem sincronizou antes. Nada é
-    // migrado: só continua sendo lido, o que não custa nada e evita que backup
-    // bom vire inalcançável de uma versão pra outra.
+    // que é onde mora o backup de quem sincronizou antes do layout aninhado.
+    // Nada é migrado: só continua sendo lido, o que não custa nada e evita que
+    // backup bom vire inalcançável de uma versão pra outra.
     char game_id[CLOUD_ID_MAX];
     char pasta_nuvem[0x220];
 
@@ -1069,9 +1067,9 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
 // Sync de um clique
 // ---------------------------------------------------------------------------
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// vai — esta função decide.
+// A ideia do app é um clique só: entra como se fosse um jogo, manda sincronizar
+// o save com a nuvem e pronto. Por isso ele não pergunta pra que lado vai —
+// esta função decide.
 //
 // Pra decidir sem chutar são precisos TRÊS números, não dois: o save de agora
 // no console, o save de agora na nuvem, e o save de quando os dois estavam
@@ -1087,7 +1085,7 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
 //
 // O caso "os dois mudaram" é o único que importa de verdade: é jogar no Switch
 // e jogar em outro lugar sem sincronizar no meio. Escolher sozinho aí apaga
-// progresso de um dos lados, então ele escolhe, pelo menu do Y.
+// progresso de um dos lados, então quem escolhe é o usuário, pelo menu do Y.
 //
 // Tudo que envolve o save do console é feito em cópia no cartão: o save é
 // montado read-only uma vez, copiado, e desmontado. Daí em diante é arquivo
@@ -1160,8 +1158,8 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem));
     if (!tem_na_nuvem && cloud_flat_backup(token, root_id, title, game_id, sizeof(game_id)))
     {
-        // A registrada sumiu e a calculada existe: o registro envelheceu (ele
-        // apagou a pasta na nuvem pelo navegador, por exemplo). Vale a que
+        // A registrada sumiu e a calculada existe: o registro envelheceu (a
+        // pasta foi apagada na nuvem pelo navegador, por exemplo). Vale a que
         // existe, e o registro se acerta logo abaixo.
         snprintf(pasta_nuvem, sizeof(pasta_nuvem), "%s", safe);
         tem_na_nuvem = true;
@@ -1216,7 +1214,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
         //
         // O marcador quer dizer "os dois lados estavam iguais neste ponto". Se
         // o prune falhou — o Drive recusou o DELETE, o WebDAV devolveu 423, ou
-        // conversa privada removida do historico
+        // alguém apertou B no meio —, a nuvem ficou com um arquivo que o jogo
         // apagou, e os dois lados NÃO estão iguais. Gravar o marcador assim
         // mente pro sync seguinte: ele vê o console parado e a nuvem "mais
         // nova", desce por cima do savedata e RESSUSCITA o arquivo apagado
@@ -1311,12 +1309,12 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     // O marcador só vale se o prune deu certo, e isso não é preciosismo.
     //
     // O marcador quer dizer "os dois lados estavam iguais neste ponto". Se o
-    // prune falhou — o Drive recusou o DELETE, o WebDAV devolveu 423, ou ele
-    // apertou B no meio —, a nuvem ficou com um arquivo que o jogo apagou e os
-    // dois lados NÃO estão iguais. Gravar o marcador assim mente pro sync
-    // seguinte: ele vê o console parado e a nuvem "mais nova", desce por cima
-    // do savedata e RESSUSCITA o arquivo apagado dentro do save. É o save
-    // metade de ontem, metade de hoje que o write_over_save descreve.
+    // prune falhou — o Drive recusou o DELETE, o WebDAV devolveu 423, ou
+    // alguém apertou B no meio —, a nuvem ficou com um arquivo que o jogo
+    // apagou e os dois lados NÃO estão iguais. Gravar o marcador assim mente
+    // pro sync seguinte: ele vê o console parado e a nuvem "mais nova", desce
+    // por cima do savedata e RESSUSCITA o arquivo apagado dentro do save. É o
+    // save metade de ontem, metade de hoje que o write_over_save descreve.
     //
     // Sem marcador, o próximo sync não decide sozinho: pergunta. Um diálogo a
     // mais é barato; save remendado não.
@@ -1333,9 +1331,9 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 // ---------------------------------------------------------------------------
 // Tudo num arquivo só
 //
-// conversa privada removida do historico
-// O formato está em nxsaves.c. Aqui é só a costura: montar save, empurrar pro
-// arquivo, e a volta.
+// Todos os saves num arquivo proprietário, que só este app lê. O formato está
+// em nxsaves.c. Aqui é só a costura: montar save, empurrar pro arquivo, e a
+// volta.
 // ---------------------------------------------------------------------------
 
 void syncjob_archive_path(char *out, size_t outsz)
@@ -1479,8 +1477,8 @@ size_t syncjob_archive_titles_to(const char *path, const TitleEntry *titles, siz
     // inteiro no lugar dele.
     //
     // O de antes sai de cena por rename, não por remove. Apagar primeiro e
-    // renomear depois abre uma janela em que uma falha deixa ele sem o arquivo
-    // novo E sem o velho — e o velho é o backup de tudo.
+    // renomear depois abre uma janela em que uma falha deixa o cartão sem o
+    // arquivo novo E sem o velho — e o velho é o backup de tudo.
     char guardado[0x320];
     snprintf(guardado, sizeof(guardado), "%s.anterior", final);
     remove(guardado);
@@ -1516,9 +1514,8 @@ bool syncjob_archive_upload(syncjob_log_cb log)
 
 // O arquivo de UM jogo vai pra dentro da pasta daquele jogo, não pra raiz.
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// raiz junto com o global, onde não dá pra saber de quem é olhando.
+// Antes ele ia pra raiz, junto com o global: o arquivo existia e estava certo
+// — só que largado num lugar onde não dá pra saber de que jogo é só de olhar.
 //
 // O global (SwitchSaveSync.nxsaves, todos os jogos) continua na raiz, que é o
 // lugar dele: não é de jogo nenhum em particular.

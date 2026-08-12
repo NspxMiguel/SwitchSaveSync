@@ -1,14 +1,13 @@
-// Teste do Google Drive de verdade, na conta de quem usa, rodando do Mac.
+// Teste do Google Drive de verdade, numa conta real, rodando do Mac.
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// do arquivo, o leitor de JSON e o espelhamento, mas o caminho de rede do
-// Drive só o console exercitava.
+// Era o buraco que sobrava: os outros testes cobrem o formato do arquivo, o
+// leitor de JSON e o espelhamento, mas o caminho de rede do Drive só o console
+// exercitava.
 //
-// COMO ELE ENTRA
+// COMO SE ENTRA NA CONTA
 //
-// O login do app é device flow: o programa mostra um código, ELE digita no
-// navegador dele e aprova. Nenhuma senha passa por aqui. E o normal é nem
+// O login do app é device flow: o programa mostra um código, você digita no
+// seu navegador e aprova. Nenhuma senha passa por aqui. E o normal é nem
 // precisar disso: se já houver um refresh token guardado (o do cartão serve),
 // o teste usa ele e não pede nada.
 //
@@ -36,7 +35,7 @@
 #include <time.h>
 
 // A pasta onde tudo acontece, dentro da raiz do app. O nome é feio de
-// propósito: se alguma coisa der errado no meio e ela sobrar no Drive de quem usa,
+// propósito: se alguma coisa der errado no meio e ela sobrar no Drive,
 // tem que ser óbvio que é lixo de teste e que pode apagar.
 #define PASTA_TESTE "_teste do Mac (pode apagar)"
 
@@ -45,7 +44,7 @@
 bool lang_is_pt(void) { return true; }
 
 // No console isto e syscall; aqui e nanosleep. O oauth.c usa pra esperar
-// entre uma pergunta e outra ao Google enquanto ele nao aprova o codigo.
+// entre uma pergunta e outra ao Google enquanto o codigo nao e aprovado.
 void svcSleepThread(u64 nanos)
 {
     struct timespec t = { (time_t)(nanos / 1000000000ULL), (long)(nanos % 1000000000ULL) };
@@ -146,7 +145,7 @@ static int quantos_com_nome(const Lista *l, const char *nome)
     return c;
 }
 
-// O login por código, pra quando não houver token guardado. Ele digita, aqui
+// O login por código, pra quando não houver token guardado. Você digita, aqui
 // só imprime. É a mesma função que roda no console.
 static void status_cb(const char *msg) { printf("     %s\n", msg); fflush(stdout); }
 
@@ -218,7 +217,7 @@ int main(void)
     ok(cloud_ensure_app_folder(auth, raiz2, sizeof(raiz2)), "chamar de novo funciona");
     ok(strcmp(raiz, raiz2) == 0, "e devolve a MESMA pasta, sem duplicar a raiz");
 
-    printf("\n== o que ja esta no Drive de quem usa (so olhando) ==\n");
+    printf("\n== o que ja esta no Drive (so olhando) ==\n");
 
     {
         Lista l = {0};
@@ -248,25 +247,25 @@ int main(void)
     printf("\n== subir e baixar um arquivo ==\n");
 
     {
-        escrever("local/save.dat", "o save do miguel, versao 1");
+        escrever("local/save.dat", "o save do jogador, versao 1");
         ok(cloud_upload(auth, teste, "save.dat", "local/save.dat", "application/octet-stream"),
             "subiu o arquivo");
 
         unlink("local/voltou.dat");
         ok(cloud_download(auth, teste, "save.dat", "local/voltou.dat"), "baixou de volta");
-        ok(conteudo_igual("local/voltou.dat", "o save do miguel, versao 1"),
+        ok(conteudo_igual("local/voltou.dat", "o save do jogador, versao 1"),
             "e o conteudo voltou igual");
 
         // Subir por cima nao pode criar um segundo arquivo com o mesmo nome —
         // no Drive isso e permitido, e seria o jeito mais facil de acabar com
         // dois saves e o app pegando o errado.
-        escrever("local/save.dat", "o save do miguel, versao 2 (mais nova)");
+        escrever("local/save.dat", "o save do jogador, versao 2 (mais nova)");
         ok(cloud_upload(auth, teste, "save.dat", "local/save.dat", "application/octet-stream"),
             "subiu por cima do mesmo nome");
 
         unlink("local/voltou.dat");
         ok(cloud_download(auth, teste, "save.dat", "local/voltou.dat"), "baixou de novo");
-        ok(conteudo_igual("local/voltou.dat", "o save do miguel, versao 2 (mais nova)"),
+        ok(conteudo_igual("local/voltou.dat", "o save do jogador, versao 2 (mais nova)"),
             "veio a versao nova, e nao a antiga");
 
         Lista l = {0};
@@ -291,7 +290,7 @@ int main(void)
     printf("\n== a arvore inteira ==\n");
 
     char arvore[CLOUD_ID_MAX];
-    ok(cloud_ensure_subfolder(auth, teste, "Jogo de Teste (Player 1)", arvore, sizeof(arvore)),
+    ok(cloud_ensure_subfolder(auth, teste, "Jogo de Teste (Jogador)", arvore, sizeof(arvore)),
         "criou pasta com parentese e espaco no nome");
 
     {
@@ -342,7 +341,7 @@ int main(void)
             "a pasta apagada no console sumiu da nuvem");
     }
 
-    printf("\n== faxina: tirar a pasta de teste do Drive de quem usa ==\n");
+    printf("\n== faxina: tirar a pasta de teste do Drive ==\n");
 
     {
         // Achar a pasta de teste pelo nome e apagar. No Drive isso vai pra
@@ -363,7 +362,7 @@ int main(void)
         Lista depois = {0};
         ok(cloud_list_children(auth, raiz, lista_cb, &depois), "listou a raiz de novo");
         ok(quantos_com_nome(&depois, PASTA_TESTE) == 0,
-            "a pasta de teste sumiu do Drive de quem usa");
+            "a pasta de teste sumiu do Drive");
         ok(tinha == 1, "e so tinha uma pra apagar");
 
         printf("     sobrou na pasta do app: %d item(ns)\n", depois.n);

@@ -1,10 +1,9 @@
 // parental.hpp — trava de senha na entrada do app.
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// aqui é bem específico: puxar o save da nuvem por cima do save do console
-// (ou o contrário) e apagar progresso. Uma pergunta de senha na ENTRADA
-// resolve os dois de uma vez — sem entrar, não tem botão pra clicar.
+// Controle parental com senha. O estrago que uma criança pode fazer aqui é
+// bem específico: puxar o save da nuvem por cima do save do console (ou o
+// contrário) e apagar progresso. Uma pergunta de senha na ENTRADA resolve os
+// dois de uma vez — sem entrar, não tem botão pra clicar.
 //
 // O que isto NÃO é: segurança. Quem tiver o cartão SD na mão apaga o
 // pin.txt e entra. É tranca de criança, e está escrito assim na tela pra
@@ -28,8 +27,8 @@ void clear();
 // A senha digitada bate com a gravada?
 bool matches(const std::string& pin);
 
-// Abre o teclado numérico do console e devolve o que ele digitou. Devolve
-// false se ele cancelou (aí a string sai vazia).
+// Abre o teclado numérico do console e devolve o que foi digitado. Devolve
+// false se cancelaram (aí a string sai vazia).
 bool prompt(const std::string& header, const std::string& sub, std::string& out);
 
 // A tranca da entrada: se não tem senha, passa direto. Se tem, pergunta —

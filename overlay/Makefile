@@ -21,8 +21,8 @@ include $(DEVKITPRO)/libnx/switch_rules
 TARGET   := SwitchSaveSync
 
 # Um .ovl e um NRO, nao um NSO — foi o motivo de ele nao aparecer na lista do
-# Ultrahand (conferido abrindo um .ovl que funciona: magic
-# "HOMEBREW"/"NRO0"). O nome que aparece no menu vem do NACP, dai o APP_TITLE.
+# Ultrahand (conferido abrindo um .ovl que funciona: magic "HOMEBREW"/"NRO0").
+# O nome que aparece no menu vem do NACP, dai o APP_TITLE.
 APP_TITLE   := SwitchSaveSync
 APP_AUTHOR  := miguel
 APP_VERSION := 1.0.0

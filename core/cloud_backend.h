@@ -20,7 +20,7 @@ typedef struct
 {
     const char *key;    // "drive" — o que vai gravado no nuvem.cfg
 
-    // "Google Drive" — o que ele lê na tela. É função, e não string fixa,
+    // "Google Drive" — o que aparece na tela. É função, e não string fixa,
     // porque o nome passa pelo TR(): o campo de um struct estático não aceita
     // uma escolha feita em tempo de execução.
     const char *(*name)(void);

@@ -1,8 +1,7 @@
 // cloud.h — "a nuvem", sem dizer qual.
 //
-// conversa privada removida do historico
-// conversa privada removida do historico
-// conversa privada removida do historico
+// O programa tem que aceitar outras formas de guardar o save além do Google
+// Drive — NAS, e o que mais der pra encaixar depois.
 //
 // Até aqui o syncjob.c chamava drive_* direto, então o Google Drive não era
 // uma opção — era a única forma do programa saber guardar arquivo. Isto aqui
@@ -14,12 +13,12 @@
 // Subir/baixar/espelhar uma árvore inteira é escrito uma vez só, aqui, em
 // cima dessas sete — era metade do drive.c e não tem nada de Google nele.
 //
-// Sobre o iCloud, que ele perguntou: não dá, e não é falta de vontade. A Apple
-// não tem API pública de terceiro pro iCloud Drive. O que existe é o CloudKit,
-// que só responde pra um app com identidade da Apple, e o CloudKit Web
-// Services exige uma conta paga do Apple Developer Program — o que também
-// bateria de frente com "custo zero", que é regra do projeto. Está escrito no
-// CLOUD_ICLOUD abaixo pra não se perder.
+// Sobre o iCloud: não dá, e não é falta de vontade. A Apple não tem API
+// pública de terceiro pro iCloud Drive. O que existe é o CloudKit, que só
+// responde pra um app com identidade da Apple, e o CloudKit Web Services exige
+// uma conta paga do Apple Developer Program — o que também bateria de frente
+// com "custo zero", que é regra do projeto. Está escrito no CLOUD_ICLOUD
+// abaixo pra não se perder.
 #pragma once
 #include <stddef.h>
 #include <stdbool.h>

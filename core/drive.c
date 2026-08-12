@@ -318,12 +318,12 @@ bool drive_list_children(const char *access_token, const char *folder_id,
     // itens numa pasta, o resto fica de fora. Save de jogo não chega perto
     // disso, mas está dito.
     //
-    // O outro teto, esse sim mordia: até a lista era copiada
-    // inteira pra um buffer de 8 KB na pilha, e o copiador NÃO trunca — ele
-    // devolve false quando não cabe. Ou seja, pasta com mais de ~60 arquivos
-    // não listava PARCIALMENTE: não listava NADA, e download e prune falhavam
-    // junto, sem dizer por quê. Agora o array é percorrido direto no corpo da
-    // resposta, sem cópia e sem teto.
+    // O outro teto, esse sim mordia: antes, a lista era copiada inteira pra um
+    // buffer de 8 KB na pilha, e o copiador NÃO trunca — ele devolve false
+    // quando não cabe. Ou seja, pasta com mais de ~60 arquivos não listava
+    // PARCIALMENTE: não listava NADA, e download e prune falhavam junto, sem
+    // dizer por quê. Agora o array é percorrido direto no corpo da resposta,
+    // sem cópia e sem teto.
 
     HttpResponse r = http_get(url, access_token);
     if (!r.ok || r.status != 200) {

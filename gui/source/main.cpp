@@ -57,7 +57,7 @@ static brls::ListItem* g_webdav_item  = nullptr;
 static brls::List* g_bulk_list = nullptr;
 
 // Caminho deste .nro, guardado do argv[0] — é o que envSetNextLoad precisa pra
-// reabrir o app quando ele troca de idioma.
+// reabrir o app na troca de idioma.
 static std::string g_nro_path;
 
 // Diagnóstico da inicialização de rede, mostrado na aba Ajustes.
@@ -96,8 +96,7 @@ extern "C" void gui_progress_cb(const char* action, const char* name, bool ok)
 //
 // Sem isto, apertar B só era visto ENTRE um jogo e o outro: o download ou o
 // upload do jogo atual ia até o fim, e com save grande isso é dezenas de
-// conversa privada removida do historico
-// conversa privada removida do historico
+// segundos de tela parada, com o B sendo apertado e nada acontecendo.
 //
 // Parar no meio é seguro, e o motivo está no cloud.h: o download vai pro
 // staging no cartão, e quem escreve no save é o syncjob DEPOIS, só se o
@@ -120,8 +119,8 @@ extern "C" void gui_oauth_status(const char* msg)
 
     // Também vai pro log: o status é uma linha só, e a próxima mensagem apaga
     // a anterior. Quando o login falha, a explicação ("status 401",
-    // "invalid_client") chegava aqui e sumia antes de ele conseguir ler — era
-    // o "Login nao concluido. e mais nada".
+    // "invalid_client") chegava aqui e sumia antes de dar tempo de ler — a
+    // tela ficava só com "Login não concluído" e mais nada.
     Job::current->log(msg);
 }
 
@@ -183,8 +182,8 @@ static const char* nuvem()
 // está sendo digitado, e um dos campos daqui é senha. Chamo a libnx direto,
 // do mesmo jeito que o parental.cpp faz com o teclado numérico.
 //
-// Devolve false quando ele cancela. Texto vazio conta como "deixa como está" —
-// quem chama decide o que fazer com isso.
+// Devolve false quando o teclado é cancelado. Texto vazio conta como "deixa
+// como está" — quem chama decide o que fazer com isso.
 static bool pedirTexto(const std::string& header, const std::string& sub,
     const std::string& inicial, bool senha, size_t maxLen, std::string& out)
 {
@@ -255,7 +254,7 @@ static std::string saveOwnerDescription(const TitleEntry& title)
 }
 
 // Jogo + dono, quando há dono pra mostrar. Usado no título das telas e dos
-// trabalhos, pra ele nunca ficar em dúvida sobre qual save está mexendo.
+// trabalhos, pra nunca ficar dúvida sobre qual save está sendo mexido.
 static std::string titleWithOwner(const TitleEntry& title)
 {
     std::string dono = saveOwnerLabel(title);
@@ -373,8 +372,8 @@ static void openJob(Job* job, bool cancellable,
     // com alguma coisa dentro" — ninguém perguntava ao Google se ele ainda
     // aceita. Então um refresh token revogado deixava o app dizendo
     // "conectada" enquanto o overlay dizia "sem token válido", e os dois
-    // conversa privada removida do historico
-    // e não tinha como decifrar.
+    // estavam certos: cada um media uma coisa. De fora, é uma contradição sem
+    // como decifrar.
     //
     // Agora um refresh recusado apaga o token (ver oauth_refresh_access_token),
     // e é aqui que a tela toma conhecimento — senão a linha continuaria
@@ -389,7 +388,7 @@ static void openJob(Job* job, bool cancellable,
 }
 
 // Toda operação de rede passa por aqui antes de tocar em socket. Sem isso, a
-// libnx aborta o processo (o "crash ao clicar em Testar conexao").
+// libnx aborta o processo — era o crash ao clicar em Testar conexão.
 static bool ensureNetwork(Job* job)
 {
     if (http_is_ready())
@@ -520,7 +519,7 @@ static bool jobConnectionTest(Job* job)
     job->setStatus(TR("Baixando o mesmo arquivo de volta...", "Downloading the same file back..."));
     bool baixou = cloud_download(token, folder, TEST_REMOTE, TEST_DOWN);
 
-    // O arquivo de teste não tem por que continuar morando na nuvem dele. Apaga
+    // O arquivo de teste não tem por que continuar morando na nuvem. Apaga
     // aqui, tendo dado certo ou não: se o download falhou, o upload de cima
     // funcionou do mesmo jeito e a sobra ficaria lá pra sempre. Cada "testar
     // conexão" deixava uma.
@@ -591,7 +590,7 @@ static bool arquivoExiste(const char* caminho)
     return stat(caminho, &st) == 0;
 }
 
-// O clique principal: "clica pra synca o save com a nuvem e PRONTO".
+// O clique principal: um clique sincroniza o save com a nuvem e pronto.
 // Quem decide pra que lado vai é o syncjob_sync_title.
 static bool jobSync(Job* job, TitleEntry title)
 {
@@ -633,7 +632,7 @@ static bool jobSync(Job* job, TitleEntry title)
 
             // A ordem importa: a primeira é a que recebe o foco, e o caso que
             // leva ao conflito quase sempre é jogo reinstalado com o save de
-            // verdade na nuvem. Nada é escrito até ele apertar A.
+            // verdade na nuvem. Nada é escrito até apertar A.
             job->offerChoice(std::string(TR("Trazer o save de ", "Bring the save from "))
                     + nuvem() + TR(" pro console", " to the console"),
                 std::string(TR("Apaga o save que está no console e põe o de ",
@@ -688,8 +687,8 @@ static bool jobBackup(Job* job, TitleEntry title)
     return true;
 }
 
-// conversa privada removida do historico
-// conversa privada removida do historico
+// Backup no próprio cartão, sem nuvem: é o que funciona sem rede e sem conta
+// em nuvem nenhuma.
 static bool jobBackupLocal(Job* job, TitleEntry title)
 {
     job->setStatus(TR("Copiando o save pro cartão...", "Copying the save to the SD card..."));
@@ -741,7 +740,7 @@ static bool jobRestore(Job* job, TitleEntry title)
 
 // ============================ tudo de uma vez ============================
 
-// "faz salvar todos os saves".
+// Sincronizar todos os saves de uma vez.
 //
 // A lista chega COPIADA de propósito. O X da tela dos jogos refaz o g_titles na
 // thread da interface, e isto aqui roda na thread de trabalho — ler o array
@@ -799,7 +798,7 @@ static bool jobSyncAll(Job* job, std::vector<TitleEntry> titles)
             case SYNCJOB_SYNC_CONFLICT:
                 // Não pergunta agora. Perguntar no meio de trinta jogos vira
                 // trinta perguntas, e "sincronizar tudo" deixa de ser um clique
-                // só. Ficam listados no fim, pra ele resolver um a um no Y.
+                // só. Ficam listados no fim, pra resolver um a um no Y.
                 conflitos.push_back(nome);
                 job->log(quantos + nome + TR(" — os dois lados mudaram, não mexi",
                               " — both sides changed, left alone"),
@@ -840,7 +839,7 @@ static bool jobSyncAll(Job* job, std::vector<TitleEntry> titles)
     job->setStatus(resumo);
 
     // Conflito não é erro: é o app fazendo o certo e devolvendo a escolha pra
-    // ele. Só falha de verdade pinta a tela de vermelho.
+    // quem usa. Só falha de verdade pinta a tela de vermelho.
     return falharam.empty();
 }
 
@@ -858,7 +857,7 @@ static bool jobStopAsked()
 static bool jobArchiveAll(Job* job, std::vector<TitleEntry> titles, bool subir)
 {
     // O login primeiro: juntar 8 GB de save pra depois descobrir que não tem
-    // conta conectada é desperdício de tempo dele.
+    // conta conectada é desperdício de tempo.
     if (subir && !ensureLogin(job))
         return false;
 
@@ -956,9 +955,9 @@ static bool jobArchiveRestore(Job* job, TitleEntry title)
     return true;
 }
 
-// conversa privada removida do historico
-//. Um arquivo do JOGO, separado do arquivo com tudo — juntar as
-// contas de um jogo não pode passar por cima do backup geral.
+// Todas as contas de um jogo num arquivo só. Um arquivo do JOGO, separado do
+// arquivo com tudo — juntar as contas de um jogo não pode passar por cima do
+// backup geral.
 static bool jobGameArchive(Job* job, std::vector<TitleEntry> saves, bool subir)
 {
     if (saves.empty())
@@ -1081,11 +1080,12 @@ static bool jobRestoreIntoNewAccount(Job* job, std::string caminho, std::string 
 // Tela de um jogo: o que fazer quando o clique simples não serve.
 //
 // Ela NÃO é mais o caminho normal — o caminho normal é apertar A na lista e o
-// app resolver sozinho ("clica pra synca o save com a nuvem e PRONTO"). Isso
-// aqui é o Y: mandar pra que lado quando os dois lados mudaram, e as cópias no
-// próprio cartão, que não dependem de internet nem de conta.
+// app resolver sozinho, num clique só. Isso aqui é o Y: mandar pra que lado
+// quando os dois lados mudaram, e as cópias no próprio cartão, que não
+// dependem de internet nem de conta.
 // "Todas as contas num arquivo só" — a mesma ação em dois lugares: na tela de
-// escolher conta (onde ele vê que o jogo tem mais de uma) e na tela do jogo.
+// escolher conta (onde se descobre que o jogo tem mais de uma) e na tela do
+// jogo.
 static void perguntarArquivoDoJogo(std::vector<TitleEntry> saves)
 {
     brls::Dialog* dialog = new brls::Dialog(
@@ -1309,8 +1309,8 @@ static void openGamePage(const TitleEntry& title)
     brls::Application::pushView(frame);
 }
 
-// conversa privada removida do historico
-// conversa privada removida do historico
+// "De qual conta?" — a tela de escolha, pra quando o jogo tem save de mais de
+// uma conta neste console.
 //
 // Antes o mesmo jogo aparecia duas vezes na lista, uma por conta, e as duas
 // linhas tinham o mesmo ícone e o mesmo nome — dava pra sincronizar a conta
@@ -1342,9 +1342,8 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
 
     brls::List* list = new brls::List();
 
-    // conversa privada removida do historico
-    // conversa privada removida do historico
-    // de 4 contas já nasce fora do campo de visão.
+    // O "todas as contas num arquivo só" vem no topo. Estava depois da lista de
+    // contas, que numa tela de 4 contas já nasce fora do campo de visão.
     list->addView(new brls::Header(TR("Todas as contas de uma vez", "Every account at once")));
     list->addView(itemTodasAsContas(saves));
 
@@ -1356,7 +1355,7 @@ static void pickSave(u64 application_id, std::function<void(TitleEntry)> then)
         item->getClickEvent()->subscribe([save, then](brls::View* view) {
             // Sai da tela de escolha ANTES de abrir o trabalho, senão ela
             // ficaria empilhada atrás e o B do fim voltaria pra uma pergunta
-            // que ele já respondeu.
+            // que já foi respondida.
             brls::Application::popView(brls::ViewAnimation::FADE, [save, then]() { then(save); });
         });
         list->addView(item);
@@ -1497,11 +1496,11 @@ static bool mesmaConta(const AccountUid& a, const AccountUid& b)
     return a.uid[0] == b.uid[0] && a.uid[1] == b.uid[1];
 }
 
-// O nome da conta que estava escrito na pasta: "Jogo (Player 1)" -> "Miguel".
+// O nome da conta que estava escrito na pasta: "Jogo (Fulano)" -> "Fulano".
 //
 // Só existe quando o jogo tinha mais de um save na hora em que o arquivo foi
-// feito — é o mesmo sufixo que o save_folder_name põe. Serve pra dizer a ele
-// QUAL conta ele está procurando, na hora de criar uma.
+// feito — é o mesmo sufixo que o save_folder_name põe. Serve pra dizer QUAL
+// conta está faltando, na hora de criar uma.
 static std::string contaDaPasta(const std::string& pasta)
 {
     if (pasta.empty() || pasta.back() != ')')
@@ -1588,7 +1587,7 @@ static void criarContaERestaurar(std::string caminho, std::string pasta, TitleEn
         false);
 }
 
-// "colocar em outra conta": a terceira opção da pergunta.
+// "Colocar em outra conta": a terceira opção da pergunta.
 //
 // Lista TODAS as contas do console, não só as que já têm save deste jogo. A
 // conta que nunca abriu o jogo é justamente um destino bom — e criar o save que
@@ -1684,11 +1683,12 @@ static void openOtherAccountPage(std::string caminho, std::string pasta, TitleEn
     brls::Application::pushView(frame);
 }
 
-// conversa privada removida do historico
-// conversa privada removida do historico
+// Save de conta que não existe aqui: na hora de restaurar, aparece a pergunta
+// com três saídas — sim, não, colocar em outra conta.
 //
 // Era uma tela separada, com o mesmo conteúdo. Virou pergunta na hora porque é
-// nessa hora que ele quer decidir — e as três respostas cabem em três botões.
+// nessa hora que a decisão precisa ser tomada — e as três respostas cabem em
+// três botões.
 static void perguntarContaQueFalta(std::string caminho, std::string pasta, u64 appId)
 {
     std::vector<TitleEntry> locais = savesOf(appId);
@@ -1929,11 +1929,10 @@ static void refillKeepingFocus(brls::List* list, const std::function<void()>& re
 // A tela do arquivo com tudo. Todo o assunto ".nxsaves" mora aqui dentro.
 //
 // Estava tudo solto na aba "Tudo de uma vez", que ficou com quatro cabeçalhos,
-// sete linhas e um textão numa lista só — "organiza melhor, muito bagunçado.
-// por exemplo o tudo de uma vez, tem umas 30 sessoes totalmente confusas"
-//. Seis daquelas linhas eram sobre este arquivo, que é assunto de
-// quem já decidiu usar arquivo; quem não decidiu não precisa ler nada disso pra
-// achar o "sincronizar tudo".
+// sete linhas e um textão numa lista só — bagunça demais pra achar qualquer
+// coisa. Seis daquelas linhas eram sobre este arquivo, que é assunto de quem já
+// decidiu usar arquivo; quem não decidiu não precisa ler nada disso pra achar o
+// "sincronizar tudo".
 static void fillArchivePage(brls::List* list, std::vector<TitleEntry> todos)
 {
     list->clear(true);
@@ -2018,7 +2017,7 @@ static void fillArchivePage(brls::List* list, std::vector<TitleEntry> todos)
     //
     // E o aviso das linhas que ainda não estão na tela vem virado do avesso:
     // "quando tiver, aparece mais coisa aqui", e não "você não tem". Dito como
-    // falta, ele lia como recusa logo na primeira vez.
+    // falta, soava como recusa logo na primeira vez.
     list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
         std::string(tem ? "" :
             TR("Assim que existir um arquivo no cartão, aparecem aqui mais duas linhas: "
@@ -2047,7 +2046,7 @@ static void openArchivePage(std::vector<TitleEntry> todos)
     fillArchivePage(list, todos);
 
     // O X refaz a lista porque duas linhas dependem do arquivo existir: sem
-    // isto, depois de juntar ou de baixar ele teria que sair e voltar pra elas
+    // isto, depois de juntar ou de baixar seria preciso sair e voltar pra elas
     // aparecerem.
     list->registerAction(TR("Atualizar", "Refresh"), brls::Key::X, [list, todos] {
         refillKeepingFocus(list, [list, todos] { fillArchivePage(list, todos); });
@@ -2129,9 +2128,8 @@ static void fillBulkList(brls::List* list)
             "Packs every game's save into a single package, to carry everything at once. "
             "Opens the pack, upload, download and restore screen."));
     // Só diz alguma coisa quando TEM. O "ainda não tem" que ficava aqui era o
-    // primeiro de dois avisos de falta que ele levava antes de fazer nada:
-    // conversa privada removida do historico
-    // conversa privada removida do historico
+    // primeiro de dois avisos de falta que apareciam antes de fazer nada, e
+    // confundia logo no primeiro clique. Esta linha é uma porta, não um recurso
     // faltando — e porta não precisa avisar que a sala está vazia.
     if (syncjob_has_archive())
         arquivoItem->setValue(TR("tem um no cartão", "one is on the SD card"));
@@ -2313,10 +2311,10 @@ static bool jobWebdavTest(Job* job)
 // textão sobre OneDrive/Dropbox/iCloud, tudo empilhado antes do idioma. Virou
 // uma linha só que abre isto aqui, igual à do WebDAV — as duas nuvens agora se
 // configuram do mesmo jeito, em vez de uma ser um botão e a outra ser meia
-// tela ("organiza melhor, muito bagunçado",).
+// tela.
 //
-// Nada daqui vai pra variável global de propósito: esta tela morre quando ele
-// aperta B, e ponteiro guardado pra ela viraria ponteiro solto.
+// Nada daqui vai pra variável global de propósito: esta tela morre no B, e
+// ponteiro guardado pra ela viraria ponteiro solto.
 static void openGoogleSetup()
 {
     brls::AppletFrame* frame = new brls::AppletFrame(true, true);
@@ -2340,10 +2338,9 @@ static void openGoogleSetup()
             "Deletes the token kept on the SD card. Nothing on Drive is touched."));
 
     // Um lambda só pra repintar as três linhas e a aba de trás. Com a conta
-    // conversa privada removida do historico
-    // conversa privada removida do historico
-    // conversa privada removida do historico
-    // dizendo o que realmente faz.
+    // conectada, um botão "Entrar" não faz sentido nenhum na tela. O item
+    // continua existindo pra quem quiser trocar de conta, mas dizendo o que
+    // realmente faz.
     auto repinta = [estado, entrar, sair]() {
         bool logged = oauth_is_logged_in();
 
@@ -2389,7 +2386,7 @@ static void openGoogleSetup()
     brls::Application::pushView(frame);
 }
 
-// conversa privada removida do historico
+// A tela das nuvens que ainda não estão na lista.
 //
 // O texto é o mesmo de antes, só que fora do caminho: estava aberto na aba
 // Ajustes, entre o seletor de nuvem e a conta do Google, e é uma resposta que
@@ -2402,9 +2399,8 @@ static void openOutrasNuvens()
     brls::List* list = new brls::List();
 
     // Antes esta linha só dizia "dá pra fazer, mas não está feito", que é um
-    // conversa privada removida do historico
-    // conversa privada removida do historico
-    // conversa privada removida do historico
+    // beco sem saída pra quem leu. Agora diz onde está o mapa: o guia de como
+    // implementar os outros provedores, pra quem quiser fazer no próprio app.
     list->addView(new brls::ListItem("OneDrive, Dropbox",
         TR("Dão pra fazer, e não estão feitos. Os dois exigem registrar um aplicativo no "
            "portal deles pra sair um código de acesso — de graça, só chato.\n\n"
@@ -2647,7 +2643,7 @@ static brls::List* createSettingsTab()
 
         // A aba "Tudo de uma vez" tem o nome da nuvem escrito nos botões, e
         // ela só se refaz no X. Sem isto ficaria dizendo o nome da nuvem
-        // antiga até ele atualizar na mão.
+        // antiga até alguém atualizar na mão.
         if (g_bulk_list)
             refillKeepingFocus(g_bulk_list, [] { fillBulkList(g_bulk_list); });
 
@@ -2801,9 +2797,8 @@ static brls::List* createAboutTab()
     // um único item focável no topo, o D-pad não tinha pra onde descer, a lista
     // nunca rolava, e tudo que passasse da primeira tela virava texto
     // inalcançável — foi assim que a privacidade, que é a última seção, ficou
-    // conversa privada removida do historico
-    // Um item focável por seção resolve isso por construção, em vez de depender
-    // do texto caber por sorte.
+    // impossível de ler. Um item focável por seção resolve isso por construção,
+    // em vez de depender do texto caber por sorte.
     brls::ListItem* versionItem = new brls::ListItem(TR("Versão", "Version"));
     versionItem->setValue(APP_VERSION_STRING);
     list->addView(versionItem);
@@ -2953,13 +2948,13 @@ static brls::List* createAboutTab()
 
 // A recusa de rodar em modo aplicação saiu daqui.
 //
-// Ela existia porque eu tinha concluído que o "dados corrompidos" do Mario 3D
-// World vinha do title takeover: o loader monta o savedata do jogo sequestrado,
-// conversa privada removida do historico
-// conversa privada removida do historico
-// sustenta: quem monta o save do jogo sequestrado é o hbloader, no instante do
-// takeover, independente do que o nosso app faça depois. Recusar não protegia
-// save nenhum; só impedia o app de abrir do jeito que ele quer usar.
+// Ela existia porque eu tinha concluído que o "dados corrompidos" visto num
+// jogo vinha do title takeover: o loader monta o savedata do jogo sequestrado,
+// e um crash ali deixaria o save pela metade. Só que entrar no app como se
+// fosse um jogo é justamente o caso de uso — então revi a conclusão, e ela não
+// se sustenta: quem monta o save do jogo sequestrado é o hbloader, no instante
+// do takeover, independente do que o nosso app faça depois. Recusar não
+// protegia save nenhum; só impedia o app de abrir do jeito que se quer usar.
 //
 // O que de fato protege continua valendo e não mudou: todo save que a gente
 // monta é por application_id explícito (savemount_mount), nunca "o save do
@@ -2968,7 +2963,7 @@ static brls::List* createAboutTab()
 int main(int argc, char* argv[])
 {
     // Guardado antes de qualquer coisa: é o caminho que o restartApp() usa pra
-    // reabrir o app quando ele troca de idioma.
+    // reabrir o app na troca de idioma.
     if (argc > 0 && argv[0])
         g_nro_path = argv[0];
 
@@ -3074,18 +3069,18 @@ int main(int argc, char* argv[])
     brls::Application::pushView(g_root);
 
     // Primeira vez no app (nenhuma nuvem configurada): já oferece os dois
-    // caminhos em vez de deixar ele descobrir sozinho que precisa ir na aba
-    // Ajustes. A pergunta olha pra nuvem escolhida, não só pro Google — quem
-    // já pôs o servidor WebDAV não é perguntado de novo.
+    // caminhos em vez de deixar quem usa descobrir sozinho que precisa ir na
+    // aba Ajustes. A pergunta olha pra nuvem escolhida, não só pro Google —
+    // quem já pôs o servidor WebDAV não é perguntado de novo.
     if (!cloud_is_ready(cloud_current()) && http_ok)
     {
         brls::Dialog* welcome = new brls::Dialog(
             // Doze linhas viraram quatro. O texto antigo empurrava os três
-            // botões pra fora da tela — mandaram a foto, com o
-            // diálogo inteiro de texto e nenhum botão à vista, só o B pra sair.
-            // A causa de raiz está consertada no dialog.cpp da borealis, mas
-            // três parágrafos numa tela de primeira vez estavam errados de
-            // qualquer jeito: os próprios botões já dizem quais são as opções.
+            // botões pra fora da tela: sobrava o diálogo inteiro de texto e
+            // nenhum botão à vista, só o B pra sair. A causa de raiz está
+            // consertada no dialog.cpp da borealis, mas três parágrafos numa
+            // tela de primeira vez estavam errados de qualquer jeito: os
+            // próprios botões já dizem quais são as opções.
             TR("Pra sincronizar, o app precisa de um lugar pra guardar os saves.\n\n"
                "Google Drive — você entra pelo celular, com um QR code. O Switch "
                "nunca pede senha.\n\n"

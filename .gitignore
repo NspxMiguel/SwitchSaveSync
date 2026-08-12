@@ -13,11 +13,15 @@ gui/resources/shaders/
 # Nunca entra em commit.
 token.txt
 
-# Anotacoes de trabalho e backups do console de quem usa. Ficam na pasta, nao no repo:
-# conversa privada removida do historico
+# Anotacoes de trabalho e backups do console. Ficam na pasta, nao no repo:
+# tem save de verdade, log de crash e IP do console dentro.
 PEDIDOS.md
 backups-do-switch/
 cartao/
+
+# Script de backup do cartao de quem desenvolve: e' sobre a maquina e o pacote
+# de CFW de alguem, nao sobre este app. Fica na pasta, fora do repo.
+backup-cartao.sh
 
 # copia do ../assets/icon.jpg, feita pelo Makefile
 gui/resources/icon/app.jpg

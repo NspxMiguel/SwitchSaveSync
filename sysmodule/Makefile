@@ -6,7 +6,7 @@
 #   /atmosphere/contents/00FF0000535953FF/toolbox.json
 #
 # NAO existe boot2.flag nessa pasta, e nao deve existir: o sysmodule so sobe
-# quando o overlay do Ultrahand manda. Ver PEDIDOS.md / ANALISE.md passo 2.
+# quando o overlay do Ultrahand manda. Ver ANALISE.md, passo 2.
 #
 # Compartilha ../core com o app grafico (http/oauth/drive/titles/savemount/
 # syncjob/syncstate) — e o mesmo codigo de backup dos dois lados.
