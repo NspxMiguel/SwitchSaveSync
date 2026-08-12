@@ -1,0 +1,140 @@
+# O instalador é a primeira coisa que um estranho roda, e roda em máquina que
+# eu não tenho. Então ele é testado de verdade nos três sistemas, contra um
+# cartão de mentira, a cada mudança: instala, confere os quatro arquivos,
+# prova que não apagou o que já estava lá, e roda de novo pra provar que
+# instalar duas vezes não quebra.
+
+name: instalador
+
+on:
+  push:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'install.bat'
+      - '.github/workflows/instalador.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unix:
+    name: install.sh — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cartão de mentira, com um arquivo que não pode sumir
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/cartao/atmosphere/contents" "$RUNNER_TEMP/cartao/switch"
+          echo "nao me apague" > "$RUNNER_TEMP/cartao/switch/outro-app.nro"
+
+      - name: instala do zero
+        run: bash install.sh --card "$RUNNER_TEMP/cartao" --yes
+
+      - name: os quatro arquivos chegaram, e o vizinho continua vivo
+        run: |
+          set -eu
+          for f in switch/SwitchSaveSync.nro \
+                   switch/.overlays/SwitchSaveSync.ovl \
+                   atmosphere/contents/00FF0000535953FF/exefs.nsp \
+                   atmosphere/contents/00FF0000535953FF/toolbox.json; do
+            test -s "$RUNNER_TEMP/cartao/$f" || { echo "faltou: $f"; exit 1; }
+          done
+          grep -q "nao me apague" "$RUNNER_TEMP/cartao/switch/outro-app.nro"
+
+      - name: instalar de novo por cima não quebra
+        run: bash install.sh --card "$RUNNER_TEMP/cartao" --yes
+
+      - name: --app-only não derruba o autosync que já estava lá
+        run: |
+          set -eu
+          bash install.sh --card "$RUNNER_TEMP/cartao" --app-only --yes
+          test -s "$RUNNER_TEMP/cartao/atmosphere/contents/00FF0000535953FF/exefs.nsp"
+
+      - name: caminho que não existe é recusado, não inventado
+        run: |
+          set -u
+          if bash install.sh --card "$RUNNER_TEMP/nao-existe" --yes; then
+            echo "aceitou um caminho que nao existe"; exit 1
+          fi
+
+      - name: em português também
+        env:
+          LANG: pt_BR.UTF-8
+        run: bash install.sh --card "$RUNNER_TEMP/cartao" --yes | grep -q "Pronto"
+
+      - name: --zip de arquivo local, sem internet nenhuma
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/vazio"
+          curl -fsSL -o "$RUNNER_TEMP/sd.zip" \
+            "$(curl -fsSL https://api.github.com/repos/NspxMiguel/SwitchSaveSync/releases/latest \
+               | tr ',' '\n' | grep -o '"browser_download_url": *"[^"]*-sd\.zip"' \
+               | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"
+          bash install.sh --card "$RUNNER_TEMP/vazio" --zip "$RUNNER_TEMP/sd.zip" --yes
+          test -s "$RUNNER_TEMP/vazio/switch/SwitchSaveSync.nro"
+
+  windows:
+    name: install.ps1 — Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cartão de mentira, com um arquivo que não pode sumir
+        shell: powershell
+        run: |
+          $cartao = Join-Path $env:RUNNER_TEMP 'cartao'
+          New-Item -ItemType Directory -Force -Path (Join-Path $cartao 'atmosphere') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $cartao 'switch') | Out-Null
+          'nao me apague' | Set-Content -Path (Join-Path $cartao 'switch\outro-app.nro')
+          "PowerShell: $($PSVersionTable.PSVersion)"
+
+      - name: instala do zero
+        shell: powershell
+        run: .\install.ps1 -Card (Join-Path $env:RUNNER_TEMP 'cartao') -Yes
+
+      - name: os quatro arquivos chegaram, e o vizinho continua vivo
+        shell: powershell
+        run: |
+          $cartao = Join-Path $env:RUNNER_TEMP 'cartao'
+          $faltou = $false
+          foreach ($f in @('switch\SwitchSaveSync.nro',
+                           'switch\.overlays\SwitchSaveSync.ovl',
+                           'atmosphere\contents\00FF0000535953FF\exefs.nsp',
+                           'atmosphere\contents\00FF0000535953FF\toolbox.json')) {
+            $p = Join-Path $cartao $f
+            if (-not (Test-Path $p) -or (Get-Item $p).Length -eq 0) { Write-Host "faltou: $f"; $faltou = $true }
+          }
+          if ($faltou) { exit 1 }
+          if ((Get-Content (Join-Path $cartao 'switch\outro-app.nro')) -notmatch 'nao me apague') { exit 1 }
+
+      - name: instalar de novo por cima não quebra
+        shell: powershell
+        run: .\install.ps1 -Card (Join-Path $env:RUNNER_TEMP 'cartao') -Yes
+
+      - name: -AppOnly não derruba o autosync que já estava lá
+        shell: powershell
+        run: |
+          .\install.ps1 -Card (Join-Path $env:RUNNER_TEMP 'cartao') -AppOnly -Yes
+          $p = Join-Path $env:RUNNER_TEMP 'cartao\atmosphere\contents\00FF0000535953FF\exefs.nsp'
+          if (-not (Test-Path $p)) { exit 1 }
+
+      - name: caminho que não existe é recusado, não inventado
+        shell: powershell
+        run: |
+          .\install.ps1 -Card (Join-Path $env:RUNNER_TEMP 'nao-existe') -Yes
+          if ($LASTEXITCODE -eq 0) { Write-Host 'aceitou um caminho que nao existe'; exit 1 }
+          exit 0
+
+      - name: o .bat chama o .ps1 que está do lado
+        shell: cmd
+        env:
+          SSS_SEM_PAUSA: '1'
+        run: |
+          call install.bat -Card "%RUNNER_TEMP%\cartao" -Yes
+          if errorlevel 1 exit /b 1
