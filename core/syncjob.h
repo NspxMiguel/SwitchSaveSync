@@ -24,7 +24,29 @@ typedef void (*syncjob_log_cb)(const char *msg);
 // Precisa disso porque o sysmodule só descobre o application_id do jogo que
 // fechou — e pra montar o save também é preciso a conta (AccountUid) e o
 // nome, que só a enumeração dá.
+//
+// ATENÇÃO: devolve o PRIMEIRO que aparecer. Com duas contas jogando o mesmo
+// jogo, o application_id sozinho não diz de quem é o save — use o
+// syncjob_find_all_titles e trate todas.
 bool syncjob_find_title(u64 application_id, TitleEntry *out);
+
+// Todos os saves desse jogo, de todas as contas do console. Devolve quantos
+// couberam em `out`.
+size_t syncjob_find_all_titles(u64 application_id, TitleEntry *out, size_t max);
+
+// Última pergunta antes de escrever num savedata: devolve true se pode.
+//
+// Existe por causa de quem escreve sem ninguém na frente do console — o
+// sysmodule. Ele decide "o console está parado, dá pra puxar da nuvem", mas o
+// download demora, e nesse meio-tempo o jogo pode ter sido aberto: a partir
+// daí, escrever é corromper (ver o bloco "Congelar o jogo" no sysmodule). O
+// guarda é consultado dentro do write_over_save, ou seja, no único ponto do
+// projeto que monta savedata pra escrita, imediatamente antes de montar.
+//
+// NULL (o padrão) quer dizer "sempre pode", que é o caso do app gráfico: lá o
+// próprio app é a aplicação em primeiro plano, então não existe jogo vivo.
+typedef bool (*syncjob_guard_cb)(void);
+void syncjob_set_write_guard(syncjob_guard_cb guard);
 
 // Backup completo de um jogo. O mount é sempre read-only: essa função não
 // tem como corromper save, no pior caso ela falha.

@@ -31,27 +31,41 @@ static void say(syncjob_log_cb log, const char *fmt, ...)
         log(buf);
 }
 
-// Atenção: com mais de uma conta tendo save do mesmo jogo, isso devolve a
-// PRIMEIRA que aparecer — o application_id sozinho não diz de quem é o save.
-// Quem chama é só o sysmodule de autosync, que hoje está fora de escopo e só
-// sabe o application_id do jogo que fechou; quando ele voltar, vai precisar
-// descobrir a conta que estava jogando antes de chamar aqui.
-bool syncjob_find_title(u64 application_id, TitleEntry *out)
+// Todos os saves deste jogo, de todas as contas.
+//
+// Existe porque o application_id sozinho NÃO diz de quem é o save, e quem
+// chama — o sysmodule — só sabe o application_id do jogo que fechou. Pegar só
+// o primeiro da lista era pior do que parece: com duas contas jogando o mesmo
+// jogo, a ordem entre as duas é a que o fsSaveDataInfoReader devolveu, não a
+// de quem acabou de jogar. Quem fechou o jogo era a Convidado e subia o save do
+// Miguel, sem mudança nenhuma, e a tela dizia "nuvem OK".
+size_t syncjob_find_all_titles(u64 application_id, TitleEntry *out, size_t max)
 {
     // Estático: são ~70 KB de TitleEntry, e no sysmodule a heap é apertada.
     // Não é reentrante, mas só existe uma thread chamando isso.
     static TitleEntry entries[MAX_TITLES];
 
-    size_t n = titles_list_with_savedata(entries, MAX_TITLES);
-    for (size_t i = 0; i < n; i++)
-    {
+    size_t n       = titles_list_with_savedata(entries, MAX_TITLES);
+    size_t achados = 0;
+
+    for (size_t i = 0; i < n && achados < max; i++)
         if (entries[i].application_id == application_id)
-        {
-            *out = entries[i];
-            return true;
-        }
-    }
-    return false;
+            out[achados++] = entries[i];
+
+    return achados;
+}
+
+bool syncjob_find_title(u64 application_id, TitleEntry *out)
+{
+    return syncjob_find_all_titles(application_id, out, 1) == 1;
+}
+
+// O guarda de escrita. Ver o comentário no syncjob.h.
+static syncjob_guard_cb g_write_guard = NULL;
+
+void syncjob_set_write_guard(syncjob_guard_cb guard)
+{
+    g_write_guard = guard;
 }
 
 // O nome de quem está guardando: "Google Drive", "Servidor WebDAV...".
@@ -762,6 +776,17 @@ bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
 // um jogo abre e diz que os dados estão corrompidos.
 static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjob_log_cb log)
 {
+    // A última pergunta antes de montar pra escrita, e o único lugar do projeto
+    // onde ela cabe: TODA escrita em savedata passa por aqui. Quem responde é o
+    // sysmodule ("nenhum jogo vivo agora?"), porque só ele escreve com o
+    // console na mão de outra pessoa. Ver syncjob_set_write_guard.
+    if (g_write_guard && !g_write_guard())
+    {
+        say(log, TR("O jogo abriu no meio — não vou escrever no save dele",
+                    "The game started in the middle — I won't write to its save"));
+        return false;
+    }
+
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, false))
     {
         say(log, TR("Não consegui montar o save pra escrita", "Couldn't mount the save for writing"));
@@ -1006,6 +1031,28 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
     {
         say(log, TR("O backup na nuvem está vazio — não vou gravar nada por cima", "The cloud backup is empty — nothing will be written over your save"));
         return false;
+    }
+
+    // Já é a mesma coisa? Então não escreve.
+    //
+    // Não é economia de tempo, é segurança: escrever significa montar pra
+    // escrita, APAGAR o savedata inteiro e regravar. Fazer isso pra deixar o
+    // save exatamente como já estava é abrir a janela de corrupção por nada — e
+    // na varredura ociosa do sysmodule isso acontecia a cada meia hora, em cada
+    // jogo, a noite toda, sem ninguém na frente do console.
+    //
+    // A comparação é a mesma do sync de um clique (nome + tamanho + conteúdo,
+    // sem mtime): o que veio do Drive nasce com data de agora, então data aqui
+    // só produziria "diferente" pra sempre.
+    u64 fp_nuvem = 0, fp_local = 0;
+    fingerprint_dir(staging, &fp_nuvem);
+
+    if (syncjob_fingerprint(title, &fp_local) && fp_local == fp_nuvem)
+    {
+        syncjob_mark_synced(title, fp_local);
+        say(log, TR("O save daqui já é igual ao da nuvem — não mexi em nada",
+                    "This save is already the same as the cloud's — nothing was touched"));
+        return true;
     }
 
     // Só aqui monta pra escrita, e só depois do download ter dado certo: se a
