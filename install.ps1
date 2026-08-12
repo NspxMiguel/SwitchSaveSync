@@ -34,6 +34,8 @@ $ErrorActionPreference = 'Stop'
 # Sem isto o Invoke-WebRequest desenha uma barra de progresso que deixa o
 # download ate' 10x mais lento no PowerShell 5.1. Nao e' exagero.
 $ProgressPreference = 'SilentlyContinue'
+# O PowerShell 5.1 ainda negocia TLS 1.0 por padrao, e o GitHub recusa.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
 $repo    = 'NspxMiguel/SwitchSaveSync'
 # SSS_API existe pra um so' proposito: a integracao continua aponta ele pro
@@ -63,6 +65,27 @@ function Diz([string] $emPortugues, [string] $emIngles, [string] $cor = 'Gray') 
 function Morre([string] $emPortugues, [string] $emIngles) {
     Write-Host ('  x ' + (T $emPortugues $emIngles)) -ForegroundColor Red
     exit 1
+}
+
+# Baixar de novo quando a conexao cai. Nao e' teoria: a CDN do GitHub derrubou
+# a conexao no meio do download em duas maquinas ao mesmo tempo, e wi-fi de
+# quem esta instalando cai muito mais que isso.
+function Baixa([string] $url, [string] $destino) {
+    for ($t = 1; $t -le 3; $t++) {
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $destino -UseBasicParsing `
+                -Headers @{ 'User-Agent' = 'SwitchSaveSync-installer' }
+            return
+        } catch {
+            if ($t -eq 3) {
+                Morre 'o download falhou depois de tres tentativas - a conexao caiu no meio' `
+                      'the download failed after three tries - the connection kept dropping'
+            }
+            Write-Host (T "  a conexao caiu, tentando de novo ($t/3)..." `
+                          "  the connection dropped, retrying ($t/3)...")
+            Start-Sleep -Seconds ($t * 3)
+        }
+    }
 }
 
 function Humano([long] $n) {
@@ -307,7 +330,7 @@ try {
         }
         Write-Host (Split-Path $url -Leaf)
         Write-Host ('  ' + (T 'baixando... ' 'downloading... ')) -NoNewline
-        Invoke-WebRequest -Uri $url -OutFile $zipLocal -UseBasicParsing -Headers @{ 'User-Agent' = 'SwitchSaveSync-installer' }
+        Baixa $url $zipLocal
         Write-Host (Humano (Get-Item $zipLocal).Length)
     }
 
