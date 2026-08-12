@@ -286,11 +286,16 @@ bool drive_list_children(const char *access_token, const char *folder_id,
     snprintf(url, sizeof(url),
              "https://www.googleapis.com/drive/v3/files?q=%s&fields=files(id,name,mimeType)&pageSize=1000",
              query_enc);
-    // LIMITACAO CONHECIDA: sem paginação via nextPageToken. Se uma pasta
-    // tiver mais itens do que cabem no buffer files_block abaixo, os
-    // excedentes somem da listagem silenciosamente. Não deveria acontecer
-    // com pasta de save de jogo (poucos arquivos), mas é bom saber que
-    // existe esse teto.
+    // LIMITACAO CONHECIDA: sem paginação via nextPageToken. Acima de 1000
+    // itens numa pasta, o resto fica de fora. Save de jogo não chega perto
+    // disso, mas está dito.
+    //
+    // O outro teto, esse sim mordia: até a lista era copiada
+    // inteira pra um buffer de 8 KB na pilha, e o copiador NÃO trunca — ele
+    // devolve false quando não cabe. Ou seja, pasta com mais de ~60 arquivos
+    // não listava PARCIALMENTE: não listava NADA, e download e prune falhavam
+    // junto, sem dizer por quê. Agora o array é percorrido direto no corpo da
+    // resposta, sem cópia e sem teto.
 
     HttpResponse r = http_get(url, access_token);
     if (!r.ok || r.status != 200) {
@@ -298,15 +303,23 @@ bool drive_list_children(const char *access_token, const char *folder_id,
         return false;
     }
 
-    char files_block[8192];
-    bool got_block = json_get_block(r.body, "files", files_block, sizeof(files_block));
-    http_response_free(&r);
-    if (!got_block) return false;
+    const char *files = json_value_at(r.body, "files");
+    if (!files || *files != '[') {
+        // Sem a chave "files", ou ela não é um array: o Drive respondeu 200 com
+        // outra coisa. Pasta vazia devolve "files": [], que passa reto daqui.
+        http_response_free(&r);
+        return false;
+    }
 
     const char *cursor;
-    if (!json_array_begin(files_block, &cursor)) return true; // array vazio = pasta vazia
+    if (!json_array_begin(files, &cursor)) {
+        http_response_free(&r);
+        return true; // array vazio = pasta vazia
+    }
 
-    char elem[900];
+    // O 'cursor' aponta pra DENTRO do r.body, então a resposta tem que
+    // continuar viva até o laço acabar — só depois é que ela é liberada.
+    char elem[1024];
     while (json_array_next(&cursor, elem, sizeof(elem))) {
         char id[128] = {0}, name[300] = {0}, mime[128] = {0};
         json_get_string(elem, "id", id, sizeof(id));
@@ -315,6 +328,8 @@ bool drive_list_children(const char *access_token, const char *folder_id,
         bool is_folder = strcmp(mime, DRIVE_FOLDER_MIME) == 0;
         if (id[0] && cb) cb(id, name, is_folder, userdata);
     }
+
+    http_response_free(&r);
     return true;
 }
 
