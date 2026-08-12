@@ -127,18 +127,33 @@ transformar isto numa lista de verdade.
 Precisa de um console com CFW (**Atmosphère**) e o menu de homebrew funcionando. Se isso
 ainda não está de pé, resolve primeiro — é assunto de outro tutorial, não deste.
 
-### 1. Baixar
+### 1. Um comando, ou quatro arquivos
 
-Pega o `SwitchSaveSync.nro` na **[última versão](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)**.
+Enfia o cartão no computador e roda, no **macOS ou Linux**:
 
-É um arquivo só. Não tem instalador, não tem dependência, não tem conta pra criar aqui.
+```bash
+curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
+```
 
-### 2. Copiar pro cartão
+No **Windows**, no PowerShell — ou baixa o [`install.bat`](install.bat) e dá dois cliques:
 
-Põe o `SwitchSaveSync.nro` em `sdmc:/switch/`. Pode ser tirando o cartão e usando o PC, ou
-por FTP se você já usa um.
+```powershell
+irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
+```
 
-### 3. Abrir
+Ele mostra os cartões que enxerga, você escolhe um, e ele baixa a versão mais nova e põe
+cada arquivo no lugar certo. Não apaga nada e nunca formata.
+
+Na mão, em vez disso: o `SwitchSaveSync.nro` da
+**[última versão](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)** vai pra
+`sdmc:/switch/SwitchSaveSync.nro`. Esse arquivo sozinho é o app inteiro. A release traz
+também o autosync — mais três arquivos — e um zip com a árvore do cartão já montada.
+
+**[O passo a passo completo está no INSTALACAO.md](INSTALACAO.md)** *([in English](INSTALL.md))*:
+pré-requisitos, autosync, a árvore do cartão, o que fazer quando não funciona, e as
+perguntas que as pessoas fazem de verdade.
+
+### 2. Abrir
 
 Pelo menu de homebrew — mas **segurando R num jogo, não pelo Álbum**.
 
@@ -148,7 +163,13 @@ Pelo menu de homebrew — mas **segurando R num jogo, não pelo Álbum**.
 > tiver dúvida de em qual modo você está, o próprio app diz: aba **Ajustes**, em
 > Diagnóstico.
 >
-> Isso deixa de ser necessário depois do passo 5.
+> Isso deixa de ser necessário depois que você instala o atalho, mais abaixo.
+>
+> E o **R só funciona se o Atmosphère estiver deixando**: o
+> `/atmosphere/config/override_config.ini` precisa ter `override_any_app=true`. O Atmosphère
+> nunca escreve essa linha sozinho, e atualizar ele também não acrescenta — o instalador lá
+> em cima cria o arquivo quando ele não existe.
+> [O bloco exato está no INSTALACAO.md](INSTALACAO.md#a-linha-que-faz-o-r-funcionar).
 
 ### 4. Entrar na sua conta
 
@@ -170,7 +191,7 @@ O login fica guardado só no cartão, em `/switch/SwitchSaveSync/token.txt`, e s
 > credencial sua, é só [compilar](#compilar-com-a-sua-própria-credencial) — o caminho
 > continua aberto.
 
-### 5. Pronto — e opcionalmente, com cara de jogo
+### 4. Pronto — e opcionalmente, com cara de jogo
 
 Já dá pra usar: abre, aperta **A** num jogo, e ele resolve o resto.
 
@@ -233,11 +254,14 @@ Numa pasta `Nintendo Switch Saves/`, na raiz do seu Drive (ou do seu WebDAV), um
 ```
 Nintendo Switch Saves/
   Rayman Legends_ Definitive Edition/
-    Conta 1/         ← os arquivos, soltos
-    Conta 2/
+    Jogador 1/       ← os arquivos, soltos
+    Jogador 2/
   The Legend of Zelda_ Breath of the Wild/
-    Conta 1/
+    Jogador 1/
 ```
+
+A pasta da conta leva o **apelido do perfil no console** — `Jogador 1` aqui é só exemplo —
+ou `console`, pros saves que são do aparelho e não de uma pessoa.
 
 A pasta da conta existe sempre, mesmo quando o jogo tem um save só: save solto na pasta do
 jogo é save sem dono, e isso só continua verdade até outra pessoa do console abrir o mesmo
@@ -257,7 +281,8 @@ Nada disso é necessário pra usar o app — é pra quem prefere não passar pel
 credencial, ou pra quem vai mexer no código.
 
 Precisa do [devkitPro](https://devkitpro.org/wiki/Getting_Started) com o grupo
-`switch-dev`, mais `switch-curl`, `switch-mbedtls` e `switch-zlib`.
+`switch-dev`, mais `switch-curl`, `switch-mbedtls`, `switch-zlib`, `switch-glfw`,
+`switch-mesa` e `switch-glm`.
 
 ```bash
 cp core/config.h.example core/config.h
@@ -283,18 +308,20 @@ export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
 make -C gui
 ```
 
-Sai um `gui/SwitchSaveSync.nro` — daí é o passo 2 da instalação em diante.
+Sai um `gui/SwitchSaveSync.nro` — daí é só copiar pro cartão como acima.
 
-As outras pastas compilam do mesmo jeito (`make -C app`, `make -C sysmodule`), mas veja o
-[estado do projeto](#estado-do-projeto) antes: elas estão paradas de propósito.
+O autosync compila do mesmo jeito, e precisa das duas metades: `make -C sysmodule` e
+`make -C overlay`. O `make -C app` compila a primeira versão, em modo texto, que fica de
+histórico e não de uso.
 
 ## O que ele não faz
 
 - **Não mexe em save de jogo aberto.** O jogo tem que estar fechado; o app avisa quando não
   consegue montar.
 - **Não interpreta save.** Não edita, não converte, não "conserta" save.
-- **Não sobe nada sozinho.** Sincronização é sempre um clique seu. O modo automático está
-  planejado, mas não existe ainda.
+- **O app não sobe nada sozinho.** No app, sincronizar é sempre um clique seu. Automático é
+  outra coisa, que você instala e liga por conta — o sysmodule do autosync, ali em cima — e
+  mesmo ligado ele não escreve por cima de save que mudou desde o último upload.
 - **Não se instala no boot.** Nada de `boot2.flag` — decisão consciente: homebrew que sobe
   junto com o console é homebrew que pode deixar o console sem subir.
 
@@ -311,11 +338,14 @@ foram abertos e estão parados de propósito:
 | `sysmodule/` | Autosync rodando de fundo | **Novo, em teste** |
 | `overlay/` | O overlay do Ultrahand que liga ele | **Novo, em teste** |
 
-O autosync faz o backup quando você **fecha** o jogo. No console, a metade do cartão já
-roda; a metade da nuvem ainda está em teste. [Como instalar](#autosync--opcional-e-novo).
+O autosync faz o backup quando você **fecha** o jogo e — com a metade da nuvem ligada —
+traz save de volta com o console parado no menu, atrás de três travas que impedem ele de
+escrever por cima de coisa mais nova.
+[Como instalar](INSTALACAO.md#2-autosync-opcional-e-ainda-em-teste).
 
-O que falta lá é a outra ponta: uma tela na **abertura** do jogo — "sincronizando,
-aguarde", com barra de porcentagem e um botão **Pular** pra quem não quer esperar.
+A tela com barra de porcentagem já existe, mas ela aparece **no menu**, com o console
+parado. O que falta é a outra ponta: a mesma tela na **abertura** do jogo, pro caso de você
+abrir o jogo antes de o download terminar.
 
 ## Leitura
 

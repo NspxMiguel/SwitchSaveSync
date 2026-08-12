@@ -41,7 +41,9 @@ extern "C" {
 void syncstate_ensure_dirs(void);
 
 // --- liga/desliga o autosync (o overlay escreve, o sysmodule lê) ---------
-// Default quando o arquivo não existe: ligado.
+// Default quando o arquivo não existe: DESLIGADO. Este comentário já disse o
+// contrário do que o código faz, e é o tipo de mentira que custa caro: quem
+// lê aqui e confia decide o comportamento errado lá na frente.
 bool syncstate_autosync_enabled(void);
 void syncstate_set_autosync_enabled(bool enabled);
 

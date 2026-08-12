@@ -127,18 +127,33 @@ become a real list.
 You need a console on CFW (**Atmosphère**) with the homebrew menu working. If that isn't in
 place yet, sort it out first — that's someone else's tutorial, not this one.
 
-### 1. Download
+### 1. One command, or four files
 
-Grab `SwitchSaveSync.nro` from the **[latest release](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)**.
+Plug the SD card into your computer and run, on **macOS or Linux**:
 
-One file. No installer, no dependencies, no account to create here.
+```bash
+curl -fsSL https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.sh | bash
+```
 
-### 2. Copy it to the SD card
+On **Windows**, in PowerShell — or download [`install.bat`](install.bat) and double-click it:
 
-Put `SwitchSaveSync.nro` in `sdmc:/switch/`. Either pull the card and use a PC, or send it
-over FTP if you already run one.
+```powershell
+irm https://raw.githubusercontent.com/NspxMiguel/SwitchSaveSync/main/install.ps1 | iex
+```
 
-### 3. Launch it
+It shows the cards it can see, you pick one, and it downloads the newest release and puts
+every file where it goes. It deletes nothing and it never formats.
+
+By hand instead: `SwitchSaveSync.nro` from the
+**[latest release](https://github.com/NspxMiguel/SwitchSaveSync/releases/latest)** goes to
+`sdmc:/switch/SwitchSaveSync.nro`. That one file is the whole app. The release also carries
+autosync — three more files — and a zip with the card's tree already laid out.
+
+**[The full instructions are in INSTALL.md](INSTALL.md)** *([em português](INSTALACAO.md))*:
+prerequisites, autosync, the card's tree, what to do when it doesn't work, and the questions
+people actually ask.
+
+### 2. Launch it
 
 From the homebrew menu — but **holding R on a game, not from the Album**.
 
@@ -148,9 +163,14 @@ From the homebrew menu — but **holding R on a game, not from the Album**.
 > with full memory and networking. If you're unsure which mode you're in, the app itself
 > tells you: **Settings** tab, under Diagnostics.
 >
-> This stops being necessary after step 5.
+> This stops being necessary once you install the forwarder, below.
+>
+> And **R only works if Atmosphère is set to allow it**: `/atmosphere/config/override_config.ini`
+> has to contain `override_any_app=true`. Atmosphère never writes that line by itself, and
+> updating it doesn't add it either — the installer above creates the file when it's missing.
+> [The exact block is in INSTALL.md](INSTALL.md#the-line-that-makes-r-work).
 
-### 4. Sign in
+### 3. Sign in
 
 The first time, the app shows a **code** and an address (and a QR code, if you'd rather use
 your phone's camera). You open that address on your phone or PC, type the code and approve.
@@ -170,7 +190,7 @@ removes it for good.
 > still rather use your own, just [build it](#building-with-your-own-credentials) — that
 > road stays open.
 
-### 5. Done — and optionally, like a game
+### 4. Done — and optionally, like a game
 
 You can use it already: open it, press **A** on a game, and it works the rest out.
 
@@ -233,11 +253,15 @@ per **game** and, inside it, a folder per **account**:
 ```
 Nintendo Switch Saves/
   Rayman Legends_ Definitive Edition/
-    Account 1/       ← the files, loose
-    Account 2/
+    Player 1/        ← the files, loose
+    Player 2/
   The Legend of Zelda_ Breath of the Wild/
-    Account 1/
+    Player 1/
 ```
+
+The account folder is named after the **profile's nickname on the console** — `Player 1`
+here is just an example — or `console`, for saves that belong to the console rather than to
+a person.
 
 The account folder is always there, even when the game has a single save: a save sitting
 loose in the game's folder reads like a save with no owner, and that only stays true until
@@ -258,7 +282,8 @@ None of this is needed to use the app — it's for people who'd rather not go th
 credentials, or who are going to touch the code.
 
 Needs [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the `switch-dev` group,
-plus `switch-curl`, `switch-mbedtls` and `switch-zlib`.
+plus `switch-curl`, `switch-mbedtls`, `switch-zlib`, `switch-glfw`, `switch-mesa` and
+`switch-glm`.
 
 ```bash
 cp core/config.h.example core/config.h
@@ -284,18 +309,22 @@ export PATH=$DEVKITPRO/tools/bin:$DEVKITA64/bin:$PATH
 make -C gui
 ```
 
-Out comes `gui/SwitchSaveSync.nro` — from there it's install step 2 onwards.
+Out comes `gui/SwitchSaveSync.nro` — from there, copy it to the card as above (the
+installer takes it too: `./install.sh --zip` isn't needed, just drop the file in
+`sdmc:/switch/`).
 
-The other folders build the same way (`make -C app`, `make -C sysmodule`), but check the
-[project status](#project-status) first: they're parked on purpose.
+Autosync is built the same way, and needs both halves: `make -C sysmodule` and
+`make -C overlay`. `make -C app` builds the first, text-mode version, which is kept for
+history and not for use.
 
 ## What it doesn't do
 
 - **It won't touch a running game's save.** The game has to be closed; the app tells you
   when it can't mount.
 - **It doesn't interpret saves.** No editing, no converting, no "fixing".
-- **It never syncs behind your back.** Syncing is always a press of yours. Automatic mode is
-  planned, but doesn't exist yet.
+- **The app never syncs behind your back.** In the app, syncing is always a press of yours.
+  Automatic is a separate thing you install and switch on yourself — the autosync sysmodule
+  above — and even then it won't overwrite a save that changed since the last upload.
 - **It doesn't install itself at boot.** No `boot2.flag` — a deliberate call: homebrew that
   comes up with the console is homebrew that can stop the console coming up.
 
@@ -312,12 +341,13 @@ that were opened and are parked on purpose:
 | `sysmodule/` | Background autosync | **New, under test** |
 | `overlay/` | The Ultrahand overlay that drives it | **New, under test** |
 
-Autosync backs a save up when you **close** the game. On the console it has done the
-SD-card half; the cloud half is still being tested. [How to install
-it](#autosync--optional-and-new).
+Autosync backs a save up when you **close** the game, and — with the cloud half on — brings
+saves down while the console sits idle on the menu, behind three locks that keep it from
+overwriting anything newer. [How to install it](INSTALL.md#2-autosync-optional-and-still-being-tested).
 
-What's still missing there is the other end: a screen at game **startup** — "syncing,
-please wait", with a percentage bar and a **Skip** button for people who won't wait.
+The screen with the percentage bar already exists, but it appears **on the menu**, while the
+console is idle. What's still missing is the other end: the same screen at game **startup**,
+for the case where you open the game before the download has finished.
 
 ## Further reading
 
