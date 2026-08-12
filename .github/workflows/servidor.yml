@@ -1,0 +1,24 @@
+# O freio do servidor de autenticação só é exercitado no dia em que alguém
+# ataca — que é o pior dia possível pra descobrir que ele estava quebrado.
+# Aqui ele roda a cada mudança, sem depender de ninguém ter node na máquina.
+
+name: servidor
+
+on:
+  push:
+    paths:
+      - 'servidor/**'
+      - '.github/workflows/servidor.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  teste:
+    name: freio, escopo fixado e rotas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: node servidor/teste.mjs

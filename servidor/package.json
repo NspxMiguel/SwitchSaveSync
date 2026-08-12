@@ -1,0 +1,11 @@
+{
+  "name": "switchsavesync-auth",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Guarda a credencial do Google fora do .nro, fixa o escopo em drive.file e freia abuso por IP.",
+  "scripts": {
+    "test": "node teste.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
