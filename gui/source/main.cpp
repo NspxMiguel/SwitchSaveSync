@@ -2934,12 +2934,14 @@ static brls::List* createAboutTab()
             "asks for an app password, not your main one.")));
 
     list->addView(new brls::ListItem(TR("Em que pé está o projeto", "Where the project stands"),
-        TR("Esta é a versão avulsa, em que você abre o app e sincroniza na mão. O próximo "
-           "passo é o sysmodule, que faz isso sozinho ao entrar e sair do jogo — fora do "
-           "escopo por enquanto.",
-            "This is the standalone version, where you open the app and sync by hand. The "
-            "next step is the sysmodule, doing it by itself when a game starts and stops "
-            "— out of scope for now.")));
+        TR("Aqui você abre o app e sincroniza na mão, e isso é o app inteiro. Junto com "
+           "ele vem o autosync, que é opcional: um sysmodule que faz backup sozinho "
+           "quando o jogo fecha, ligado e desligado pelo overlay do Ultrahand. Ele não "
+           "sobe junto com o console, de propósito. Como instalar está no INSTALACAO.md.",
+            "Here you open the app and sync by hand, and that is the whole app. Alongside "
+            "it comes autosync, which is optional: a sysmodule that backs a save up on its "
+            "own when a game closes, turned on and off from the Ultrahand overlay. It does "
+            "not start with the console, on purpose. INSTALL.md has the steps.")));
 
     return list;
 }
