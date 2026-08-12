@@ -72,19 +72,41 @@ function Morre([string] $emPortugues, [string] $emIngles) {
 # quem esta instalando cai muito mais que isso.
 function Baixa([string] $url, [string] $destino) {
     for ($t = 1; $t -le 3; $t++) {
-        try {
-            Invoke-WebRequest -Uri $url -OutFile $destino -UseBasicParsing `
-                -Headers @{ 'User-Agent' = 'SwitchSaveSync-installer' }
-            return
-        } catch {
-            if ($t -eq 3) {
-                Morre 'o download falhou depois de tres tentativas - a conexao caiu no meio' `
-                      'the download failed after three tries - the connection kept dropping'
+        # Duas mecanicas diferentes de propositos: o Invoke-WebRequest do
+        # PowerShell 5.1 derruba download grande do CDN do GitHub com alguma
+        # frequencia ("the underlying connection was closed"), e o WebClient
+        # passa onde ele falha. Tentar os dois custa um segundo.
+        foreach ($modo in @('webclient', 'iwr')) {
+            $cliente = $null
+            try {
+                if ($modo -eq 'webclient') {
+                    $cliente = New-Object System.Net.WebClient
+                    $cliente.Headers.Add('User-Agent', 'SwitchSaveSync-installer')
+                    $cliente.DownloadFile($url, $destino)
+                } else {
+                    Invoke-WebRequest -Uri $url -OutFile $destino -UseBasicParsing `
+                        -Headers @{ 'User-Agent' = 'SwitchSaveSync-installer' }
+                }
+                return
+            } catch {
+                # Erro HTTP (404 e afins) nao melhora repetindo, e repetir ainda
+                # faz o instalador acusar a conexao de um problema que nao e dela.
+                $resposta = $_.Exception.Response
+                if ($resposta -and [int]$resposta.StatusCode -ge 400 -and [int]$resposta.StatusCode -lt 500) {
+                    Morre 'o servidor recusou o arquivo da release (ele saiu do lugar?)' `
+                          'the server refused the release file (did it move?)'
+                }
+            } finally {
+                if ($cliente) { $cliente.Dispose() }
             }
-            Write-Host (T "  a conexao caiu, tentando de novo ($t/3)..." `
-                          "  the connection dropped, retrying ($t/3)...")
-            Start-Sleep -Seconds ($t * 3)
         }
+        if ($t -eq 3) {
+            Morre 'o download falhou depois de tres tentativas - a conexao caiu no meio' `
+                  'the download failed after three tries - the connection kept dropping'
+        }
+        Write-Host (T "  a conexao caiu, tentando de novo ($t/3)..." `
+                      "  the connection dropped, retrying ($t/3)...")
+        Start-Sleep -Seconds ($t * 3)
     }
 }
 
