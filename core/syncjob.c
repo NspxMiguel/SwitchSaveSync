@@ -245,6 +245,94 @@ static void conta_subpasta(const char *id, const char *name, bool is_folder, voi
     u->quantas++;
 }
 
+// Tem arquivo solto no primeiro nível desta pasta?
+typedef struct { bool tem_arquivo; } TemArquivoCtx;
+
+static void marca_se_arquivo(const char *id, const char *name, bool is_folder, void *ud)
+{
+    (void)id; (void)name;
+    if (!is_folder)
+        ((TemArquivoCtx *)ud)->tem_arquivo = true;
+}
+
+// O backup do layout achatado antigo ("Jogo (Dono)", ou só "Jogo" pra save
+// único), se ainda existir.
+//
+// Precisa de cuidado desde que a pasta do jogo virou CONTAINER: pra save único
+// o save_folder_name devolve exatamente o mesmo nome que a pasta do jogo de
+// hoje. Procurar cegamente por ele devolve o container, cujos filhos são as
+// pastas das contas e o .nxsaves do jogo — e restaurar ISSO por cima do
+// savedata escreveria uma pasta chamada "Miguel" e um arquivo de 29 MB dentro
+// do save do jogo. É o pior tipo de bug que este projeto pode ter.
+//
+// A distinção está no conteúdo e é confiável: backup antigo tem ARQUIVO solto
+// no primeiro nível (é uma cópia de save); container do layout novo só tem
+// subpasta de conta. Sem arquivo solto ali, não é backup — é container, e a
+// resposta certa é "não achei".
+static bool cloud_flat_backup(const char *token, const char *root_id,
+                               const TitleEntry *title,
+                               char *id_out, size_t outsz)
+{
+    char safe[0x201];
+    save_folder_name(title, safe, sizeof(safe));
+
+    char id[CLOUD_ID_MAX];
+    if (!cloud_find_subfolder(token, root_id, safe, id, sizeof(id)))
+        return false;
+
+    // Sem recursão de propósito: descendo, os arquivos que moram dentro das
+    // pastas de conta fariam todo container passar por backup antigo.
+    TemArquivoCtx ctx = { .tem_arquivo = false };
+    if (!cloud_list_children(token, id, marca_se_arquivo, &ctx) || !ctx.tem_arquivo)
+        return false;
+
+    snprintf(id_out, outsz, "%s", id);
+    return true;
+}
+
+static bool cloud_title_folder(const char *token, const char *root_id,
+                                const TitleEntry *title, bool create,
+                                char *id_out, size_t outsz,
+                                char *path_out, size_t path_sz);
+
+typedef struct {
+    const char *token;
+    int         n;
+} ContaArquivos;
+
+static void soma_arquivos(const char *id, const char *name, bool is_folder, void *ud)
+{
+    (void)name;
+    ContaArquivos *c = (ContaArquivos *)ud;
+    if (is_folder)
+        cloud_list_children(c->token, id, soma_arquivos, c);
+    else
+        c->n++;
+}
+
+int syncjob_cloud_file_count(const TitleEntry *title)
+{
+    char token[CLOUD_AUTH_MAX];
+    if (!cloud_begin(token, sizeof(token)))
+        return 0;
+
+    char root_id[CLOUD_ID_MAX];
+    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
+        return 0;
+
+    // find, nunca ensure: isto é uma contagem pra desenhar barra. Criar pasta
+    // aqui enche o Drive de quem só passou os olhos numa tela.
+    char game_id[CLOUD_ID_MAX];
+    if (!cloud_title_folder(token, root_id, title, false,
+            game_id, sizeof(game_id), NULL, 0)
+        && !cloud_flat_backup(token, root_id, title, game_id, sizeof(game_id)))
+        return 0;
+
+    ContaArquivos ctx = { token, 0 };
+    cloud_list_children(token, game_id, soma_arquivos, &ctx);
+    return ctx.n;
+}
+
 static bool cloud_title_folder(const char *token, const char *root_id,
                                 const TitleEntry *title, bool create,
                                 char *id_out, size_t outsz,
@@ -841,8 +929,7 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log)
 
     if (!cloud_title_folder(token, root_id, title, false,
             game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem))
-        && (strcmp(pasta_nuvem, safe) == 0
-            || !cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id))))
+        && !cloud_flat_backup(token, root_id, title, game_id, sizeof(game_id)))
     {
         say(log, TR("Esse jogo não tem backup em %s", "This game has no backup on %s"), nuvem());
         return false;
@@ -968,8 +1055,7 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
 
     bool tem_na_nuvem = cloud_title_folder(token, root_id, title, false,
         game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem));
-    if (!tem_na_nuvem && strcmp(pasta_nuvem, safe) != 0
-        && cloud_find_subfolder(token, root_id, safe, game_id, sizeof(game_id)))
+    if (!tem_na_nuvem && cloud_flat_backup(token, root_id, title, game_id, sizeof(game_id)))
     {
         // A registrada sumiu e a calculada existe: o registro envelheceu (ele
         // apagou a pasta na nuvem pelo navegador, por exemplo). Vale a que
@@ -1007,7 +1093,14 @@ SyncjobSyncResult syncjob_sync_title(const TitleEntry *title, syncjob_log_cb log
     if (cloud_vazio)
     {
         say(log, TR("Primeira sync desse jogo — subindo o save do console", "First sync for this game — uploading the console's save"));
-        if (!cloud_ensure_subfolder(token, root_id, pasta_nuvem, game_id, sizeof(game_id)) ||
+        // cloud_title_folder e NAO cloud_ensure_subfolder: o pasta_nuvem tem
+        // dois niveis ("Jogo/Dono") e o ensure_subfolder cria UM nome so. No
+        // Drive isso criava, na raiz, uma pasta cujo NOME continha uma barra —
+        // o upload dizia que deu certo e nenhum leitor achava aquilo nunca
+        // mais. No WebDAV era MKCOL com pai inexistente: 409, e a primeira
+        // sync de todo jogo novo falhava.
+        if (!cloud_title_folder(token, root_id, title, true,
+                game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem)) ||
             !cloud_upload_tree(token, game_id, console_dir))
         {
             say(log, TR("Upload falhou", "Upload failed"));
