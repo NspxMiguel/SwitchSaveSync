@@ -101,6 +101,24 @@ void syncstate_set_dest(bool local, bool cloud)
 
 // ------------------------------------------------------------- exclusões
 
+// Um id por linha, em hexa. Comentário começa com #.
+//
+// Streaming, sem array: a lista era lida pra um `u64 ids[128]` e o 129º jogo em
+// diante simplesmente não existia — o overlay desenhava "Sync LIGADO" num jogo
+// que ele acabou de desligar, e o autosync subia o save dele. Pior: o toggle
+// seguinte reescrevia o arquivo a partir dessa lista já cortada e APAGAVA os
+// registros do 129 em diante. Nada disso precisava de arquivo corrompido nem de
+// falta de energia: era determinístico a partir do 129º jogo.
+static u64 le_id(const char *line)
+{
+    const char *p = line;
+    while (*p == ' ' || *p == '\t')
+        p++;
+    if (*p == '#' || *p == '\0' || *p == '\n' || *p == '\r')
+        return 0;
+    return strtoull(p, NULL, 16); // aceita com ou sem "0x"
+}
+
 size_t syncstate_list_excluded(u64 *out, size_t max)
 {
     FILE *f = fopen(SYNC_EXCLUDE_PATH, "r");
@@ -111,13 +129,7 @@ size_t syncstate_list_excluded(u64 *out, size_t max)
     char line[64];
     while (n < max && fgets(line, sizeof(line), f))
     {
-        // aceita com ou sem "0x", e ignora linha vazia / comentário
-        char *p = line;
-        while (*p == ' ' || *p == '\t')
-            p++;
-        if (*p == '#' || *p == '\0' || *p == '\n' || *p == '\r')
-            continue;
-        u64 id = strtoull(p, NULL, 16);
+        u64 id = le_id(line);
         if (id)
             out[n++] = id;
     }
@@ -127,41 +139,82 @@ size_t syncstate_list_excluded(u64 *out, size_t max)
 
 bool syncstate_is_excluded(u64 application_id)
 {
-    u64 ids[128];
-    size_t n = syncstate_list_excluded(ids, 128);
-    for (size_t i = 0; i < n; i++)
-        if (ids[i] == application_id)
-            return true;
-    return false;
-}
-
-void syncstate_set_excluded(u64 application_id, bool excluded)
-{
-    u64 ids[128];
-    size_t n = syncstate_list_excluded(ids, 128);
-
-    bool present = false;
-    for (size_t i = 0; i < n; i++)
-        if (ids[i] == application_id)
-            present = true;
-
-    if (present == excluded)
-        return; // já está do jeito pedido, não mexe no arquivo
-
-    syncstate_ensure_dirs();
-    FILE *f = fopen(SYNC_EXCLUDE_PATH, "w");
+    FILE *f = fopen(SYNC_EXCLUDE_PATH, "r");
     if (!f)
-        return;
+        return false;
 
-    fprintf(f, "# Jogos que o SwitchSaveSync deve ignorar (um application_id em hex por linha).\n"
-               "# Nao sobe save no autosync nem puxa save da nuvem.\n");
-    for (size_t i = 0; i < n; i++)
-        if (ids[i] != application_id)
-            fprintf(f, "%016lX\n", ids[i]);
-    if (excluded)
-        fprintf(f, "%016lX\n", application_id);
+    bool achou = false;
+    char line[64];
+    while (!achou && fgets(line, sizeof(line), f))
+        achou = (le_id(line) == application_id);
 
     fclose(f);
+    return achou;
+}
+
+// Devolve false quando a lista NÃO ficou como pedido.
+//
+// Era void, e o silêncio custava caro: esta lista é o "não mexa nesses jogos".
+// A gravação abria o arquivo com "w", o que TRUNCA na hora (truncar nunca falta
+// espaço), despejava tudo e ignorava o retorno do fclose — que é onde o buffer
+// vai pro cartão de verdade. Cartão cheio, e a lista inteira virava um arquivo
+// de zero byte: os jogos protegidos voltavam a subir e a receber save da nuvem
+// por cima, sozinhos, e o overlay ainda dizia "jogo marcado como excluido".
+//
+// Agora é o mesmo padrão do arquivo único: escreve num .parcial, confere cada
+// escrita e o fclose, e só então troca por rename. Falhou em qualquer ponto, o
+// arquivo de antes continua inteiro onde estava.
+bool syncstate_set_excluded(u64 application_id, bool excluded)
+{
+    if (syncstate_is_excluded(application_id) == excluded)
+        return true; // já está do jeito pedido, não mexe no arquivo
+
+    syncstate_ensure_dirs();
+
+    char temp[sizeof(SYNC_EXCLUDE_PATH) + 16];
+    snprintf(temp, sizeof(temp), "%s.parcial", SYNC_EXCLUDE_PATH);
+
+    FILE *out = fopen(temp, "w");
+    if (!out)
+        return false;
+
+    bool ok = fprintf(out,
+                  "# Jogos que o SwitchSaveSync deve ignorar (um application_id em hex por linha).\n"
+                  "# Nao sobe save no autosync nem puxa save da nuvem.\n")
+        > 0;
+
+    // Copia linha a linha em vez de reescrever a partir de uma lista lida na
+    // memória: assim não existe teto nenhum de quantos jogos cabem.
+    FILE *in = fopen(SYNC_EXCLUDE_PATH, "r");
+    if (in)
+    {
+        char line[64];
+        while (ok && fgets(line, sizeof(line), in))
+        {
+            u64 id = le_id(line);
+            if (id == 0 || id == application_id)
+                continue; // comentário, linha vazia, ou justamente o que sai
+
+            ok = fprintf(out, "%016lX\n", id) > 0;
+        }
+        fclose(in);
+    }
+
+    if (ok && excluded)
+        ok = fprintf(out, "%016lX\n", application_id) > 0;
+
+    // O fclose é a escrita de verdade: é nele que o buffer da stdio vai pro
+    // cartão. Sem conferir ele, cartão cheio passava por sucesso.
+    if (fclose(out) != 0)
+        ok = false;
+
+    if (!ok)
+    {
+        remove(temp); // o de antes continua inteiro
+        return false;
+    }
+
+    return rename(temp, SYNC_EXCLUDE_PATH) == 0;
 }
 
 // ---------------------------------------------------------------- pedido

@@ -447,6 +447,57 @@ static void teste_registro_de_pasta(void)
 
 // --------------------------------------------------------------------- main
 
+// A lista de "nao mexa nesses jogos".
+//
+// E a unica protecao que o usuario tem contra o autosync, e ela falhava de dois
+// jeitos calados: parava no 128 registro (do 129 em diante o jogo voltava a
+// sincronizar sozinho, e o toggle seguinte APAGAVA o resto do arquivo) e
+// ignorava erro de gravacao (cartao cheio deixava a lista inteira zerada).
+static void teste_excluidos(void)
+{
+    printf("\n== a lista de jogos excluidos ==\n");
+
+    remove(SYNC_EXCLUDE_PATH);
+
+    const u64 PRIMEIRO = 0x0100000000001000ull;
+
+    ok(!syncstate_is_excluded(PRIMEIRO), "sem arquivo nenhum, nada esta excluido");
+    ok(syncstate_set_excluded(PRIMEIRO, true), "marcou o primeiro");
+    ok(syncstate_is_excluded(PRIMEIRO), "e ele esta marcado");
+
+    // 200 jogos: passa dos 128 que cabiam no array de antes.
+    for (int i = 1; i < 200; i++)
+        syncstate_set_excluded(PRIMEIRO + i, true);
+
+    int faltando = 0;
+    for (int i = 0; i < 200; i++)
+        if (!syncstate_is_excluded(PRIMEIRO + i))
+            faltando++;
+    ok(faltando == 0, "os 200 continuam marcados (nao para no 128)");
+    if (faltando) printf("         sumiram: %d\n", faltando);
+
+    // O toggle de UM nao pode levar os outros junto.
+    ok(syncstate_set_excluded(PRIMEIRO + 150, false), "desmarcou um do meio");
+    ok(!syncstate_is_excluded(PRIMEIRO + 150), "e ele saiu");
+
+    int sobraram = 0;
+    for (int i = 0; i < 200; i++)
+        if (i != 150 && syncstate_is_excluded(PRIMEIRO + i))
+            sobraram++;
+    ok(sobraram == 199, "e os outros 199 continuam la");
+    if (sobraram != 199) printf("         sobraram: %d\n", sobraram);
+
+    // Gravacao impossivel: a pasta fica so-leitura. E o cartao cheio do
+    // console, que era onde a lista inteira virava arquivo de zero byte.
+    chmod("sdmc:/switch/SwitchSaveSync", 0555);
+    bool disse_que_deu = syncstate_set_excluded(PRIMEIRO + 500, true);
+    chmod("sdmc:/switch/SwitchSaveSync", 0755);
+
+    ok(!disse_que_deu, "gravacao impossivel devolve false, em vez de mentir");
+    ok(syncstate_is_excluded(PRIMEIRO + 3), "e a lista de antes continua inteira");
+    ok(!syncstate_is_excluded(PRIMEIRO + 500), "o que nao gravou nao aparece marcado");
+}
+
 int main(void)
 {
     // O syncstate escreve log em sdmc:/switch/SwitchSaveSync — sem barra na
@@ -459,6 +510,7 @@ int main(void)
     teste_sanitize();
     teste_folder_name();
     teste_registro_de_pasta();
+    teste_excluidos();
 
     printf("\n=========================================\n");
     printf("  %d testes, %d falha(s)\n", testes, falhas);

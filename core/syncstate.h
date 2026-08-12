@@ -58,7 +58,10 @@ bool syncstate_dest_cloud(void);   // Google Drive
 void syncstate_set_dest(bool local, bool cloud);
 
 bool syncstate_is_excluded(u64 application_id);
-void syncstate_set_excluded(u64 application_id, bool excluded);
+// Devolve false quando a lista nao ficou como pedido (cartao cheio, por
+// exemplo). Quem chama tem que dizer isso na tela: esta lista e o "nao mexa
+// nesses jogos", e falhar calado devolve o jogo pro autosync sem ninguem ver.
+bool syncstate_set_excluded(u64 application_id, bool excluded);
 // Lê a lista inteira pra out[]; devolve quantos leu.
 size_t syncstate_list_excluded(u64 *out, size_t max);
 
