@@ -131,8 +131,13 @@ public:
             auto* item = new tsl::elm::ToggleListItem(
                 entries[i].name, !syncstate_is_excluded(id), "Sync", "Off");
 
-            item->setStateChangedListener([id](bool on) {
-                syncstate_set_excluded(id, !on);
+            // Se a gravação falhar, o botão volta pro que ele era: o desenho na
+            // tela é a única coisa que ele tem pra saber se ficou gravado, e
+            // deixar "Off" aceso com a lista intacta no cartão é dizer que o
+            // jogo está protegido quando ele não está.
+            item->setStateChangedListener([id, item](bool on) {
+                if (!syncstate_set_excluded(id, !on))
+                    item->setState(!on);
             });
 
             list->addItem(item);
@@ -236,8 +241,17 @@ public:
             if (!(keys & HidNpadButton_A))
                 return false;
 
+            // A lista INTEIRA, e nao entries[0] de uma listagem de um.
+            //
+            // Pedir 1 nao devolve "o mais recente": devolve o primeiro que o
+            // fsSaveDataInfoReader cuspiu, que e ordem de criacao do save. A
+            // ordenacao por ultimo jogado acontece depois, sobre a lista pronta,
+            // e com um elemento so ela nem roda (titles.c: `if (count < 2)
+            // return;`). Ou seja, "fazer backup do ultimo jogado" mandava subir
+            // o save de um jogo qualquer — o mais VELHO, normalmente — e escrevia
+            // "pedido enviado" do mesmo jeito.
             static TitleEntry entries[MAX_TITLES];
-            size_t count = titles_list_with_savedata(entries, 1); // [0] = mais recente
+            size_t count = titles_list_with_savedata(entries, MAX_TITLES); // [0] = mais recente
 
             if (count == 0)
                 this->backupItem->setValue(TR("sem jogos", "no games"), true);
@@ -267,7 +281,13 @@ public:
             return;
         }
 
-        char status[128];
+        // 640, e nao 128: a linha de status pode levar o nome do jogo junto, e
+        // nome de jogo tem ate 0x201 bytes (titles.h). Com 128 o fgets cortava a
+        // linha e jogava o resto fora sem avisar nada — na faixa da tela sobrava
+        // um pedaco do nome, e o resultado sumia. O sysmodule agora poe o
+        // resultado na frente, mas o buffer tem que caber a linha inteira do
+        // mesmo jeito: o resto dela e o que se le rolando o item.
+        char status[640];
         if (syncstate_get_status(status, sizeof(status)))
             this->statusItem->setText(status);
         else if (sysmoduleRunning())
@@ -313,10 +333,23 @@ public:
         g_pmshellOk = R_SUCCEEDED(pmshellInitialize());
         nsInitialize();
         accountInitialize(AccountServiceType_System);
+
+        // pdm:qry TEM que ser aberto aqui, e nao la dentro do titles.c.
+        //
+        // O initServices roda dentro do doWithSmSession da tesla; a tela e os
+        // cliques rodam DEPOIS, com a sessao do sm ja fechada. Quem tentar abrir
+        // um servico novo la na frente cai num smGetService sem sessao e falha
+        // sempre. Era o caso do pdm: o titles.c chamava pdmqryInitialize no meio
+        // da listagem, tomava erro, desistia em silencio — e a lista NUNCA saia
+        // ordenada por ultimo jogado no overlay. Abrindo aqui, o Initialize de
+        // la vira um refcount++ e devolve 0 sem falar com o sm, que e como o ns
+        // e o account ja funcionavam.
+        pdmqryInitialize();
     }
 
     virtual void exitServices() override
     {
+        pdmqryExit();
         accountExit();
         nsExit();
         pmshellExit();
