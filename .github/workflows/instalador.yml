@@ -81,10 +81,10 @@ jobs:
         run: |
           set -eu
           mkdir -p "$RUNNER_TEMP/vazio"
-          curl -fsSL -o "$RUNNER_TEMP/sd.zip" \
-            "$(curl -fsSL https://api.github.com/repos/NspxMiguel/SwitchSaveSync/releases/latest \
-               | tr ',' '\n' | grep -o '"browser_download_url": *"[^"]*-sd\.zip"' \
-               | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"
+          # Nome fixo, sem passar pela API: a cota de 60 chamadas por hora por IP
+          # ja chega gasta num provedor grande, e o teste caia com 403.
+          curl -fsSL --retry 3 --retry-delay 2 -o "$RUNNER_TEMP/sd.zip" \
+            https://github.com/NspxMiguel/SwitchSaveSync/releases/latest/download/SwitchSaveSync-sd.zip
           bash install.sh --card "$RUNNER_TEMP/vazio" --zip "$RUNNER_TEMP/sd.zip" --yes
           test -s "$RUNNER_TEMP/vazio/switch/SwitchSaveSync.nro"
 
