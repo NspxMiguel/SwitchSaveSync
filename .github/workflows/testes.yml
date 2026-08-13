@@ -1,0 +1,44 @@
+# Os testes que rodam em máquina limpa, sem console e sem conta de ninguém.
+#
+# Ficam de fora, de propósito:
+#   webdav — precisa de um servidor WebDAV no ar;
+#   drive  — fala com o Google de verdade e precisa de uma conta.
+# Esses dois continuam sendo rodados na mão, com `./tests/run.sh`.
+#
+# O core/config.h é privado (credencial do Google) e não vai pro git; o
+# tests/stubs/config.h cobre o lugar dele aqui. Se algum teste passar a precisar
+# do de verdade, ele quebra AQUI antes de quebrar pra quem clonou o repo.
+
+name: testes
+
+on:
+  push:
+    paths:
+      - 'core/**'
+      - 'gui/**'
+      - 'sysmodule/**'
+      - 'tests/**'
+      - '.github/workflows/testes.yml'
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core:
+    name: core, credencial, FTP e NPDM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: o que o clang precisa pra ligar
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libcurl4-openssl-dev zlib1g-dev
+
+      # Um por um, e não "tudo": o alvo `tudo` inclui o webdav, que precisa de
+      # servidor no ar.
+      - name: os testes
+        run: |
+          set -e
+          for alvo in nxsaves nomes pastas sync arquivo credencial ftpd servicos servidor; do
+            ./tests/run.sh "$alvo"
+          done
