@@ -265,15 +265,25 @@ bool gfx_init(void)
     g_ready = true;
     return true;
 
+    // Desfazer na ordem inversa, e sem repetir o erro do gfx_exit: quem destrói
+    // a camada gerenciada é o viDestroyManagedLayer sozinho.
 fail_fb:
     framebufferClose(&g_fb);
 fail_window:
     nwindowClose(&g_window);
 fail_layer:
-    viCloseLayer(&g_layer);
+    viDestroyManagedLayer(&g_layer); // já fecha a camada por dentro
+    goto fail_display;
 fail_managed:
+    // Aqui o viCreateLayer falhou, então g_layer não vale nada — mas a camada
+    // GERENCIADA existe, e vazar ela é o que trava o console. O id dela está
+    // no global que o viCreateManagedLayer acabou de preencher, e o destroy só
+    // precisa disso: a desmontagem mostra que ele lê o primeiro campo do
+    // ViLayer e manda pro vi.
+    g_layer = (ViLayer){ .layer_id = __nx_vi_layer_id };
     viDestroyManagedLayer(&g_layer);
 fail_display:
+    __nx_vi_layer_id = 0;
     viCloseDisplay(&g_display);
     return false;
 }
@@ -283,11 +293,33 @@ void gfx_exit(void)
     if (!g_ready)
         return;
 
+    // viCloseLayer NÃO pode vir antes do viDestroyManagedLayer.
+    //
+    // Isto congelava o console. Desmontando o libnx.a dá pra ver os dois:
+    //
+    //   viCloseLayer          ... stp xzr, xzr, [x2]   <- ZERA os 16 primeiros
+    //                                                     bytes do ViLayer, e o
+    //                                                     primeiro campo é o
+    //                                                     layer_id
+    //   viDestroyManagedLayer ldr x0, [x20]            <- lê o layer_id
+    //                         str x0, [x19, #32]          e manda pro vi
+    //
+    // Ou seja: fechar antes zera o id, e o destroy manda "destrua a camada 0".
+    // A camada gerenciada NUNCA era destruída — ficava viva no compositor, no
+    // Z máximo, por cima do menu. Uma por sincronização, acumulando, até o
+    // console travar. É por isso que ele congelou logo depois de sair da tela.
+    //
+    // A libtesla faz exatamente o que está aqui embaixo: framebuffer, janela,
+    // destroy (que já fecha a camada por dentro), display. Sem o viCloseLayer.
     framebufferClose(&g_fb);
     nwindowClose(&g_window);
-    viCloseLayer(&g_layer);
     viDestroyManagedLayer(&g_layer);
     viCloseDisplay(&g_display);
+
+    // O viCreateLayer da libnx lê este global pra saber a qual camada
+    // gerenciada se acoplar. Deixar o id de uma camada já destruída aqui é
+    // marcar encontro com um fantasma na próxima abertura.
+    __nx_vi_layer_id = 0;
 
     g_buf = NULL;
     g_ready = false;
