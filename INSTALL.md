@@ -166,6 +166,24 @@ built-in credential takes over again.
 touches a save, and it's the fastest way to know whether the problem is the account, the
 network, or the mode the app is running in.
 
+### Two development tools
+
+**Settings → Development → FTP server** opens the console's SD card to your computer.
+The screen shows the address (`ftp://10.0.0.80:5001`); on a Mac that's *Finder → Go →
+Connect to Server*, on Windows Explorer takes the same address, and FileZilla, Cyberduck
+or the terminal's `ftp` all work too. The root is the whole card.
+
+> **It only exists while that screen is open** — leaving shuts the server down. And there
+> is **no password**: FTP sends everything in the clear, so anyone on the same network can
+> get in and change the card. Fine at home; not fine on public wifi.
+
+**On a game's screen, at the bottom: "Empty this game's save".** It erases the save's
+contents on the console, leaving the game as if it had never been played — which is how
+you actually watch a restore happen. Before erasing, it keeps a copy on the SD card, and
+nothing in the cloud is touched. It empties the contents rather than deleting the savedata:
+deleting the container would leave a restore with nowhere to write until the game opens and
+creates a new one.
+
 ### Optional: a shortcut on the home menu
 
 With [Sphaira](https://github.com/ITotalJustice/sphaira) you can make the app show up as an
@@ -240,6 +258,7 @@ The overlay shows the last status line. The long version is
     token.txt          Google login          webdav.cfg     server, user and password
     nuvem.cfg          which cloud is on     idioma.txt     language
     google.cfg         your own credential (optional)
+    cacert.pem         certificates, so the sysmodule can speak HTTPS
     autosync.cfg       autosync on/off       destino.cfg    card and/or cloud
     excluidos.txt      games you excluded    pastas.txt     cloud folder per save
     status.txt         last status           autosync.log   the long version
