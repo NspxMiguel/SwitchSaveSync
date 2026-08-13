@@ -743,12 +743,18 @@ static bool jobWipeSave(Job* job, TitleEntry title)
     }
 
     bool ok = savemount_wipe_contents();
-    savemount_unmount(true); // commit: sem isto o cartão nem fica sabendo
+
+    // O commit é o que torna a limpeza permanente — então ele só acontece se a
+    // limpeza tiver dado certo INTEIRA. Commitar uma limpeza que morreu no meio
+    // grava um save pela metade, que é pior que os dois estados possíveis: nem
+    // é o save antigo, nem é um save vazio que o jogo recria. É o mesmo cuidado
+    // que o syncjob.c toma na restauração.
+    savemount_unmount(ok);
 
     if (!ok)
     {
-        job->setStatus(TR("Não consegui apagar o conteúdo do save.",
-            "Couldn't erase the save's contents."));
+        job->setStatus(TR("Não consegui apagar o conteúdo do save — desfiz, o save continua como estava.",
+            "Couldn't erase the save's contents - rolled back, the save is as it was."));
         return false;
     }
 
