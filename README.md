@@ -105,7 +105,7 @@ safety net for when the cloud isn't an option.
   removing it requires the current one.
 - **Sorted by last played**, with each game's real name and icon read from the console.
 - **Portuguese and English**, following the console's language or picked by hand.
-- **Esvaziar o save / Empty a save** — on a game's screen: erases the save's contents on the
+- **Empty a save** — on a game's screen: erases the save's contents on the
   console so the game starts as if never played, after keeping a copy on the SD card. It's
   how you watch a restore actually happen.
 - **FTP server** (Settings → Development) — opens the SD card to your computer while that
