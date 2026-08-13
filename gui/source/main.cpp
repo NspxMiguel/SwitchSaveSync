@@ -32,6 +32,8 @@ extern "C" {
 #include <sys/stat.h>
 #include <vector>
 
+#include "ftpd.h"
+
 #include "job.hpp"
 #include "job_page.hpp"
 #include "parental.hpp"
@@ -705,6 +707,58 @@ static bool jobBackupLocal(Job* job, TitleEntry title)
     return true;
 }
 
+// Esvaziar o save deste jogo, pra poder ver a restauração acontecer.
+//
+// Ele pediu porque não tinha como testar: o save sobe pra nuvem, e pra ver o
+// download descendo é preciso que o save local NÃO esteja lá — e nem o app nem
+// o menu do console davam um jeito fácil de fazer isso.
+//
+// Esvazia o CONTEÚDO, não apaga a savedata.
+//
+// São coisas diferentes. `fsDeleteSaveDataFileSystem*` apaga o container: a
+// savedata some do console, e restaurar depois não tem onde escrever até o
+// jogo abrir e criar uma nova. Esvaziar deixa o container lá, do tamanho que o
+// jogo pediu, e é exatamente o estado de "jogo instalado que nunca foi jogado"
+// — que é o que serve pro teste dele e é o que dá pra desfazer.
+//
+// E a cópia no cartão não é opcional: esta é a única função do app que destrói
+// progresso sem pôr nada no lugar.
+static bool jobWipeSave(Job* job, TitleEntry title)
+{
+    job->setStatus(TR("Guardando uma cópia no cartão antes...",
+        "Keeping a copy on the SD card first..."));
+    if (!syncjob_backup_title_local(&title, jobLogLine))
+    {
+        job->setStatus(TR("Não consegui guardar a cópia de segurança — não apaguei nada.",
+            "Couldn't keep the safety copy - nothing was erased."));
+        return false;
+    }
+
+    job->setStatus(TR("Esvaziando o save no console...", "Emptying the save on the console..."));
+    if (!savemount_mount_typed(title.application_id, title.uid, title.device_save, false))
+    {
+        job->setStatus(TR("Não consegui montar o save (o jogo está aberto?).",
+            "Couldn't mount the save (is the game running?)."));
+        return false;
+    }
+
+    bool ok = savemount_wipe_contents();
+    savemount_unmount(true); // commit: sem isto o cartão nem fica sabendo
+
+    if (!ok)
+    {
+        job->setStatus(TR("Não consegui apagar o conteúdo do save.",
+            "Couldn't erase the save's contents."));
+        return false;
+    }
+
+    job->setStatus(TR("Save esvaziado. A cópia está em switch/SwitchSaveSync/backups, e o "
+                      "que está na nuvem não foi tocado.",
+        "Save emptied. The copy is in switch/SwitchSaveSync/backups, and nothing in the "
+        "cloud was touched."));
+    return true;
+}
+
 static bool jobRestoreLocal(Job* job, TitleEntry title)
 {
     job->setStatus(TR("Gravando o save do cartão no console...",
@@ -1301,6 +1355,41 @@ static void openGamePage(const TitleEntry& title)
         list->addView(restoreGameArchiveItem);
     if (restoreArchiveItem)
         list->addView(restoreArchiveItem);
+
+    // Esvaziar o save. Fica sozinho, no fim, embaixo do próprio aviso: é a
+    // única coisa aqui que destrói progresso sem pôr nada no lugar.
+    brls::ListItem* wipeItem = new brls::ListItem(
+        TR("Esvaziar o save deste jogo", "Empty this game's save"),
+        TR("Apaga o conteúdo do save no console e deixa ele como jogo nunca jogado. "
+           "Guarda uma cópia no cartão antes. Serve pra testar a restauração.",
+            "Erases the save's contents on the console, leaving it like a never-played "
+            "game. Keeps a copy on the SD card first. Useful for testing a restore."));
+    wipeItem->getClickEvent()->subscribe([title](brls::View* view) {
+        brls::Dialog* dialog = new brls::Dialog(
+            TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
+                    + "\" que está no CONSOLE. O jogo volta a abrir como se nunca "
+                      "tivesse sido jogado.\n\nAntes de apagar, uma cópia vai pro cartão "
+                      "— e o que está na nuvem não é tocado.\n\nEsvaziar?",
+                std::string("This erases the \"") + titleWithOwner(title)
+                    + "\" save on the CONSOLE. The game will start as if it had never "
+                      "been played.\n\nBefore erasing, a copy goes to the SD card — and "
+                      "nothing in the cloud is touched.\n\nEmpty it?"));
+
+        dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
+        dialog->addButton(TR("Esvaziar", "Empty it"), [dialog, title](brls::View* view) {
+            dialog->close([title]() {
+                openJob(new Job(std::string(TR("Esvaziar — ", "Empty — ")) + titleWithOwner(title),
+                            [title](Job* job) { return jobWipeSave(job, title); }),
+                    false);
+            });
+        });
+
+        dialog->setCancelable(true);
+        dialog->open();
+    });
+
+    list->addView(new brls::Header(TR("Apagar", "Erase")));
+    list->addView(wipeItem);
 
     char idText[64];
     snprintf(idText, sizeof(idText), "Title ID: %016lX", title.application_id);
@@ -2609,6 +2698,106 @@ static void openWebdavSetup()
     brls::Application::pushView(frame);
 }
 
+// ---------------------------------------------------------------------------
+// Servidor de FTP — tela de desenvolvimento
+//
+// Ele pediu porque trocar um arquivo no console exigia abrir o Sphaira e o DBI
+// toda vez. Aqui o servidor vive ENQUANTO ESTA TELA ESTIVER ABERTA e morre no
+// destrutor: nada continua escutando depois que ele sai, e não existe um
+// interruptor esquecido ligado em algum canto dos ajustes.
+// ---------------------------------------------------------------------------
+
+class FtpPage : public brls::AppletFrame
+{
+public:
+    FtpPage()
+        : brls::AppletFrame(true, true)
+    {
+        this->setTitle(TR("Servidor FTP (desenvolvimento)", "FTP server (development)"));
+
+        brls::List* list = new brls::List();
+
+        this->endereco = new brls::Label(brls::LabelStyle::DIALOG, "", true);
+        list->addView(this->endereco);
+
+        this->estado = new brls::Label(brls::LabelStyle::DESCRIPTION, "", true);
+        list->addView(this->estado);
+
+        list->addView(new brls::Header(TR("Como usar", "How to use it")));
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("No Mac: Finder → Ir → Conectar ao servidor, e cole o endereço acima. "
+               "No Windows: o Explorer aceita o mesmo endereço. Ou use FileZilla, "
+               "Cyberduck, ou `ftp` no terminal.\n\n"
+               "A raiz é o cartão inteiro: /switch, /atmosphere, /Nintendo.",
+                "On a Mac: Finder → Go → Connect to Server, and paste the address above. "
+                "On Windows, Explorer takes the same address. Or use FileZilla, "
+                "Cyberduck, or `ftp` in a terminal.\n\n"
+                "The root is the whole SD card: /switch, /atmosphere, /Nintendo."),
+            true));
+
+        list->addView(new brls::Header(TR("Antes de deixar ligado", "Before leaving it on")));
+        list->addView(new brls::Label(brls::LabelStyle::DESCRIPTION,
+            TR("Não tem senha, e o FTP manda tudo em texto puro — qualquer um na mesma "
+               "rede entra e mexe no cartão. Use em casa, não no wi-fi da faculdade.\n\n"
+               "O servidor cai sozinho quando você sair desta tela.",
+                "There is no password, and FTP sends everything in the clear — anyone on "
+                "the same network can get in and change the SD card. Use it at home, not "
+                "on café wifi.\n\n"
+                "The server shuts down by itself when you leave this screen."),
+            true));
+
+        this->setContentView(list);
+
+        if (!ftpd_start(FTPD_PORTA_PADRAO))
+            this->falhou = ftpd_ultimo_erro();
+    }
+
+    ~FtpPage()
+    {
+        ftpd_stop();
+    }
+
+    void draw(NVGcontext* vg, int x, int y, unsigned width, unsigned height,
+        brls::Style* style, brls::FrameContext* ctx) override
+    {
+        this->atualiza();
+        brls::AppletFrame::draw(vg, x, y, width, height, style, ctx);
+    }
+
+private:
+    void atualiza()
+    {
+        if (!this->falhou.empty())
+        {
+            this->endereco->setText(TR("Não subiu", "Did not start"));
+            this->estado->setText(this->falhou);
+            return;
+        }
+
+        char linha[128];
+        snprintf(linha, sizeof(linha), "ftp://%s:%u", ftpd_endereco(), ftpd_porta());
+        this->endereco->setText(linha);
+
+        int conexoes = 0;
+        u64 enviados = 0, recebidos = 0;
+        ftpd_estado(&conexoes, &enviados, &recebidos);
+
+        char texto[512];
+        snprintf(texto, sizeof(texto),
+            TR("%d conexão(ões) agora — %.1f MB enviados, %.1f MB recebidos\n%s",
+               "%d connection(s) right now - %.1f MB sent, %.1f MB received\n%s"),
+            conexoes, enviados / 1048576.0, recebidos / 1048576.0,
+            ftpd_ultima_linha()[0] ? ftpd_ultima_linha()
+                                   : TR("esperando alguém conectar...", "waiting for a connection..."));
+        this->estado->setText(texto);
+    }
+
+    brls::Label* endereco = nullptr;
+    brls::Label* estado   = nullptr;
+    std::string falhou;
+};
+
+
 static brls::List* createSettingsTab()
 {
     brls::List* list = new brls::List();
@@ -2742,6 +2931,20 @@ static brls::List* createSettingsTab()
             "file and get in. It's there so a kid doesn't wipe progress by accident, and "
             "that's all it can be counted on for."),
         true));
+
+    // ---- desenvolvimento ----
+    list->addView(new brls::Header(TR("Desenvolvimento", "Development"), false));
+
+    brls::ListItem* ftpItem = new brls::ListItem(
+        TR("Servidor FTP", "FTP server"),
+        TR("Abre o cartão do console pro computador enquanto esta tela estiver aberta. "
+           "Sem senha, rede local. Serve pra trocar arquivo sem depender do Sphaira.",
+            "Opens the console's SD card to your computer while this screen is open. "
+            "No password, local network. For swapping files without going through Sphaira."));
+    ftpItem->getClickEvent()->subscribe([](brls::View* view) {
+        brls::Application::pushView(new FtpPage());
+    });
+    list->addView(ftpItem);
 
     // ---- diagnóstico ----
     list->addView(new brls::Header(TR("Diagnóstico", "Diagnostics"), false));

@@ -32,3 +32,25 @@ Result timeGetCurrentTime(TimeType type, u64 *out);
 
 // O oauth.c dorme entre uma pergunta e outra ao Google.
 void svcSleepThread(u64 nanos);
+
+// --- o pouco que o servidor de FTP precisa ---------------------------------
+// Ver tests/stubs_libnx.c: thread e mutex viram pthread no Mac.
+#include <pthread.h>
+#include <stddef.h>
+
+typedef struct {
+    void (*entry)(void *);
+    void *arg;
+    pthread_t id;
+} Thread;
+
+typedef u32 Mutex;
+
+Result threadCreate(Thread *t, void (*entry)(void *), void *arg, void *stack,
+                    size_t stack_size, int prio, int cpuid);
+Result threadStart(Thread *t);
+Result threadWaitForExit(Thread *t);
+Result threadClose(Thread *t);
+
+void mutexLock(Mutex *m);
+void mutexUnlock(Mutex *m);
