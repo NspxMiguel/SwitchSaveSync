@@ -165,8 +165,25 @@ Quem só quer sair do nosso servidor, sem criar chave nenhuma, escreve
 ### Conferir que funcionou
 
 **Ajustes → Diagnóstico → Testar conexão** sobe e baixa um arquivinho. Não encosta em save
-nenhum, e é o jeito mais rápido de saber se o problema é a conta, a rede, ou o modo em que o
-app está rodando.
+nenhum, e é o jeito mais rápido de saber se o problema é a conta, a rede, ou o modo em que
+o app está rodando.
+
+### Duas ferramentas de desenvolvimento
+
+**Ajustes → Desenvolvimento → Servidor FTP** abre o cartão do console pro computador.
+A tela mostra o endereço (`ftp://10.0.0.80:5001`); no Mac é *Finder → Ir → Conectar ao
+servidor*, no Windows o Explorer aceita o mesmo endereço, e FileZilla, Cyberduck ou o
+`ftp` do terminal também servem. A raiz é o cartão inteiro.
+
+> **Ele só existe enquanto essa tela estiver aberta** — sair derruba o servidor. E **não
+> tem senha**: o FTP manda tudo em texto puro, então qualquer um na mesma rede entra e
+> mexe no cartão. Vale em casa; não vale no wi-fi de lugar público.
+
+**Na tela de um jogo, lá embaixo: "Esvaziar o save deste jogo".** Apaga o conteúdo do save
+no console e deixa o jogo como se nunca tivesse sido jogado — que é o jeito de ver a
+restauração acontecendo de verdade. Antes de apagar, ele guarda uma cópia no cartão, e o
+que está na nuvem não é tocado. Ele esvazia o conteúdo em vez de apagar a savedata: apagar
+o container deixaria o restore sem onde escrever até o jogo abrir e criar uma nova.
 
 ### Opcional: um ícone no menu do console
 
@@ -243,6 +260,7 @@ O overlay mostra a última linha de status. A versão longa é o
     token.txt          login do Google       webdav.cfg     servidor, usuário e senha
     nuvem.cfg          qual nuvem vale       idioma.txt     idioma
     google.cfg         credencial sua (opcional)
+    cacert.pem         certificados, pro sysmodule falar HTTPS
     autosync.cfg       autosync lig/desl     destino.cfg    cartão e/ou nuvem
     excluidos.txt      jogos que você tirou  pastas.txt     pasta na nuvem de cada save
     status.txt         último status         autosync.log   a versão longa
