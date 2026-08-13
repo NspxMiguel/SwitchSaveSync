@@ -106,6 +106,12 @@ nuvem não é uma opção.
 - **Lista por último jogado**, com o ícone e o nome de verdade de cada jogo, lidos do
   console.
 - **Português e inglês**, com o idioma seguindo o console ou escolhido na mão.
+- **Esvaziar o save** — na tela de um jogo: apaga o conteúdo do save no console, deixando o
+  jogo como se nunca tivesse sido jogado, depois de guardar uma cópia no cartão. É o jeito
+  de ver a restauração acontecendo de verdade.
+- **Servidor de FTP** (Ajustes → Desenvolvimento) — abre o cartão pro computador enquanto
+  aquela tela estiver aberta, pra trocar um arquivo sem precisar abrir outro homebrew. Sem
+  senha, rede local, e cai sozinho quando você sai da tela.
 
 ## Onde foi testado
 
