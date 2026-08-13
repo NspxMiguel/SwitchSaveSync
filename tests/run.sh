@@ -14,7 +14,7 @@
 #   ./tests/run.sh          roda tudo
 #   ./tests/run.sh nomes    roda só um
 #                           (nxsaves | webdav | nomes | pastas | sync | arquivo
-#                            | credencial | servicos | servidor)
+#                            | credencial | servicos | servidor | ftpd)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -83,6 +83,15 @@ fi
 # usuario > endpoint > chave do build) e o parser do arquivo torto.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = credencial ]; then
     roda credencial test_credencial.c $CORE/credencial.c
+fi
+
+# ---- 3g. o servidor de FTP do app, contra clientes de verdade ----
+# O ftpd.c e socket BSD puro; com thread e mutex trocados por pthread
+# (stubs_libnx.c), o mesmo arquivo que roda no console roda aqui e apanha do
+# curl. Protocolo tem muito jeito de dar QUASE certo, e nada disso aparece
+# lendo o codigo.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = ftpd ]; then
+    roda ftpd test_ftpd.c stubs_libnx.c ../gui/source/ftpd.c -I../gui/source
 fi
 
 # ---- 3e2. o NPDM do sysmodule libera tudo que ele abre? ----
