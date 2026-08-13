@@ -244,12 +244,18 @@ bool gfx_init(void)
     // console apareceu como um retângulo com pedaços do menu do Switch dentro.
     // Um framebufferBegin/End só limpa o buffer da vez; com duplo buffer, o
     // outro continua com lixo e ele volta a aparecer no quadro seguinte.
+    // O End só existe se o Begin tiver entregado buffer: o header da libnx diz
+    // que "each call to framebufferBegin must be paired with a framebufferEnd
+    // call" — o par é do Begin que DEU CERTO. Chamar End sem buffer devolve à
+    // fila do compositor uma coisa que nunca saiu dela, e o pull_redraw deste
+    // mesmo arquivo já fazia certo (sai fora sem End quando não vem buffer).
     for (int i = 0; i < 2; i++)
     {
         u32 stride = 0;
         u16 *b = (u16 *)framebufferBegin(&g_fb, &stride);
-        if (b)
-            memset(b, 0, (size_t)stride * FB_H);
+        if (!b)
+            break;
+        memset(b, 0, (size_t)stride * FB_H);
         framebufferEnd(&g_fb);
     }
 
@@ -257,7 +263,24 @@ bool gfx_init(void)
 
     if (!g_pad_ready)
     {
-        padConfigureInput(8, HidNpadStyleSet_NpadStandard);
+        // Aqui NÃO dá pra usar padConfigureInput: a desmontagem da libnx mostra
+        // que ele chama diagAbortWithResult quando o hid recusa. Num aplicativo
+        // isso fecha o aplicativo; num sysmodule mata um processo de sistema, e
+        // quem paga é o console inteiro. E o hid tem motivo pra recusar: essas
+        // duas chamadas mandam o AppletResourceUserId, que aqui é 0 porque o
+        // sysmodule não é applet nenhum (__nx_applet_type = AppletType_None).
+        //
+        // Então chama as mesmas duas funções na mão e ignora o resultado. O pior
+        // caso vira "a tela aparece mas não responde ao controle", e pra isso já
+        // existe a saída por tempo — muito melhor que derrubar o sistema.
+        static const HidNpadIdType ids[] = {
+            HidNpadIdType_No1, HidNpadIdType_No2, HidNpadIdType_No3, HidNpadIdType_No4,
+            HidNpadIdType_No5, HidNpadIdType_No6, HidNpadIdType_No7, HidNpadIdType_No8,
+            HidNpadIdType_Handheld,
+        };
+        hidInitializeNpad(); // mesma ordem do padConfigureInput, sem o abort
+        hidSetSupportedNpadIdType(ids, sizeof(ids) / sizeof(ids[0]));
+        hidSetSupportedNpadStyleSet(HidNpadStyleSet_NpadStandard);
         padInitializeAny(&g_pad);
         g_pad_ready = true;
     }
@@ -406,9 +429,15 @@ void gfx_draw_pull(const char *game, int pct, const char *line, int selected, bo
 
     // Botões
     const int byy = py + ph - 52, bh2 = 34;
-    draw_button(px + 24, byy, 300, bh2, "Nao puxar save da nuvem nesse jogo",
+    //
+    // O nome da tecla vai escrito no botao, e a tecla NAO e o A de proposito:
+    // esta tela aparece por cima do menu do console, e o menu continua lendo o
+    // controle junto com a gente (o hid entrega o mesmo aperto pros dois). Um A
+    // aqui e um A la embaixo — ou seja, abre o jogo em destaque. B e Y o menu
+    // ignora ou so volta.
+    draw_button(px + 24, byy, 300, bh2, "Y: Nao puxar save deste jogo",
         selected == GFX_BTN_NEVER, true);
-    draw_button(px + pw - 24 - 110, byy, 110, bh2, done ? "OK" : "Aguarde",
+    draw_button(px + pw - 24 - 110, byy, 110, bh2, done ? "B: Fechar" : "Aguarde",
         selected == GFX_BTN_OK, done);
 
     framebufferEnd(&g_fb);

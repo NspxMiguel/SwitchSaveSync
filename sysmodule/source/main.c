@@ -45,6 +45,7 @@
 #define POLL_INTERVAL_NS  100000000ULL    // 100 ms
 #define SETTLE_DELAY_NS   3000000000ULL   // 3 s antes de subir save de jogo que fechou
 #define MIN_PULL_HOLD_NS  5000000000ULL   // a tela fica de pe pelo menos 5 s
+#define LANG_RELOAD_NS    2000000000ULL   // de quanto em quanto reler idioma.txt
 
 u32 __nx_applet_type = AppletType_None;
 u32 __nx_fs_num_sessions = 1;
@@ -229,8 +230,12 @@ static void pull_pump_input(bool done)
     if (k & (HidNpadButton_Right | HidNpadButton_StickLRight | HidNpadButton_AnyRight))
         g_pull_sel = GFX_BTN_OK;
 
-    if ((k & HidNpadButton_A) && g_pull_sel == GFX_BTN_NEVER && !done)
+    // Y, e nao A: o menu do console esta vivo atras desta tela e recebe o mesmo
+    // aperto que a gente (ver o comentario do nenhum_jogo_vivo). Um A aqui abre
+    // o jogo em destaque no menu; o Y o menu ignora.
+    if ((k & HidNpadButton_Y) && !done)
     {
+        g_pull_sel = GFX_BTN_NEVER;
         // Cancela o download AGORA. E seguro parar no meio: o que baixou foi
         // pro staging no cartao, e o save do jogo so seria tocado no fim.
         g_pull_never = true;
@@ -404,7 +409,7 @@ static void backup_now(u64 application_id)
     //
     // Subir todas custa pouco: quem não mudou tem a mesma impressão digital do
     // último upload e o backup sai barato. O que não dá é adivinhar.
-    TitleEntry saves[8]; // um console tem 8 perfis, no máximo
+    static TitleEntry saves[8]; // um console tem 8 perfis, no máximo (~4,7 KB: fora da pilha)
     size_t quantos = syncjob_find_all_titles(application_id, saves, 8);
 
     if (quantos == 0)
@@ -697,15 +702,26 @@ static void pull_one_save_idle(const TitleEntry *entrada)
         g_pull_sel = GFX_BTN_OK;
         u64 shown = armGetSystemTick();
 
+        // Desenha UMA vez e depois só espera.
+        //
+        // Daqui pra frente o quadro não muda mais: o OK já está aceso, e este
+        // laço não mexe na seleção. Redesenhar 60 vezes por segundo custaria
+        // rasterizar todo o texto de novo (o stb_truetype aloca e libera um
+        // bitmap por letra) dentro de um processo de sistema, e prenderia o
+        // laço no framebufferBegin — que espera o compositor devolver buffer e
+        // não tem prazo. Com um quadro só, a espera abaixo é relógio e botão,
+        // e a saída por tempo sempre acontece. A camada continua mostrando o
+        // último quadro entregue.
+        pull_redraw(true);
+
         for (;;)
         {
             u64 waited = armTicksToNs(armGetSystemTick() - shown);
             bool can_ok = waited >= MIN_PULL_HOLD_NS;
 
-            pull_redraw(true);
-
             u64 k = gfx_keys_down();
-            if (can_ok && (k & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_Plus)))
+            // Sem o A, de novo: fechar esta tela nao pode abrir jogo nenhum.
+            if (can_ok && (k & (HidNpadButton_B | HidNpadButton_Plus)))
                 break;
 
             // Rede caiu, o console ficou largado na mesa, sei la: em 60 s a
@@ -803,7 +819,12 @@ static bool idle_pull_sweep(void)
     if (!oauth_load_saved_login())
         return false;
 
-    TitleEntry list[64];
+    // static, e nao no stack: cada TitleEntry tem 584 bytes (o name[0x201] pesa
+    // sozinho), entao list[64] sao ~37 KB de uma pilha de 128 KB — e daqui pra
+    // baixo a chamada ainda desce no curl e no mbedTLS, que tambem querem a
+    // deles. O sysmodule tem uma thread so, entao static aqui e seguro; o
+    // saves[8] do backup ja e static pelo mesmo motivo.
+    static TitleEntry list[64];
     int n = (int)titles_list_with_savedata(list, sizeof(list) / sizeof(list[0]));
 
     for (int i = 0; i < n; i++)
@@ -867,15 +888,27 @@ int main(int argc, char *argv[])
     u64 pending_at  = 0;   // tick em que ele fechou
     u64 idle_since  = armGetSystemTick(); // desde quando não tem jogo aberto
     u64 last_idle_work = 0;               // última varredura ociosa
+    u64 last_lang      = 0;               // última releitura do idioma
     u64 idle_gap       = IDLE_GAP_NS;     // vira 5 min quando não tem o que fazer
 
     while (true)
     {
-        // Relê o idioma a cada volta. É um fopen de um arquivo de três bytes a
-        // cada POLL_INTERVAL — barato — e evita a armadilha de trocar o idioma
-        // no app e o overlay continuar no idioma antigo até alguém lembrar de
-        // desligar e religar o sysmodule.
-        lang_load();
+        // Relê o idioma de dois em dois segundos.
+        //
+        // Reler evita a armadilha de trocar o idioma no app e o sysmodule
+        // continuar no antigo até alguém desligar e religar ele. Mas reler a
+        // CADA volta (100 ms) não é o "fopen de três bytes" que parecia: no
+        // modo automático, o lang_load vai no setInitialize/setGetSystemLanguage
+        // /setExit, ou seja, abre e fecha uma sessão do serviço `set` dez vezes
+        // por segundo, pra sempre — mais o fopen no cartão, que disputa o SD
+        // com o jogo que está rodando. Dois segundos é rápido pra quem acabou
+        // de trocar o idioma e é 20x menos tráfego.
+        u64 now_lang = armGetSystemTick();
+        if (last_lang == 0 || armTicksToNs(now_lang - last_lang) >= LANG_RELOAD_NS)
+        {
+            lang_load();
+            last_lang = now_lang;
+        }
 
         u64 pid = 0;
         u64 tid = foreground_title_id(&pid);
