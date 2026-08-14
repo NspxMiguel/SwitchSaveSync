@@ -18,6 +18,7 @@ token.txt
 PEDIDOS.md
 backups-do-switch/
 cartao/
+diagnostico-do-switch/
 
 # Script de backup do cartao de quem desenvolve: e' sobre a maquina e o pacote
 # de CFW de alguem, nao sobre este app. Fica na pasta, fora do repo.
