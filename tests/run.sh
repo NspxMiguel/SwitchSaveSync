@@ -15,7 +15,7 @@
 #   ./tests/run.sh nomes    roda só um
 #                           (nxsaves | webdav | nomes | pastas | sync | arquivo
 #                            | credencial | servicos | servidor | ftpd
-#                            | savemount)
+#                            | savemount | syncstate)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -93,6 +93,15 @@ fi
 # lendo o codigo.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = ftpd ]; then
     roda ftpd test_ftpd.c stubs_libnx.c ../gui/source/ftpd.c -I../gui/source
+fi
+
+# ---- o syncstate: os arquivos que os TRES programas dividem ----
+# O app, o sysmodule e o overlay so conversam por arquivo no cartao. Quando um
+# le diferente do que o outro escreveu, o que aparece e o overlay dizendo uma
+# coisa e o app dizendo outra. Aqui entra o que nenhum outro alvo tocava: log
+# (e o corte dele), status, liga/desliga, destino e pedido de backup.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = syncstate ]; then
+    roda syncstate test_syncstate.c $CORE/syncstate.c
 fi
 
 # ---- o savemount: o unico caminho do projeto que APAGA save ----

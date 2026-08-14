@@ -24,7 +24,7 @@ on:
 
 jobs:
   core:
-    name: core, credencial, FTP, savemount e NPDM
+    name: core, credencial, FTP, savemount, syncstate e NPDM
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,6 +39,6 @@ jobs:
       - name: os testes
         run: |
           set -e
-          for alvo in nxsaves nomes pastas sync arquivo credencial ftpd savemount servicos servidor; do
+          for alvo in nxsaves nomes pastas sync arquivo credencial ftpd savemount syncstate servicos servidor; do
             ./tests/run.sh "$alvo"
           done

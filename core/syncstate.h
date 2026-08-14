@@ -29,6 +29,7 @@ extern "C" {
 #define SYNC_EXCLUDE_PATH SYNC_APP_DIR "/excluidos.txt"
 #define SYNC_STATUS_PATH  SYNC_APP_DIR "/status.txt"
 #define SYNC_LOG_PATH     SYNC_APP_DIR "/autosync.log"
+#define SYNC_LOG_TEMP_PATH SYNC_APP_DIR "/autosync.log.novo"
 #define SYNC_REQUEST_PATH SYNC_APP_DIR "/pedido.txt"
 #define SYNC_DEST_PATH    SYNC_APP_DIR "/destino.cfg"
 
