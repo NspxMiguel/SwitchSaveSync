@@ -1,12 +1,15 @@
 #include "syncstate.h"
 
+#include <stdbool.h>
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
-#define LOG_MAX_BYTES (64 * 1024)
+#define LOG_MAX_BYTES  (64 * 1024)
+#define LOG_KEEP_BYTES (32 * 1024)   // o que sobra depois do corte: a metade NOVA
 
 void syncstate_ensure_dirs(void)
 {
@@ -268,16 +271,81 @@ bool syncstate_get_status(char *out, size_t outsz)
 
 // ------------------------------------------------------------------- log
 
+// Cortado o log, fica a METADE NOVA — não o arquivo vazio.
+//
+// Antes daqui, passar de 64 KB apagava o log inteiro. E isso mordia justamente
+// na hora errada: o log só chega perto de 64 KB numa sessão comprida, que é
+// exatamente a sessão em que alguma coisa deu errado; o corte levava junto as
+// linhas que explicavam o quê. Quem lê o arquivo depois (eu, pra achar defeito;
+// ele, pra saber se o save subiu) recebia um arquivo começando do nada.
+//
+// A cópia é em pedaços de 4 KB de propósito: isto roda dentro do sysmodule, com
+// 128 KB de pilha e uma heap que ainda precisa caber o curl e o mbedTLS.
 static void truncate_log_if_huge(void)
 {
     FILE *f = fopen(SYNC_LOG_PATH, "r");
     if (!f)
         return;
-    fseek(f, 0, SEEK_END);
+
+    if (fseek(f, 0, SEEK_END) != 0)
+    {
+        fclose(f);
+        return;
+    }
     long size = ftell(f);
-    fclose(f);
-    if (size > LOG_MAX_BYTES)
+    if (size <= LOG_MAX_BYTES)
+    {
+        fclose(f);
+        return;
+    }
+
+    // Começa no meio e anda até a próxima quebra de linha: sem isso o arquivo
+    // abriria com metade de uma frase, que é pior que não ter a frase.
+    if (fseek(f, size - LOG_KEEP_BYTES, SEEK_SET) != 0)
+    {
+        fclose(f);
+        remove(SYNC_LOG_PATH); // como era antes: melhor perder do que crescer sem fim
+        return;
+    }
+    int c;
+    while ((c = fgetc(f)) != EOF && c != '\n')
+        ;
+
+    FILE *t = fopen(SYNC_LOG_TEMP_PATH, "w");
+    if (!t)
+    {
+        fclose(f);
         remove(SYNC_LOG_PATH);
+        return;
+    }
+
+    fprintf(t, "[--- o comeco do log foi cortado: passou de %d KB ---]\n",
+        LOG_MAX_BYTES / 1024);
+
+    char buf[4096];
+    size_t n;
+    bool ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+    {
+        if (fwrite(buf, 1, n, t) != n)
+        {
+            ok = false;
+            break;
+        }
+    }
+
+    fclose(f);
+    if (fclose(t) != 0)
+        ok = false;
+
+    // O rename só entra com o arquivo novo inteiro no cartão. Se falhou no
+    // meio, joga fora a metade escrita e cai no comportamento antigo — o que
+    // não pode acontecer é ficar com um log pela metade achando que é o log.
+    if (!ok || rename(SYNC_LOG_TEMP_PATH, SYNC_LOG_PATH) != 0)
+    {
+        remove(SYNC_LOG_TEMP_PATH);
+        remove(SYNC_LOG_PATH);
+    }
 }
 
 void syncstate_log(const char *fmt, ...)
