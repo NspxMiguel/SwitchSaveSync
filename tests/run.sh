@@ -14,7 +14,8 @@
 #   ./tests/run.sh          roda tudo
 #   ./tests/run.sh nomes    roda só um
 #                           (nxsaves | webdav | nomes | pastas | sync | arquivo
-#                            | credencial | servicos | servidor | ftpd)
+#                            | credencial | servicos | servidor | ftpd
+#                            | savemount)
 #   ./tests/run.sh drive    fala com o Google Drive de verdade — fora do "tudo",
 #                           precisa de conta e de internet. Ver o bloco 4.
 
@@ -92,6 +93,16 @@ fi
 # lendo o codigo.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = ftpd ]; then
     roda ftpd test_ftpd.c stubs_libnx.c ../gui/source/ftpd.c -I../gui/source
+fi
+
+# ---- o savemount: o unico caminho do projeto que APAGA save ----
+# Metade do savemount.c e servico do console e metade e POSIX puro. A parte que
+# apaga e a que copia sao a POSIX, entao trocando so os mounts (stubs_fsdev.c) o
+# mesmo arquivo que roda no Switch roda aqui. Ate agora era o unico arquivo do
+# core que nenhum teste tocava: quem precisava dele linkava o stubs_console.c,
+# que devolve false pra tudo.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = savemount ]; then
+    roda savemount test_savemount.c stubs_fsdev.c $CORE/savemount.c
 fi
 
 # ---- 3e2. o NPDM do sysmodule libera tudo que ele abre? ----
