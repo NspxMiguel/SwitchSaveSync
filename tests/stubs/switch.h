@@ -54,3 +54,50 @@ Result threadClose(Thread *t);
 
 void mutexLock(Mutex *m);
 void mutexUnlock(Mutex *m);
+
+// --- o pouco de fs/fsdev que o core/savemount.c precisa --------------------
+// Ver tests/stubs_fsdev.c: o mount vira uma pasta chamada "save:" no
+// diretorio do teste, e o commit vira um contador.
+
+typedef enum { FsSaveDataType_System = 0, FsSaveDataType_Account = 1 } FsSaveDataType;
+typedef enum { FsSaveDataSpaceId_System = 0, FsSaveDataSpaceId_User = 1 } FsSaveDataSpaceId;
+typedef enum { FsSaveDataMetaType_None = 0, FsSaveDataMetaType_Thumbnail = 1 } FsSaveDataMetaType;
+
+typedef struct {
+    u64 application_id;
+    AccountUid uid;
+    u64 system_save_data_id;
+    u8  save_data_type;
+    u8  save_data_rank;
+    u16 save_data_index;
+    u32 pad_x24;
+    u64 unk_x28;
+    u64 unk_x30;
+    u64 unk_x38;
+} FsSaveDataAttribute;
+
+typedef struct {
+    s64 save_data_size;
+    s64 journal_size;
+    u64 available_size;
+    u64 owner_id;
+    u32 flags;
+    u8  save_data_space_id;
+    u8  unk;
+    u8  padding[0x1A];
+} FsSaveDataCreationInfo;
+
+typedef struct {
+    u32 size;
+    u8  type;
+    u8  padding[0x0B];
+} FsSaveDataMetaInfo;
+
+Result fsdevMountSaveData(const char *name, u64 application_id, AccountUid uid);
+Result fsdevMountSaveDataReadOnly(const char *name, u64 application_id, AccountUid uid);
+Result fsdevMountDeviceSaveData(const char *name, u64 application_id);
+Result fsdevCommitDevice(const char *name);
+Result fsdevUnmountDevice(const char *name);
+Result fsCreateSaveDataFileSystem(const FsSaveDataAttribute *attr,
+                                  const FsSaveDataCreationInfo *info,
+                                  const FsSaveDataMetaInfo *meta);
