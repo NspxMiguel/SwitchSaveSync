@@ -34,6 +34,11 @@ bool fsdev_last_device   = false;
 // O teste liga isto pra fingir "esse save não existe neste console".
 bool fsdev_mount_falha = false;
 
+// E isto pra fingir "o console recusou salvar de vez" — cartão cheio, journal
+// do save data estourado. É a falha mais traiçoeira do conjunto: tudo dá certo
+// até o último passo, e sem olhar o retorno do commit ela passa por sucesso.
+bool fsdev_commit_falha = false;
+
 static Result monta(bool read_only, bool device)
 {
     fsdev_mounts++;
@@ -69,7 +74,7 @@ Result fsdevCommitDevice(const char *name)
 {
     (void)name;
     fsdev_commits++;
-    return 0;
+    return fsdev_commit_falha ? 1 : 0;
 }
 
 Result fsdevUnmountDevice(const char *name)

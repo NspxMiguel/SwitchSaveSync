@@ -196,6 +196,7 @@ static char g_pull_game[0x201];
 static char g_pull_line[128];
 static int  g_pull_sel   = GFX_BTN_OK;
 static bool g_pull_never = false; // apertou "Nao puxar save da nuvem nesse jogo"
+static bool g_pull_ok    = false; // o download terminou BEM?
 static bool g_screen     = false; // a camada subiu?
 
 static void pull_redraw(bool done)
@@ -203,8 +204,14 @@ static void pull_redraw(bool done)
     if (!g_screen)
         return;
 
+    // 100% so quando deu certo de verdade.
+    //
+    // Era `if (done) pct = 100`, sem olhar o resultado: a rede caia no meio, a
+    // linha de baixo dizia "Nao consegui puxar" e logo acima a barra estava
+    // cheia, azul, escrito 100%. As duas coisas na mesma tela, uma
+    // desmentindo a outra. Falhou, a barra fica onde parou.
     int pct = -1;
-    if (done)
+    if (done && g_pull_ok)
         pct = 100;
     else if (g_files_total > 0)
     {
@@ -616,6 +623,7 @@ static void pull_one_save_idle(const TitleEntry *entrada)
     g_files_done  = 0;
     g_files_total = 0;
     g_pull_never  = false;
+    g_pull_ok     = false;
     g_pull_sel    = GFX_BTN_OK;
     snprintf(g_pull_game, sizeof(g_pull_game), "%s", title.name);
     snprintf(g_pull_line, sizeof(g_pull_line), "Conectando...");
@@ -678,6 +686,8 @@ static void pull_one_save_idle(const TitleEntry *entrada)
         if (syncjob_fingerprint(&title, &fp))
             syncjob_mark_synced(&title, fp);
 
+        g_pull_ok = true; // e so aqui que a barra pode chegar a 100%
+
         syncstate_log(TR("%s: save da nuvem carregado", "%s: cloud save loaded"), rotulo(&title));
         syncstate_set_status(TR("Save da nuvem carregado: %s", "Cloud save loaded: %s"), rotulo(&title));
         snprintf(g_pull_line, sizeof(g_pull_line), "Save carregado. Bom jogo.");
@@ -718,16 +728,57 @@ static void pull_one_save_idle(const TitleEntry *entrada)
         {
             u64 waited = armTicksToNs(armGetSystemTick() - shown);
             bool can_ok = waited >= MIN_PULL_HOLD_NS;
+            bool redesenha = false;
 
             u64 k = gfx_keys_down();
             // Sem o A, de novo: fechar esta tela nao pode abrir jogo nenhum.
             if (can_ok && (k & (HidNpadButton_B | HidNpadButton_Plus)))
                 break;
 
+            // O Y continua valendo AQUI, e nao so durante o download.
+            //
+            // O botao da esquerda fica desenhado aceso e com o nome da tecla
+            // escrito nele ate a tela sair. Se o Y so respondesse enquanto
+            // baixava, o que a tela mostraria pelos 5 a 60 s seguintes seria um
+            // botao aceso que nao faz nada — e a hora natural de dizer "nao faz
+            // mais isso nesse jogo" e justamente depois de ver o que aconteceu.
+            if ((k & HidNpadButton_Y) && !g_pull_never)
+            {
+                g_pull_never = true;
+                g_pull_sel   = GFX_BTN_NEVER;
+                if (syncstate_set_excluded(title.application_id, true))
+                {
+                    syncstate_log(TR("%s: pedido pra nao puxar — jogo marcado como excluido", "%s: told not to download — game is marked excluded"), rotulo(&title));
+                    syncstate_set_status(TR("Nao vou mais puxar save de %s", "Will not download saves for %s anymore"), title.name);
+                    snprintf(g_pull_line, sizeof(g_pull_line), "Pronto: esse jogo nao puxa mais save da nuvem.");
+                }
+                else
+                {
+                    syncstate_log(TR("%s: NAO consegui gravar a lista de excluidos", "%s: could NOT write the excluded list"), rotulo(&title));
+                    snprintf(g_pull_line, sizeof(g_pull_line), "Nao consegui marcar o jogo — cartao cheio?");
+                }
+                redesenha = true;
+            }
+
+            // Um jogo abriu enquanto a tela estava de pe.
+            //
+            // Esta camada e tela cheia e esta no Z maximo: ela fica POR CIMA do
+            // jogo que acabou de abrir. Ficar ali ate os 60 s seria esconder o
+            // jogo de quem so queria jogar. Sai na hora — o trabalho ja acabou,
+            // nao ha nada pra terminar aqui.
+            if (!nenhum_jogo_vivo())
+                break;
+
             // Rede caiu, o console ficou largado na mesa, sei la: em 60 s a
             // tela sai sozinha. O jogo nunca fica preso aqui.
             if (waited >= 60000000000ULL)
                 break;
+
+            // So redesenha quando alguma coisa mudou de verdade: cada quadro
+            // rasteriza o texto todo de novo (o stb_truetype aloca e libera um
+            // bitmap por letra) dentro de um processo de sistema.
+            if (redesenha)
+                pull_redraw(true);
 
             svcSleepThread(16000000ULL); // ~60 quadros por segundo
         }

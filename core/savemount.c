@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <dirent.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -44,14 +45,25 @@ bool savemount_mount(u64 application_id, AccountUid uid, bool read_only) {
     return savemount_mount_typed(application_id, uid, false, read_only);
 }
 
-void savemount_unmount(bool should_commit) {
-    if (!g_mounted) return;
+// Devolve false quando o COMMIT falhou — ou seja, quando o que foi escrito não
+// chegou no savedata.
+//
+// Era void, e o silêncio aqui é o pior tipo: o commit é o único momento em que
+// a escrita sai do cache e vira save de verdade. Cartão cheio, journal do save
+// data estourado, energia no limite — o fsdevCommitDevice devolve erro, o
+// código seguia dizendo "restaurado com sucesso", e o save no console continuava
+// o antigo. Quem restaurou um save da nuvem e foi jogar descobre isso perdendo
+// o progresso de novo.
+bool savemount_unmount(bool should_commit) {
+    if (!g_mounted) return false;
 
+    bool ok = true;
     if (should_commit) {
-        fsdevCommitDevice(SAVE_DEVICE_NAME);
+        ok = R_SUCCEEDED(fsdevCommitDevice(SAVE_DEVICE_NAME));
     }
     fsdevUnmountDevice(SAVE_DEVICE_NAME);
     g_mounted = false;
+    return ok;
 }
 
 bool savemount_save_exists(u64 application_id, AccountUid uid) {
@@ -103,6 +115,14 @@ static bool wipe_dir(const char *dir, bool remove_self) {
 
     bool all_ok = true;
     struct dirent *entry;
+    // errno zerado antes de cada readdir: ele devolve NULL tanto no fim do
+    // diretório quanto quando a leitura falha, e a única diferença entre os
+    // dois é o errno. Sem isto, cartão dando erro no meio da varredura parecia
+    // "acabou a pasta": a função devolvia true, o chamador entendia "limpei
+    // tudo" e fazia commit — com arquivo do save antigo ainda lá dentro,
+    // misturado com o que fosse escrito depois. É o save metade de ontem,
+    // metade de hoje.
+    errno = 0;
     while ((entry = readdir(d)) != NULL) {
         if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
 
@@ -117,7 +137,10 @@ static bool wipe_dir(const char *dir, bool remove_self) {
         } else if (unlink(path) != 0) {
             all_ok = false;
         }
+
+        errno = 0;
     }
+    if (errno != 0) all_ok = false; // a enumeração parou por erro, não por fim
     closedir(d);
 
     if (remove_self && rmdir(dir) != 0) all_ok = false;
@@ -166,8 +189,15 @@ bool savemount_copy_tree(const char *src_dir, const char *dst_dir) {
             if (fwrite(buf, 1, n, out) != n) { all_ok = false; break; }
         }
 
+        // As duas checagens abaixo são o que separa "copiei" de "achei que
+        // copiei". O fread devolve 0 no fim do arquivo E em erro de leitura; o
+        // fclose é onde o buffer da stdio finalmente vai pro cartão, então
+        // cartão cheio aparece ali e não no fwrite. Sem elas, uma cópia
+        // truncada saía como sucesso — e esta função é justamente a rede de
+        // segurança do "esvaziar o save" e do backup antes de restaurar.
+        if (ferror(in)) all_ok = false;
         fclose(in);
-        fclose(out);
+        if (fclose(out) != 0) all_ok = false;
     }
     closedir(d);
     return all_ok;

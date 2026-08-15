@@ -15,10 +15,14 @@
 
 #include "ftpd.h"
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 // ------------------------------------------------------------------ placar
@@ -194,6 +198,100 @@ int main(void)
     ok(enviados > 300000, "contou os bytes enviados");
     ok(recebidos > 300000, "contou os bytes recebidos");
     ok(ftpd_ultima_linha()[0] != '\0', "guardou a ultima linha pra tela");
+
+    // ------------------------------------------------------------------
+    // Os tres abaixo sao os defeitos que a revisao achou. Cada um estava a um
+    // cliente de distancia de acontecer na casa dele.
+    // ------------------------------------------------------------------
+
+    printf("\n-- caminho comprido no PWD (o %%s de 766 bytes) --\n");
+    // O responde() usava o retorno do vsnprintf como indice e escrevia o \r\n
+    // depois do fim de um buffer de 512 na pilha. O PWD e' justamente quem
+    // devolve o caminho inteiro. Sob o sanitizador, se voltar, isto aborta.
+    {
+        char fundo[8192];
+        strcpy(fundo, "sdmc:");
+        // 8 niveis de 80 caracteres = ~730, dentro do que o FAT aceita por
+        // componente (255) e acima dos 509 que cabiam na resposta.
+        for (int i = 0; i < 8; i++)
+        {
+            strcat(fundo, "/");
+            for (int j = 0; j < 80; j++) strcat(fundo, "a");
+            mkdir(fundo, 0777);
+        }
+        const char *dentro = fundo + 5; // sem o "sdmc:"
+        snprintf(cmd, sizeof(cmd),
+                 "curl -s --max-time 10 '%s/' -Q 'CWD %s' -Q 'PWD' 2>&1 | head -c 200", base, dentro);
+        roda(cmd);
+        ok(ftpd_running(), "o servidor continua de pe depois de um PWD comprido");
+    }
+
+    printf("\n-- renomear pra ele mesmo nao pode sumir com o arquivo --\n");
+    escreve_arquivo("sdmc:/switch/eu.sav", "progresso de dois anos\n");
+    snprintf(cmd, sizeof(cmd),
+             "curl -s --max-time 10 '%s/' -Q 'RNFR /switch/eu.sav' -Q 'RNTO /switch/eu.sav' 2>&1", base);
+    roda(cmd);
+    ok(stat("sdmc:/switch/eu.sav", &st) == 0, "o arquivo continua existindo");
+    eq(le_arquivo("sdmc:/switch/eu.sav"), "progresso de dois anos\n",
+       "e com o conteudo intacto");
+
+    printf("\n-- cliente que para de ler nao pode prender o ftpd_stop --\n");
+    // Este e o que travava o console: o envio girava no EAGAIN sem olhar o
+    // g_parar, entao sair da tela (que faz join na thread) nunca voltava.
+    {
+        system("head -c 4194304 /dev/urandom > 'sdmc:/switch/pesado.bin'");
+
+        int ctrl = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in a = { 0 };
+        a.sin_family = AF_INET;
+        a.sin_port   = htons(PORTA);
+        a.sin_addr.s_addr = inet_addr("127.0.0.1");
+        ok(connect(ctrl, (struct sockaddr *)&a, sizeof(a)) == 0, "conectei no controle");
+
+        char resp[512];
+        recv(ctrl, resp, sizeof(resp), 0); // 220
+
+        send(ctrl, "PASV\r\n", 6, 0);
+        ssize_t rn = recv(ctrl, resp, sizeof(resp) - 1, 0);
+        resp[rn > 0 ? rn : 0] = '\0';
+
+        int p1 = 0, p2 = 0;
+        char *par = strrchr(resp, '(');
+        int achou = par && sscanf(par, "(%*d,%*d,%*d,%*d,%d,%d)", &p1, &p2) == 2;
+        ok(achou, "li a porta do PASV");
+
+        if (achou)
+        {
+            int dados = socket(AF_INET, SOCK_STREAM, 0);
+            int pequeno = 2048;
+            setsockopt(dados, SOL_SOCKET, SO_RCVBUF, &pequeno, sizeof(pequeno));
+            a.sin_port = htons((u16)(p1 * 256 + p2));
+            ok(connect(dados, (struct sockaddr *)&a, sizeof(a)) == 0, "abri a conexao de dados");
+
+            send(ctrl, "RETR /switch/pesado.bin\r\n", 26, 0);
+
+            // Deixa o servidor encher a rede e NAO le nada: e o "pausei o
+            // download no FileZilla" / "o notebook dormiu".
+            struct timespec espera = { 2, 0 };
+            nanosleep(&espera, NULL);
+
+            struct timeval t0, t1;
+            gettimeofday(&t0, NULL);
+            ftpd_stop();
+            gettimeofday(&t1, NULL);
+
+            double levou = (t1.tv_sec - t0.tv_sec) + (t1.tv_usec - t0.tv_usec) / 1e6;
+            printf("          (o ftpd_stop levou %.2f s)\n", levou);
+            ok(levou < 3.0, "o ftpd_stop voltou depressa em vez de travar pra sempre");
+            ok(!ftpd_running(), "e o servidor parou de verdade");
+
+            close(dados);
+        }
+        close(ctrl);
+        remove("sdmc:/switch/pesado.bin");
+
+        ok(ftpd_start(PORTA), "sobe de novo pro resto do teste");
+    }
 
     printf("\n-- derrubar --\n");
     ftpd_stop();

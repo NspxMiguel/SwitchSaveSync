@@ -35,7 +35,11 @@ bool savemount_mount_typed(u64 application_id, AccountUid uid, bool device, bool
 
 // Desmonta o save. should_commit=true chama fsdevCommitDevice antes
 // (obrigatório depois de ESCREVER, senão a escrita não persiste).
-void savemount_unmount(bool should_commit);
+//
+// Devolve false quando o COMMIT falhou — ou seja, quando o que foi escrito NÃO
+// chegou no savedata. Quem escreveu alguma coisa precisa olhar esse retorno:
+// ignorar ele é dizer "restaurado" pra um save que continua o antigo.
+bool savemount_unmount(bool should_commit);
 
 // Apaga TODO o conteúdo do save montado (precisa ter sido montado com
 // read_only=false, e precisa de savemount_unmount(true) depois pra valer).

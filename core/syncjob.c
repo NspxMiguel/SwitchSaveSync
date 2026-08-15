@@ -799,11 +799,20 @@ static bool write_over_save(const TitleEntry *title, const char *src_dir, syncjo
     }
 
     bool copied = savemount_copy_tree(src_dir, "save:/");
-    savemount_unmount(copied); // commit só se a cópia deu certo
+
+    // O commit é o único momento em que o que foi escrito vira save de verdade,
+    // e ele pode falhar sozinho (cartão cheio, journal do save data estourado).
+    // Enquanto o retorno era jogado fora, isso saía como "restaurado com
+    // sucesso" e o console continuava com o save antigo — quem fosse jogar
+    // perdia o progresso outra vez, sem nada na tela dizendo por quê.
+    bool commitou = savemount_unmount(copied); // commit só se a cópia deu certo
 
     if (!copied)
         say(log, TR("Falhou ao gravar o save", "Failed to write the save"));
-    return copied;
+    else if (!commitou)
+        say(log, TR("Gravei, mas o console recusou salvar de vez — o save NAO mudou",
+                    "Wrote it, but the console refused to commit — the save did NOT change"));
+    return copied && commitou;
 }
 
 bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
