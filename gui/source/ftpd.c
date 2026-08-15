@@ -55,6 +55,15 @@ typedef struct {
     FILE *arquivo;
     char *lista;       // texto do LIST, montado de uma vez
     size_t lista_n, lista_enviado;
+
+    // O pedaço do arquivo que está no meio do caminho pro cliente.
+    //
+    // É por sessão, e não um `static` compartilhado, porque o envio agora
+    // devolve o controle pro poll no meio de um pedaço: com um buffer só, a
+    // segunda sessão baixando ao mesmo tempo leria por cima do que a primeira
+    // ainda não terminou de mandar, e o arquivo chegaria remendado.
+    char  *envio;
+    size_t envio_n, envio_enviado;
 } Sessao;
 
 static Thread   g_thread;
@@ -147,18 +156,53 @@ static void anota(const char *fmt, ...)
     mutexUnlock(&g_trava);
 }
 
+// Manda a linha inteira, mesmo que o socket aceite aos pedaços.
+//
+// O socket de controle é não-bloqueante (fcntl na entrada da sessão), então o
+// send pode levar só uma parte, ou nada (EAGAIN). Resposta pela metade
+// desalinha o cliente: ele lê o resto da nossa resposta como se fosse a
+// resposta do comando seguinte, e daí pra frente tudo que ele mostra está
+// errado. As tentativas são contadas: se o cliente parou de ler de vez, quem
+// não pode ficar preso aqui é a thread do servidor.
+static void manda_tudo(int fd, const char *buf, size_t n)
+{
+    size_t feito = 0;
+    for (int tentativas = 0; feito < n && tentativas < 200; tentativas++)
+    {
+        ssize_t k = send(fd, buf + feito, n - feito, 0);
+        if (k > 0) { feito += (size_t)k; tentativas = 0; continue; }
+        if (k < 0 && (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR))
+        {
+            svcSleepThread(1000000ULL); // 1 ms
+            continue;
+        }
+        return; // conexão caiu: o poll descobre isso na próxima volta
+    }
+}
+
 static void responde(Sessao *s, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 static void responde(Sessao *s, const char *fmt, ...)
 {
     char linha[512];
     va_list ap;
     va_start(ap, fmt);
-    int n = vsnprintf(linha, sizeof(linha) - 3, fmt, ap);
+    int n = vsnprintf(linha, sizeof(linha) - 2, fmt, ap);
     va_end(ap);
     if (n < 0) return;
+
+    // O vsnprintf devolve o tamanho que a string TERIA, não o que coube — e
+    // duas respostas daqui carregam caminho de até 766 bytes (o "257" do PWD e
+    // o do MKD). Usar esse número como índice escrevia o \r\n depois do fim de
+    // linha[512], em cima da pilha de quem chamou; com um caminho de ~690
+    // bytes isso cai justamente no endereço de retorno, e o app morre ali. O
+    // corte abaixo é o conserto: a resposta sai truncada, que é feio e
+    // inofensivo.
+    if ((size_t)n > sizeof(linha) - 2)
+        n = (int)(sizeof(linha) - 2);
+
     linha[n++] = '\r';
     linha[n++] = '\n';
-    send(s->ctrl, linha, (size_t)n, 0);
+    manda_tudo(s->ctrl, linha, (size_t)n);
 }
 
 static void fecha_data(Sessao *s)
@@ -169,6 +213,9 @@ static void fecha_data(Sessao *s)
     free(s->lista);
     s->lista = NULL;
     s->lista_n = s->lista_enviado = 0;
+    free(s->envio);
+    s->envio = NULL;
+    s->envio_n = s->envio_enviado = 0;
     s->estado = PARADO;
 }
 
@@ -414,10 +461,25 @@ static void comando(Sessao *s, char *linha)
         if (!s->renomear[0]) { responde(s, "503 faltou o RNFR"); return; }
         char ftp[CAMINHO_MAX], disco[DISCO_MAX];
         resolve(s, arg, ftp, sizeof(ftp), disco, sizeof(disco));
-        // No FAT o rename não sobrescreve; tirar o de destino antes é o que
-        // faz "mandar por cima" funcionar, que é o uso normal aqui.
-        remove(disco);
-        responde(s, rename(s->renomear, disco) == 0 ? "250 renomeado" : "550 nao consegui");
+        // Tenta PRIMEIRO, apaga depois.
+        //
+        // No FAT o rename não sobrescreve, então "mandar por cima" precisa que
+        // o destino saia da frente — só que apagar antes destruía o arquivo
+        // quando origem e destino eram o mesmo: o remove levava o arquivo, o
+        // rename não achava mais nada, e o save sumia. E o FAT é
+        // insensível a maiúscula, então "A.sav" e "a.sav" são o mesmo arquivo
+        // com nomes diferentes — comparar as strings não bastaria.
+        //
+        // Rename primeiro resolve os dois: se origem e destino são o mesmo
+        // arquivo, ele já dá certo e ninguém apaga nada; se o destino existe e
+        // é outro arquivo, o rename falha e aí sim vale tirá-lo da frente.
+        int r = rename(s->renomear, disco);
+        if (r != 0)
+        {
+            remove(disco);
+            r = rename(s->renomear, disco);
+        }
+        responde(s, r == 0 ? "250 renomeado" : "550 nao consegui");
         s->renomear[0] = '\0';
         return;
     }
@@ -490,29 +552,63 @@ static void bombeia(Sessao *s)
 
     if (s->estado == ENVIANDO)
     {
-        static char buf[BUF_TRANSF]; // uma transferência por vez, uma thread só
-        size_t lidos = fread(buf, 1, sizeof(buf), s->arquivo);
-        if (lidos == 0)
+        // Um pedaço por volta do poll, e o EAGAIN devolve o controle — igual ao
+        // LISTANDO logo acima.
+        //
+        // Antes daqui isto era um `while (mandados < lidos)` que, no EAGAIN,
+        // dormia 1 ms e tentava de novo sem olhar o g_parar. E o EAGAIN é o
+        // caminho NORMAL: o socket de dados é não-bloqueante e o pedaço tem
+        // 64 KB, mais que o buffer de envio do console. Enquanto esse laço
+        // girava, o poll não rodava: as outras sessões e o próprio controle
+        // ficavam congelados. E se o cliente parava de ler (pausar no FileZilla,
+        // notebook dormir sem mandar RST), ele nunca saía — aí sair da tela
+        // chamava ftpd_stop(), que dá join na thread, e o app inteiro travava.
+        // Isso foi reproduzido: com o cliente parado, o ftpd_stop() não voltava.
+        if (s->envio_n == 0)
         {
-            fecha_data(s);
-            responde(s, "226 acabou");
-            return;
-        }
-        size_t mandados = 0;
-        while (mandados < lidos)
-        {
-            ssize_t n = send(s->data, buf + mandados, lidos - mandados, 0);
-            if (n <= 0)
+            if (!s->envio)
             {
-                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) { svcSleepThread(1000000ULL); continue; }
+                s->envio = (char *)malloc(BUF_TRANSF);
+                if (!s->envio)
+                {
+                    fecha_data(s);
+                    responde(s, "451 sem memoria pra enviar");
+                    return;
+                }
+            }
+
+            size_t lidos = fread(s->envio, 1, BUF_TRANSF, s->arquivo);
+            if (lidos == 0)
+            {
+                // fread devolve 0 no fim do arquivo E em erro de leitura. Sem o
+                // ferror, setor ruim no meio do arquivo virava "226 acabou" —
+                // que em FTP quer dizer "transferência completa" —, e o cliente
+                // gravava o pedaço que chegou dando tudo por certo.
+                bool falhou = ferror(s->arquivo) != 0;
                 fecha_data(s);
-                responde(s, "426 a conexao caiu");
+                responde(s, falhou ? "451 erro lendo do cartao" : "226 acabou");
                 return;
             }
-            mandados += (size_t)n;
+            s->envio_n = lidos;
+            s->envio_enviado = 0;
         }
+
+        ssize_t n = send(s->data, s->envio + s->envio_enviado,
+                         s->envio_n - s->envio_enviado, 0);
+        if (n <= 0)
+        {
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+            fecha_data(s);
+            responde(s, "426 a conexao caiu");
+            return;
+        }
+
+        s->envio_enviado += (size_t)n;
+        if (s->envio_enviado >= s->envio_n)
+            s->envio_n = s->envio_enviado = 0;
+
         mutexLock(&g_trava);
-        g_enviados += lidos;
+        g_enviados += (u64)n;
         mutexUnlock(&g_trava);
         return;
     }
@@ -606,8 +702,15 @@ static void laco(void *_)
             {
                 fds[n].fd = s->escuta_data; fds[n].events = POLLIN; mapa[n] = i; tipo[n] = 2; n++;
             }
-            else if (s->data >= 0)
+            else if (s->data >= 0 && s->estado != ESPERANDO_DATA)
             {
+                // O `estado != ESPERANDO_DATA` não é detalhe: cliente que abre
+                // a conexão de dados logo depois do PASV, antes de mandar LIST
+                // ou RETR (o curl e o FileZilla fazem isso), ficava com o
+                // socket já conectado e ainda sem transferência. POLLOUT num
+                // socket conectado está sempre pronto, então o poll voltava na
+                // hora, o bombeia não tinha o que fazer, e o laço girava sem
+                // dormir até o comando chegar — ou pra sempre, se não chegasse.
                 fds[n].fd = s->data;
                 fds[n].events = (s->estado == RECEBENDO) ? POLLIN : POLLOUT;
                 mapa[n] = i; tipo[n] = 2; n++;
@@ -624,7 +727,18 @@ static void laco(void *_)
             if (tipo[k] == 0)
             {
                 int novo = accept(g_escuta, NULL, NULL);
-                if (novo < 0) continue;
+                if (novo < 0)
+                {
+                    // EAGAIN é rotina (outra volta do poll já pegou). Erro de
+                    // verdade — sem descritor, sem memória — deixa a conexão na
+                    // fila com o POLLIN armado: o poll volta na hora, o accept
+                    // falha de novo, e o laço queima CPU sem parar. Dormir um
+                    // pouco troca esse giro por uma nova tentativa daqui a
+                    // pouco, que é o que costuma resolver.
+                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+                        svcSleepThread(100000000ULL); // 100 ms
+                    continue;
+                }
 
                 int livre = -1;
                 for (int i = 0; i < MAX_SESSOES; i++)

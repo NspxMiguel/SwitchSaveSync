@@ -233,7 +233,7 @@ bool savemount_mount_typed(u64 app, AccountUid uid, bool device, bool read_only)
     return true;
 }
 
-void savemount_unmount(bool commit)
+bool savemount_unmount(bool commit)
 {
     // Commitar um mount read-only é o erro que corrompe save. Se acontecer,
     // o teste tem que ver.
@@ -242,6 +242,7 @@ void savemount_unmount(bool commit)
     g_montado = false;
     g_escrita = false;
     unlink(ATALHO);
+    return true; // aqui o commit nunca falha; quem testa a falha e o test_savemount
 }
 
 bool savemount_wipe_contents(void)

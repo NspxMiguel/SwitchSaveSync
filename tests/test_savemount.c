@@ -33,6 +33,7 @@ extern int  fsdev_mounts;
 extern bool fsdev_last_readonly;
 extern bool fsdev_last_device;
 extern bool fsdev_mount_falha;
+extern bool fsdev_commit_falha;
 
 // ------------------------------------------------------------------ placar
 
@@ -126,8 +127,18 @@ int main(void)
 
     ok(savemount_mount(0x0100000000010000ULL, UID, false), "monta pra escrita");
     ok(!fsdev_last_readonly, "e desta vez sem o somente leitura");
-    savemount_unmount(true);
-    ok(fsdev_commits == 1, "desmontar com commit chama o commit");
+    ok(savemount_unmount(true), "desmontar com commit devolve true quando deu certo");
+    ok(fsdev_commits == 1, "e chamou o commit");
+
+    // O commit e o unico momento em que o que foi escrito vira save de verdade.
+    // Cartao cheio ou journal estourado fazem ele falhar sozinho, com tudo o
+    // mais tendo dado certo — e quem nao olha esse retorno diz "restaurado" pra
+    // um save que continua o antigo.
+    printf("\n-- commit que falha nao pode passar por sucesso --\n");
+    fsdev_commit_falha = true;
+    ok(savemount_mount(0x0100000000010000ULL, UID, false), "montou");
+    ok(!savemount_unmount(true), "desmontar avisa que o commit NAO deu certo");
+    fsdev_commit_falha = false;
 
     printf("\n-- device save (o do console, sem dono) --\n");
     AccountUid zero = { { 0, 0 } };

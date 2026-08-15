@@ -749,12 +749,24 @@ static bool jobWipeSave(Job* job, TitleEntry title)
     // grava um save pela metade, que é pior que os dois estados possíveis: nem
     // é o save antigo, nem é um save vazio que o jogo recria. É o mesmo cuidado
     // que o syncjob.c toma na restauração.
-    savemount_unmount(ok);
+    bool commitou = savemount_unmount(ok);
 
     if (!ok)
     {
         job->setStatus(TR("Não consegui apagar o conteúdo do save — desfiz, o save continua como estava.",
             "Couldn't erase the save's contents - rolled back, the save is as it was."));
+        return false;
+    }
+
+    // Limpou tudo mas o console recusou o commit: nada foi pro savedata. Dizer
+    // "esvaziado" aqui mandaria o dono abrir o jogo esperando um save zerado e
+    // encontrar o antigo — e, pior, com o sysmodule ligado, fechar o jogo
+    // depois disso subiria esse save antigo por cima da nuvem.
+    if (!commitou)
+    {
+        job->setStatus(TR("Apaguei o conteúdo, mas o console recusou salvar de vez — o save continua como estava. "
+                          "Cartão cheio?",
+            "Erased the contents, but the console refused to commit — the save is as it was. SD card full?"));
         return false;
     }
 
@@ -1371,15 +1383,36 @@ static void openGamePage(const TitleEntry& title)
             "Erases the save's contents on the console, leaving it like a never-played "
             "game. Keeps a copy on the SD card first. Useful for testing a restore."));
     wipeItem->getClickEvent()->subscribe([title](brls::View* view) {
-        brls::Dialog* dialog = new brls::Dialog(
-            TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
+        // "A nuvem não é tocada" é verdade no instante em que você aperta, e
+        // deixa de ser no passo seguinte: com o autosync ligado mandando pra
+        // nuvem, ABRIR o jogo pra conferir que esvaziou faz o sysmodule subir
+        // esse save vazio por cima do backup quando o jogo fechar. Ou seja, o
+        // próprio uso que a linha de cima sugere é o que destrói a cópia da
+        // nuvem. O aviso só aparece quando é o caso — quem está com o autosync
+        // desligado não precisa ler susto que não existe pra ele.
+        bool nuvem_em_risco = syncstate_autosync_enabled() && syncstate_dest_cloud();
+
+        std::string texto = TR(std::string("Isso apaga o save de \"") + titleWithOwner(title)
                     + "\" que está no CONSOLE. O jogo volta a abrir como se nunca "
                       "tivesse sido jogado.\n\nAntes de apagar, uma cópia vai pro cartão "
-                      "— e o que está na nuvem não é tocado.\n\nEsvaziar?",
+                      "— e o que está na nuvem não é tocado agora.",
                 std::string("This erases the \"") + titleWithOwner(title)
                     + "\" save on the CONSOLE. The game will start as if it had never "
                       "been played.\n\nBefore erasing, a copy goes to the SD card — and "
-                      "nothing in the cloud is touched.\n\nEmpty it?"));
+                      "nothing in the cloud is touched right now.");
+
+        if (nuvem_em_risco)
+            texto += TR("\n\nATENÇÃO: o autosync está ligado e mandando pra nuvem. Se você "
+                        "abrir esse jogo pra conferir, o save vazio sobe por cima do backup "
+                        "da nuvem quando ele fechar. Pra evitar, marque o jogo como excluído "
+                        "no overlay antes de abrir.",
+                "\n\nHEADS UP: autosync is on and uploading to the cloud. If you open this "
+                "game to check, the empty save will overwrite the cloud backup when it "
+                "closes. To avoid that, mark the game as excluded in the overlay first.");
+
+        texto += TR("\n\nEsvaziar?", "\n\nEmpty it?");
+
+        brls::Dialog* dialog = new brls::Dialog(texto);
 
         dialog->addButton(TR("Cancelar", "Cancel"), [dialog](brls::View* view) { dialog->close(); });
         dialog->addButton(TR("Esvaziar", "Empty it"), [dialog, title](brls::View* view) {

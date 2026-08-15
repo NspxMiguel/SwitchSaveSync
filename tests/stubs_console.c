@@ -7,7 +7,7 @@
 #include <stdio.h>
 
 bool savemount_mount_typed(u64 a, AccountUid u, bool d, bool r) { (void)a;(void)u;(void)d;(void)r; return false; }
-void savemount_unmount(bool c) { (void)c; }
+bool savemount_unmount(bool c) { (void)c; return true; }
 bool savemount_wipe_contents(void) { return false; }
 bool savemount_copy_tree(const char *s, const char *d) { (void)s;(void)d; return false; }
 size_t titles_list_with_savedata(TitleEntry *o, size_t m) { (void)o;(void)m; return 0; }

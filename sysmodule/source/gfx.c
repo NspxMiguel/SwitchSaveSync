@@ -175,6 +175,53 @@ static Result add_to_layer_stack(ViLayer *layer, ViLayerStack stack)
     return serviceDispatchIn(viGetSession_IManagerDisplayService(), 6000, in);
 }
 
+// O ActivateNpad do hid, na mão.
+//
+// A libnx tem hidInitializeNpad() pra isso, e ele NÃO serve aqui: a desmontagem
+// mostra que ele termina em `cbnz w0, +0x80` / `bl diagAbortWithResult` — ou
+// seja, o comando falhar mata o processo. Num aplicativo isso fecha o
+// aplicativo; num processo de sistema quem paga é o console inteiro. Foi por
+// isso que o padConfigureInput saiu daqui, e ele começava justamente chamando
+// esta função — tirar um e deixar o outro não tirava nada.
+//
+// O comando é o mesmo que a libnx manda: ActivateNpad (103) até o firmware
+// 4.x, ActivateNpadWithRevision (109) daí em diante, com a revisão que cada
+// faixa de firmware espera. A diferença é só o fim: aqui o erro volta como
+// erro. Sem o npad ativo o controle não responde, e pra isso a tela já tem
+// saída por tempo.
+static Result ativa_npad(void)
+{
+    u64 aruid = appletGetAppletResourceUserId(); // 0 no sysmodule: não é applet
+
+    if (hosversionBefore(5, 0, 0))
+    {
+        const struct { u64 aruid; } in = { aruid };
+        return serviceDispatchIn(hidGetServiceSession(), 103, in,
+            .in_send_pid = true);
+    }
+
+    // As faixas saíram da desmontagem do hidInitializeNpad, não de chute:
+    // cmp 0x4ffff -> cmd 103; 0x5ffff/0x7ffff/0x11ffff decidem a revisão
+    // entre 1, 2, 3 e 5.
+    u32 revisao = 1;
+    if (hosversionAtLeast(18, 0, 0))
+        revisao = 5;
+    else if (hosversionAtLeast(8, 0, 0))
+        revisao = 3;
+    else if (hosversionAtLeast(6, 0, 0))
+        revisao = 2;
+
+    const struct
+    {
+        u32 revisao;
+        u32 pad;
+        u64 aruid;
+    } in = { revisao, 0, aruid };
+
+    return serviceDispatchIn(hidGetServiceSession(), 109, in,
+        .in_send_pid = true);
+}
+
 static bool init_font(void)
 {
     if (g_font_ready)
@@ -278,10 +325,20 @@ bool gfx_init(void)
             HidNpadIdType_No5, HidNpadIdType_No6, HidNpadIdType_No7, HidNpadIdType_No8,
             HidNpadIdType_Handheld,
         };
-        hidInitializeNpad(); // mesma ordem do padConfigureInput, sem o abort
+        ativa_npad(); // o que o hidInitializeNpad faz, sem o abort dele dentro
         hidSetSupportedNpadIdType(ids, sizeof(ids) / sizeof(ids[0]));
         hidSetSupportedNpadStyleSet(HidNpadStyleSet_NpadStandard);
         padInitializeAny(&g_pad);
+
+        // Uma leitura jogada fora, de propósito.
+        //
+        // O padGetButtonsDown é `~antes & agora`, e o padInitializeAny zera os
+        // dois. Então a PRIMEIRA leitura reporta como "acabou de ser apertado"
+        // tudo que já estava segurado — e essa leitura acontece antes de o
+        // primeiro quadro aparecer. Quem estivesse com o Y segurado por acaso
+        // marcava o jogo como "não puxar" sem ver tela nenhuma. Descartando uma
+        // leitura aqui, a próxima já compara com o que a mão está segurando.
+        padUpdate(&g_pad);
         g_pad_ready = true;
     }
 
