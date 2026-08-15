@@ -92,6 +92,31 @@ static char *le_arquivo(const char *caminho)
 
 #define PORTA 5099
 
+// Um cliente de FTP cru, pro que o curl nao alcanca.
+static int liga_controle(void)
+{
+    int c = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in a = { 0 };
+    a.sin_family = AF_INET;
+    a.sin_port   = htons(PORTA);
+    a.sin_addr.s_addr = inet_addr("127.0.0.1");
+    if (connect(c, (struct sockaddr *)&a, sizeof(a)) != 0) { close(c); return -1; }
+
+    char boasvindas[256];
+    recv(c, boasvindas, sizeof(boasvindas), 0); // 220
+    return c;
+}
+
+// Manda um comando e devolve a resposta (terminada em zero).
+static void diz(int c, const char *cmd, char *resp, size_t respsz)
+{
+    char linha[512];
+    int n = snprintf(linha, sizeof(linha), "%s\r\n", cmd);
+    send(c, linha, (size_t)n, 0);
+    ssize_t k = recv(c, resp, respsz - 1, 0);
+    resp[k > 0 ? k : 0] = '\0';
+}
+
 int main(void)
 {
     // O ftpd trata "sdmc:" como raiz. No Mac isso é uma pasta com esse nome
@@ -203,6 +228,30 @@ int main(void)
     // Os tres abaixo sao os defeitos que a revisao achou. Cada um estava a um
     // cliente de distancia de acontecer na casa dele.
     // ------------------------------------------------------------------
+
+    printf("\n-- listar pasta que nao existe --\n");
+    // Respondia "150 mandando a lista" + "226 fim da lista" com corpo vazio: o
+    // cliente mostrava uma PASTA VAZIA em vez de um erro, e quem procurava o
+    // save no lugar errado concluia que ele tinha sumido. O curl nao chega
+    // nesse ponto (ele faz CWD antes e para no erro de la), entao o comando
+    // aqui vai cru.
+    {
+        int c = liga_controle();
+        ok(c >= 0, "conectei no controle");
+        if (c >= 0)
+        {
+            char resp[512];
+            diz(c, "PASV", resp, sizeof(resp));   // o LIST precisa do PASV antes
+            diz(c, "LIST /pasta-que-nao-existe", resp, sizeof(resp));
+            printf("          (o servidor disse: %.40s)\n", resp);
+            ok(strncmp(resp, "550", 3) == 0, "responde 550, e nao '150' com lista vazia");
+
+            diz(c, "PASV", resp, sizeof(resp));
+            diz(c, "LIST /switch", resp, sizeof(resp));
+            ok(strncmp(resp, "150", 3) == 0, "e a pasta que existe continua respondendo 150");
+            close(c);
+        }
+    }
 
     printf("\n-- caminho comprido no PWD (o %%s de 766 bytes) --\n");
     // O responde() usava o retorno do vsnprintf como indice e escrevia o \r\n

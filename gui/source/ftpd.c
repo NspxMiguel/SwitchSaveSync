@@ -75,6 +75,23 @@ static char     g_ip[32]   = {0};
 static char     g_erro[160] = {0};
 static char     g_ultima[256] = {0};
 static Sessao   g_sessoes[MAX_SESSOES];
+
+// Quantas sessoes valem AGORA — nem sempre e o MAX_SESSOES.
+//
+// Em modo applet o app tem pouca memoria, e quando o socketInitialize padrao
+// nao cabe o main.cpp cai numa config enxuta. Nessa config a memoria de
+// transferencia que banca todos os buffers de socket encolhe, e sobram poucos
+// sockets pro processo inteiro — menos do que 1 escuta + 4 controles + 4 dados.
+// Passar do limite nao da uma mensagem clara: da accept e connect falhando no
+// meio de uma transferencia. Melhor atender menos gente e atender direito.
+static int      g_max_sessoes = MAX_SESSOES;
+
+void ftpd_limite_sessoes(int n)
+{
+    if (n < 1) n = 1;
+    if (n > MAX_SESSOES) n = MAX_SESSOES;
+    g_max_sessoes = n;
+}
 static u64      g_enviados = 0, g_recebidos = 0;
 static Mutex    g_trava;
 
@@ -290,7 +307,13 @@ static void junta(char **buf, size_t *n, size_t *cap, const char *texto)
     (*buf)[*n] = '\0';
 }
 
-static void monta_lista(Sessao *s, const char *disco, bool so_nomes)
+// Devolve false quando a pasta nem dá pra abrir.
+//
+// Era void, e o silêncio virava mentira: LIST de pasta que não existe respondia
+// "150 mandando a lista" e depois "226 fim da lista" com corpo vazio, ou seja,
+// o cliente mostrava uma PASTA VAZIA no lugar de um erro. Quem estivesse
+// procurando o save no lugar errado concluía que ele tinha sumido.
+static bool monta_lista(Sessao *s, const char *disco, bool so_nomes)
 {
     size_t cap = 0;
     s->lista = NULL;
@@ -298,7 +321,7 @@ static void monta_lista(Sessao *s, const char *disco, bool so_nomes)
     s->lista_enviado = 0;
 
     DIR *d = opendir(disco);
-    if (!d) return;
+    if (!d) return false;
 
     struct dirent *e;
     while ((e = readdir(d)))
@@ -344,6 +367,7 @@ static void monta_lista(Sessao *s, const char *disco, bool so_nomes)
         s->lista = strdup("");
         s->lista_n = 0;
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +514,12 @@ static void comando(Sessao *s, char *linha)
         // O Finder manda "LIST -a"; a flag não é caminho.
         const char *alvo = (arg && arg[0] == '-') ? NULL : arg;
         resolve(s, alvo ? alvo : ".", ftp, sizeof(ftp), disco, sizeof(disco));
-        monta_lista(s, disco, !strcmp(linha, "NLST"));
+        if (!monta_lista(s, disco, !strcmp(linha, "NLST")))
+        {
+            responde(s, "550 nao consegui abrir a pasta");
+            fecha_data(s);
+            return;
+        }
         responde(s, "150 mandando a lista");
         s->estado = LISTANDO;
         return;
@@ -691,7 +720,7 @@ static void laco(void *_)
 
         fds[n].fd = g_escuta; fds[n].events = POLLIN; mapa[n] = -1; tipo[n] = 0; n++;
 
-        for (int i = 0; i < MAX_SESSOES; i++)
+        for (int i = 0; i < g_max_sessoes; i++)
         {
             Sessao *s = &g_sessoes[i];
             if (!s->usada) continue;
@@ -741,7 +770,7 @@ static void laco(void *_)
                 }
 
                 int livre = -1;
-                for (int i = 0; i < MAX_SESSOES; i++)
+                for (int i = 0; i < g_max_sessoes; i++)
                     if (!g_sessoes[i].usada) { livre = i; break; }
 
                 if (livre < 0)
@@ -847,7 +876,7 @@ bool ftpd_start(u16 porta)
         close(g_escuta); g_escuta = -1;
         return false;
     }
-    if (listen(g_escuta, MAX_SESSOES) < 0)
+    if (listen(g_escuta, g_max_sessoes) < 0)
     {
         snprintf(g_erro, sizeof(g_erro), "listen() falhou (%d)", errno);
         close(g_escuta); g_escuta = -1;

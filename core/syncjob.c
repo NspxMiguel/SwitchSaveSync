@@ -729,33 +729,76 @@ bool syncjob_has_local_backup(const TitleEntry *title)
     return any;
 }
 
+// O backup ANTIGO só sai depois que o novo está inteiro no cartão.
+//
+// Antes daqui era clear_dir(dir) e só então copiar — ou seja, o backup de
+// semana passada era destruído antes de existir substituto. Isso importa
+// porque esta função é a rede de segurança do "Esvaziar o save deste jogo":
+// o app chama ela, e só apaga o save se ela devolver true. Copiando por cima,
+// uma falha no meio (cartão cheio, erro de leitura) deixava o dono sem save
+// nenhum guardado — ele não perdia o save do console, mas perdia o backup que
+// já tinha.
+//
+// O preço é ocupar as duas cópias ao mesmo tempo enquanto copia. Save de jogo
+// tem alguns MB; a segurança vale muito mais que isso.
 bool syncjob_backup_title_local(const TitleEntry *title, syncjob_log_cb log)
 {
     char dir[0x280];
     local_backup_path(title, dir, sizeof(dir));
 
+    char novo[sizeof(dir) + 8], velho[sizeof(dir) + 8];
+    snprintf(novo,  sizeof(novo),  "%s.novo",  dir);
+    snprintf(velho, sizeof(velho), "%s.velho", dir);
+
     syncstate_ensure_dirs();
     mkdir(SYNC_LOCAL_DIR, 0777);
-    mkdir(dir, 0777);
+
+    // Sobra de uma tentativa que morreu no meio da vez passada.
+    clear_dir(novo);
+    rmdir(novo);
+    clear_dir(velho);
+    rmdir(velho);
+    mkdir(novo, 0777);
 
     say(log, TR("Copiando o save de %s pro cartão...", "Copying %s's save to the SD card..."), title->name);
     if (!savemount_mount_typed(title->application_id, title->uid, title->device_save, true))
     {
         say(log, TR("Não consegui montar o save (jogo aberto? conta errada?)", "Couldn't mount the save (game running? wrong account?)"));
+        rmdir(novo);
         return false;
     }
 
-    // Backup novo não herda sobra do antigo: sem isso, arquivo que o jogo
-    // apagou continuaria aqui e voltaria pro save no restore do cartão.
-    clear_dir(dir);
-
-    bool copied = savemount_copy_tree("save:/", dir);
+    bool copied = savemount_copy_tree("save:/", novo);
     savemount_unmount(false);
 
     if (!copied)
     {
-        say(log, TR("Falhou ao copiar pro cartão", "Failed to copy to the SD card"));
+        // O backup de antes continua onde estava, inteiro.
+        clear_dir(novo);
+        rmdir(novo);
+        say(log, TR("Falhou ao copiar pro cartão — o backup anterior continua no lugar",
+                    "Failed to copy to the SD card — the previous backup is still there"));
         return false;
+    }
+
+    // A troca: o antigo sai do caminho, o novo toma o nome, e só então o antigo
+    // é apagado. Em nenhum instante existe zero cópia completa no cartão.
+    bool tinha_antes = (rename(dir, velho) == 0);
+    if (rename(novo, dir) != 0)
+    {
+        if (tinha_antes)
+            rename(velho, dir); // desfaz: melhor o backup velho que nenhum
+        clear_dir(novo);
+        rmdir(novo);
+        say(log, TR("Copiei, mas não consegui pôr no lugar — o backup anterior continua valendo",
+                    "Copied it, but couldn't put it in place — the previous backup still stands"));
+        return false;
+    }
+
+    if (tinha_antes)
+    {
+        clear_dir(velho);
+        rmdir(velho);
     }
 
     say(log, TR("Backup de %s guardado em %s", "Backup of %s stored in %s"), title->name, dir);

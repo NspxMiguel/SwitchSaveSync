@@ -79,10 +79,38 @@ SEMPRE = {
     'nvdrv:s':  'o framebuffer da tela de "puxando save da nuvem"',
 }
 
-# timeInitialize e socketInitialize aceitam mais de um servico; basta um.
-QUALQUER_UM = [
-    (['time:u', 'time:s'], 'timeInitialize', 'relogio — o TLS precisa da data pra validar o certificado'),
-    (['bsd:s', 'bsd:u'],   'socketInitialize', 'os sockets'),
+# Servico escolhido por variavel, e nao por argumento de chamada.
+#
+# O timeInitialize e o socketInitialize aceitam varios servicos, mas o
+# sysmodule NAO escolhe na hora da chamada: ele fixa antes, num global
+# (__nx_time_service_type) e num campo do config (cfg.bsd_service_type). Ate
+# aqui o script aceitava "um dos dois" pra cada par — o que e a MESMA pegadinha
+# que ele trata pro account, o vi e o pl: o nome do enum nao e o nome do
+# servico, e ter `time:u` no NPDM nao ajuda em nada um sysmodule que abre
+# `time:s`. Agora ele le a escolha do codigo e cobra exatamente ela.
+POR_VARIAVEL = [
+    {
+        'atribuicao': r'__nx_time_service_type\s*=\s*(TimeServiceType_\w+)',
+        'mapa': {
+            'TimeServiceType_User':       'time:u',
+            'TimeServiceType_Menu':       'time:a',
+            'TimeServiceType_System':     'time:s',
+            'TimeServiceType_Repair':     'time:r',
+            'TimeServiceType_SystemUser': 'time:su',
+        },
+        'padrao': 'time:u',  # o padrao da libnx quando ninguem define o global
+        'porque': 'relogio — o TLS precisa da data pra validar o certificado',
+    },
+    {
+        'atribuicao': r'bsd_service_type\s*=\s*(BsdServiceType_\w+)',
+        'mapa': {
+            'BsdServiceType_User':   'bsd:u',
+            'BsdServiceType_System': 'bsd:s',
+            'BsdServiceType_Auto':   'bsd:s',  # tenta bsd:s primeiro
+        },
+        'padrao': 'bsd:u',
+        'porque': 'os sockets',
+    },
 ]
 
 CHAMADA = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*Initialize)\s*\(')
@@ -171,12 +199,24 @@ def main():
             falhas.append(f'{servico} nao esta no NPDM ({porque})')
         print(f'  {"ok  " if ok else "FALTA"} {servico:<10} {porque}')
 
-    print('\n-- pelo menos um de cada grupo --')
-    for grupo, funcao, porque in QUALQUER_UM:
-        ok = any(s in permitidos for s in grupo)
-        if not ok:
-            falhas.append(f'nenhum de {grupo} esta no NPDM, e {funcao} precisa ({porque})')
-        print(f'  {"ok  " if ok else "FALTA"} {" ou ".join(grupo):<16} {porque}')
+    print('\n-- servico escolhido por variavel, nao por argumento --')
+    texto_todo = ''.join(open(c, encoding='utf-8').read() for c in fontes())
+    for regra in POR_VARIAVEL:
+        achados = re.findall(regra['atribuicao'], texto_todo)
+        if achados:
+            escolhidos = {regra['mapa'].get(a, '?') for a in achados}
+            de_onde = ' = '.join(sorted(set(achados)))
+        else:
+            escolhidos = {regra['padrao']}
+            de_onde = '(ninguem define: padrao da libnx)'
+
+        for servico in sorted(escolhidos):
+            ok = servico in permitidos
+            if not ok:
+                falhas.append(f'{servico} e o servico escolhido por {de_onde}, '
+                              f'mas NAO esta no service_access do NPDM')
+            print(f'  {"ok  " if ok else "FALTA"} {servico:<10} {de_onde} — {regra["porque"]}')
+        usados.setdefault(next(iter(escolhidos)), []).append(('(variavel)', de_onde))
 
     if desconhecidas:
         # Não é falha: é o script avisando que ficou cego. Chamada nova que a
@@ -186,8 +226,7 @@ def main():
         for arquivo, chamada in sorted(set(desconhecidas)):
             print(f'  ?    {chamada} em {arquivo} — acrescente na TABELA')
 
-    sobrando = sorted(permitidos - set(usados) - set(SEMPRE)
-                      - {s for g, _, _ in QUALQUER_UM for s in g})
+    sobrando = sorted(permitidos - set(usados) - set(SEMPRE))
     if sobrando:
         # Também não é falha. Permissão a mais não quebra nada; só vale saber,
         # porque NPDM enxuto é NPDM que um revisor consegue ler.
