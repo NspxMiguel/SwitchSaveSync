@@ -734,6 +734,15 @@ static bool jobWipeSave(Job* job, TitleEntry title)
         return false;
     }
 
+    // Esta e a unica escrita em savedata do projeto que NAO passa pelo
+    // write_over_save do syncjob.c, ou seja, o guarda de escrita
+    // (syncjob_set_write_guard) nunca e consultado aqui. E de proposito, e o
+    // motivo e que o guarda responde "tem jogo vivo agora?" — pergunta que so
+    // faz sentido pro sysmodule, que escreve com o console na mao de outra
+    // pessoa. Aqui quem esta em primeiro plano e este app: se um jogo estivesse
+    // aberto, este app nao estaria na tela. E o caso restante — o sysmodule
+    // mexendo no mesmo save neste instante — o proprio fs resolve: savedata so
+    // monta uma vez, entao o segundo mount falha e cai no if abaixo.
     job->setStatus(TR("Esvaziando o save no console...", "Emptying the save on the console..."));
     if (!savemount_mount_typed(title.application_id, title.uid, title.device_save, false))
     {
@@ -2786,6 +2795,15 @@ public:
             true));
 
         this->setContentView(list);
+
+        // Modo enxuto = uma conexao por vez.
+        //
+        // Quando o socketInitialize padrao nao coube na memoria (modo applet), o
+        // app subiu a rede com buffers apertados, e nessa config sobram poucos
+        // sockets pro processo inteiro — menos do que o servidor precisaria pra
+        // atender quatro clientes com dados abertos. Estourar isso nao da erro
+        // legivel: da accept e connect falhando no meio de uma transferencia.
+        ftpd_limite_sessoes(g_socket_lean ? 1 : 4);
 
         if (!ftpd_start(FTPD_PORTA_PADRAO))
             this->falhou = ftpd_ultimo_erro();

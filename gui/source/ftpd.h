@@ -35,6 +35,12 @@ extern "C" {
 
 // Sobe o servidor. Devolve false se a porta já estiver ocupada ou a rede não
 // estiver de pé — o motivo fica em ftpd_ultimo_erro().
+// Quantas conexoes atender ao mesmo tempo (1 a 4). Serve pra apertar o cinto
+// quando a rede do app subiu na config enxuta de modo applet: la sobram poucos
+// sockets pro processo, e prometer quatro sessoes vira transferencia falhando
+// no meio em vez de uma recusa limpa.
+void ftpd_limite_sessoes(int n);
+
 bool ftpd_start(u16 porta);
 
 // Derruba o servidor e espera a thread morrer. Pode chamar mesmo parado.
