@@ -18,6 +18,17 @@ Open the app, press A on a game, done — it works out for itself whether to upl
 
 </div>
 
+> [!WARNING]
+> **Use it at your own risk.** This is homebrew for a console running custom
+> firmware. Nintendo can ban the account or the console from online services for
+> that alone, and a sync that goes the wrong way overwrites a save you wanted to
+> keep. Back the saves up before the first run, and read [where it was
+> tested](#where-it-was-tested) — nothing outside that list was verified.
+>
+> The software comes with no warranty of any kind, as stated in sections 15 and
+> 16 of the GPLv3. The author is not liable for lost saves, banned accounts,
+> corrupted storage or a console that stops booting.
+
 ---
 
 ## What it is
@@ -382,3 +393,11 @@ about it.
 
 [GPLv3](LICENSE) — the same one Atmosphère, JKSV and Checkpoint use. Use it, study it,
 change it, pass it on; anyone distributing a modified version has to open their source too.
+
+---
+
+## Documentação
+
+Índice completo em [`docs/INDEX.md`](docs/INDEX.md).
+
+_Hub multi-repo: `~/Documents/Documentacao-Repos/INDEX.md` (atualizado 2026-08-31)._

@@ -18,6 +18,17 @@ Abre o app, aperta A no jogo, pronto — ele decide sozinho se sobe ou se desce.
 
 </div>
 
+> [!WARNING]
+> **Use por sua conta e risco.** Isto é homebrew para um console com firmware
+> alterado. Só por causa disso a Nintendo pode banir a conta ou o console dos
+> serviços online, e uma sincronização para o lado errado sobrescreve o save que
+> você queria guardar. Faça backup dos saves antes da primeira vez, e leia [onde
+> foi testado](#onde-foi-testado) — o que está fora dessa lista não foi conferido.
+>
+> O programa vem sem garantia nenhuma, como dizem as seções 15 e 16 da GPLv3. O
+> autor não se responsabiliza por save perdido, conta banida, cartão corrompido
+> ou console que não liga mais.
+
 ---
 
 ## O que é
