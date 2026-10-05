@@ -389,10 +389,6 @@ The device-save path came from looking at where [JKSV](https://github.com/J-D-K/
 [Checkpoint](https://github.com/FlagBrew/Checkpoint) trip up — both have an open issue
 about it.
 
-## Support
-
-Free and open source. If it saved you time, pay what it was worth at [nspx.dev/loja](https://www.nspx.dev/loja/) — any amount, no account.
-
 ## License
 
 [GPLv3](LICENSE) — the same one Atmosphère, JKSV and Checkpoint use. Use it, study it,
