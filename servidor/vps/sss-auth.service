@@ -1,0 +1,14 @@
+[Unit]
+Description=SwitchSaveSync / NXbox Google OAuth proxy
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/sss-auth/env
+ExecStart=%h/opt/node/bin/node %h/srv/sss-auth/servidor/vps/server.mjs
+WorkingDirectory=%h/srv/sss-auth/servidor
+Restart=on-failure
+RestartSec=5
+MemoryMax=128M
+
+[Install]
+WantedBy=default.target

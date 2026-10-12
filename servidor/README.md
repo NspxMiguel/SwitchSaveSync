@@ -127,3 +127,21 @@ do relógio.
 Qualquer pessoa pode passar por cima com um `google.cfg` no cartão, sem
 recompilar nada — inclusive pra não depender deste servidor nunca mais. Está em
 [INSTALACAO.md](../INSTALACAO.md#credencial-própria-google-cfg).
+
+## Na VPS (sem Vercel)
+
+`vps/server.mjs` monta as mesmas funções num servidor Node puro, em
+`127.0.0.1:8794`, com dois prefixos: `/sss/{device,token,refresh}` e
+`/nxbox/{device,token,refresh}`, mais `/healthz`. A credencial vem do ambiente
+(`SSS_GOOGLE_CLIENT_ID/SECRET`, `NXBOX_GOOGLE_CLIENT_ID/SECRET` com fallback
+para os `SSS_*`), num arquivo `~/.config/sss-auth/env` com `chmod 600`.
+
+```bash
+# deploy: copy ../servidor to ~/srv/sss-auth/servidor, then
+cp vps/sss-auth.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now sss-auth
+```
+
+Publicado por túnel Cloudflare em `https://auth.nspx.dev`, por exemplo
+`SSS_AUTH_ENDPOINT "https://auth.nspx.dev/sss"`. O IP do cliente vem do
+cabeçalho `cf-connecting-ip`.

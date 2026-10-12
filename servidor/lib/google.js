@@ -5,12 +5,20 @@
 // este endpoint numa chave mestra — em particular no `scope`, que é o campo
 // que decide o que a tela de consentimento vai pedir pro usuário.
 
+import { AsyncLocalStorage } from 'node:async_hooks'
+
 const ESCOPO = 'https://www.googleapis.com/auth/drive.file'
 
 const DEVICE_URL = 'https://oauth2.googleapis.com/device/code'
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 
+// Per-request credential override (used by vps/server.mjs to serve several
+// apps from one process). Without a store, the environment is used as before.
+export const contexto = new AsyncLocalStorage()
+
 export function credenciais() {
+  const doContexto = contexto.getStore()
+  if (doContexto) return doContexto
   const id = process.env.GOOGLE_CLIENT_ID
   const segredo = process.env.GOOGLE_CLIENT_SECRET
   if (!id || !segredo) {
