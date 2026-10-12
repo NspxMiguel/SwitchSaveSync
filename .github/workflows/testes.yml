@@ -39,6 +39,6 @@ jobs:
       - name: os testes
         run: |
           set -e
-          for alvo in nxsaves nomes pastas sync arquivo credencial ftpd savemount syncstate servicos servidor; do
+          for alvo in ota nxsaves nomes pastas sync arquivo credencial ftpd savemount syncstate servicos servidor; do
             ./tests/run.sh "$alvo"
           done

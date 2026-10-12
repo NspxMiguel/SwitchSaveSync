@@ -62,6 +62,10 @@ JobPage::JobPage(Job* job, bool cancellable)
     this->statusLabel = new brls::Label(brls::LabelStyle::DIALOG, TR("Começando...", "Starting..."), true);
     this->statusLabel->setHorizontalAlign(NVG_ALIGN_CENTER);
     this->list->addView(this->statusLabel);
+    this->progressDisplay = new brls::ProgressDisplay();
+    this->progressDisplay->setHeight(24);
+    this->progressDisplay->collapse(false);
+    this->list->addView(this->progressDisplay);
 
     // Esse botão nasce junto com a tela, e não no fim do trabalho, por um
     // motivo que não é de estética: a borealis NÃO aguenta tela sem nada
@@ -168,6 +172,16 @@ JobPage::~JobPage()
 // deixou pronto — nada de rede aqui.
 void JobPage::pump()
 {
+    int progress = this->job->getProgress();
+    if (progress >= 0)
+    {
+        this->progressDisplay->expand(false);
+        this->progressDisplay->setProgress(progress, 100);
+    }
+    else
+    {
+        this->progressDisplay->collapse(false);
+    }
     std::string status = this->job->getStatus();
     if (!status.empty() && status != this->lastStatus)
     {

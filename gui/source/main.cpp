@@ -36,6 +36,7 @@ extern "C" {
 
 #include "job.hpp"
 #include "job_page.hpp"
+#include "ota_update.hpp"
 #include "parental.hpp"
 
 #define APP_DIR     "sdmc:/switch/SwitchSaveSync"
@@ -3148,6 +3149,9 @@ static brls::List* createAboutTab()
     brls::ListItem* versionItem = new brls::ListItem(TR("Versão", "Version"));
     versionItem->setValue(APP_VERSION_STRING);
     list->addView(versionItem);
+    auto* updateItem = new brls::ListItem(TR("Verificar atualizações", "Check for updates"));
+    updateItem->getClickEvent()->subscribe([](brls::View*) { checkForUpdates(g_nro_path, false); });
+    list->addView(updateItem);
 
     // Vem logo depois da versão, e não no fim, porque é o tipo de aviso que só
     // serve se for lido antes — não depois que o save já deu problema.
@@ -3314,6 +3318,8 @@ int main(int argc, char* argv[])
     // reabrir o app na troca de idioma.
     if (argc > 0 && argv[0])
         g_nro_path = argv[0];
+    if (!g_nro_path.empty() && g_nro_path[0] == '/')
+        g_nro_path = "sdmc:" + g_nro_path;
 
     // O idioma antes de tudo, senão a primeira tela do app (a da senha) sairia
     // sempre em português.
@@ -3476,8 +3482,13 @@ int main(int argc, char* argv[])
         brls::Application::notify(TR("Rede falhou — ver detalhes na aba Ajustes",
             "Network failed — details in the Settings tab"));
 
+    if (http_ok)
+        checkForUpdates(g_nro_path, true);
+
     while (brls::Application::mainLoop())
         ;
+
+    finishOtaUpdate();
 
     if (http_ok)
         http_shutdown();

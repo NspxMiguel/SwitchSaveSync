@@ -39,6 +39,7 @@ class JobPage : public brls::AppletFrame
     brls::Label* statusLabel  = nullptr;
     brls::ListItem* backItem  = nullptr;
     std::string lastStatus;
+    brls::ProgressDisplay* progressDisplay = nullptr;
 
     // QR, código e link. Ficam guardados porque precisam SUMIR quando o login
     // termina: enquanto eles continuavam na tela, acabar o login não mudava
