@@ -51,7 +51,8 @@ typedef bool (*syncjob_snapshot_guard_cb)(u64 application_id);
 void syncjob_set_snapshot_guard(syncjob_snapshot_guard_cb guard);
 
 // Immutable SD snapshots use the same cloud layout and fingerprint as the app.
-bool syncjob_snapshot(const TitleEntry *title, const char *path, u64 *fingerprint);
+bool syncjob_snapshot(const TitleEntry *title, const char *path,
+                      u64 *fingerprint);
 bool syncjob_snapshot_fingerprint(const char *path, u64 *out);
 bool syncjob_upload_snapshot(const TitleEntry *title, const char *path,
                              syncjob_log_cb log, bool *exact);

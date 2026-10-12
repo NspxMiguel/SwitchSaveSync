@@ -32,65 +32,66 @@ QUAL="${1:-tudo}"
 falhou=0
 
 roda() {
-    nome=$1; shift
-    printf '\n########## %s ##########\n' "$nome"
-    rm -rf "build/$nome"
-    mkdir -p "build/$nome"
-    clang $CFLAGS "$@" -lcurl -lz -o "build/$nome/teste"
-    (cd "build/$nome" && ./teste) || falhou=1
+  nome=$1
+  shift
+  printf '\n########## %s ##########\n' "$nome"
+  rm -rf "build/$nome"
+  mkdir -p "build/$nome"
+  clang $CFLAGS "$@" -lcurl -lz -o "build/$nome/teste"
+  (cd "build/$nome" && ./teste) || falhou=1
 }
 
 # ---- 1. o formato .nxsaves ----
 if [ "$QUAL" = tudo ] || [ "$QUAL" = nxsaves ]; then
-    roda nxsaves test_nxsaves.c $CORE/nxsaves.c
+  roda nxsaves test_nxsaves.c $CORE/nxsaves.c
 fi
 
 # ---- 3. JSON, nome de pasta e saneamento ----
 # (fora de ordem de propósito: o webdav precisa do servidor no ar, então fica
 # por último, e assim os dois que não precisam de nada rodam mesmo sem Apache.)
 if [ "$QUAL" = tudo ] || [ "$QUAL" = nomes ]; then
-    roda nomes test_nomes.c stubs_console.c \
-        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+  roda nomes test_nomes.c stubs_console.c \
+    $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+    $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # ---- 3b. o caminho da pasta na nuvem ----
 # Separado do "nomes" de proposito: aquele testa a regra ANTIGA (achatada), que
 # continua valendo pro backup do cartao, e este testa a de agora.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = pastas ]; then
-    roda pastas test_pastas.c stubs_console.c \
-        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+  roda pastas test_pastas.c stubs_console.c \
+    $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+    $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # ---- 3c. a decisao do sync, com nuvem e savedata falsos ----
 if [ "$QUAL" = tudo ] || [ "$QUAL" = sync ]; then
-    roda sync test_sync.c fake_cloud.c \
-        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+  roda sync test_sync.c fake_cloud.c \
+    $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+    $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # Durable snapshots, reboot recovery, interrupted uploads, and fingerprint markers.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = backupqueue ]; then
-    roda backupqueue test_backupqueue.c fake_cloud.c \
-        $CORE/backupqueue.c $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+  roda backupqueue test_backupqueue.c fake_cloud.c \
+    $CORE/backupqueue.c $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+    $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # ---- 3d. o arquivo unico (.nxsaves) e o backup no proprio cartao ----
 # As duas rotas que NAO passam pela decisao do sync — e que escrevem no
 # savedata do mesmo jeito.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = arquivo ]; then
-    roda arquivo test_arquivo.c fake_cloud.c \
-        $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
-        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+  roda arquivo test_arquivo.c fake_cloud.c \
+    $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+    $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
 # ---- 3e. de onde vem a credencial do Google ----
 # Nao fala com o Google: testa so a ORDEM das tres fontes (google.cfg do
 # usuario > endpoint > chave do build) e o parser do arquivo torto.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = credencial ]; then
-    roda credencial test_credencial.c $CORE/credencial.c
+  roda credencial test_credencial.c $CORE/credencial.c
 fi
 
 # ---- 3g. o servidor de FTP do app, contra clientes de verdade ----
@@ -99,7 +100,7 @@ fi
 # curl. Protocolo tem muito jeito de dar QUASE certo, e nada disso aparece
 # lendo o codigo.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = ftpd ]; then
-    roda ftpd test_ftpd.c stubs_libnx.c ../gui/source/ftpd.c -I../gui/source
+  roda ftpd test_ftpd.c stubs_libnx.c ../gui/source/ftpd.c -I../gui/source
 fi
 
 # ---- o syncstate: os arquivos que os TRES programas dividem ----
@@ -108,7 +109,7 @@ fi
 # coisa e o app dizendo outra. Aqui entra o que nenhum outro alvo tocava: log
 # (e o corte dele), status, liga/desliga, destino e pedido de backup.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = syncstate ]; then
-    roda syncstate test_syncstate.c $CORE/syncstate.c
+  roda syncstate test_syncstate.c $CORE/syncstate.c
 fi
 
 # ---- o savemount: o unico caminho do projeto que APAGA save ----
@@ -118,7 +119,7 @@ fi
 # core que nenhum teste tocava: quem precisava dele linkava o stubs_console.c,
 # que devolve false pra tudo.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = savemount ]; then
-    roda savemount test_savemount.c stubs_fsdev.c $CORE/savemount.c
+  roda savemount test_savemount.c stubs_fsdev.c $CORE/savemount.c
 fi
 
 # ---- 3e2. o NPDM do sysmodule libera tudo que ele abre? ----
@@ -127,38 +128,38 @@ fi
 # teste de logica — falha calado no console, que foi como o idioma, o apelido
 # da conta e a ordenacao por ultimo jogado se perderam.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = servicos ]; then
-    printf '\n########## servicos ##########\n'
-    python3 servicos.py || falhou=1
+  printf '\n########## servicos ##########\n'
+  python3 servicos.py || falhou=1
 fi
 
 # ---- 3f. o freio do servidor de autenticacao ----
 # JavaScript, entao roda separado e so se tiver node. E o unico pedaco do
 # servidor com logica de verdade, e erro nele so aparece no dia do ataque.
 if [ "$QUAL" = tudo ] || [ "$QUAL" = servidor ]; then
-    printf '\n########## servidor ##########\n'
-    if command -v node >/dev/null 2>&1; then
-        node ../servidor/teste.mjs || falhou=1
-    else
-        echo "  (pulado: node nao esta instalado)"
-    fi
+  printf '\n########## servidor ##########\n'
+  if command -v node >/dev/null 2>&1; then
+    node ../servidor/teste.mjs || falhou=1
+  else
+    echo "  (pulado: node nao esta instalado)"
+  fi
 fi
 
 # ---- 2. WebDAV, contra um servidor de verdade ----
 if [ "$QUAL" = tudo ] || [ "$QUAL" = webdav ]; then
-    # O Apache do sistema NÃO consegue ler config dentro de ~/Documents — o SIP
-    # do macOS barra, com "Operation not permitted". Por isso o servidor de
-    # teste mora numa pasta temporária, fora do repo. O binário do teste
-    # continua em tests/build; só o Apache é que sai daqui.
-    DAV="${TMPDIR:-/tmp}/switchsavesync-dav-teste"
-    SENHA="senha de teste 123"
+  # O Apache do sistema NÃO consegue ler config dentro de ~/Documents — o SIP
+  # do macOS barra, com "Operation not permitted". Por isso o servidor de
+  # teste mora numa pasta temporária, fora do repo. O binário do teste
+  # continua em tests/build; só o Apache é que sai daqui.
+  DAV="${TMPDIR:-/tmp}/switchsavesync-dav-teste"
+  SENHA="senha de teste 123"
 
-    # Sobe um Apache com mod_dav só pra este teste. É o Apache que já vem no
-    # macOS; não instala nada. Morre no fim, inclusive se o teste falhar.
-    rm -rf "$DAV"
-    mkdir -p "$DAV/root" "$DAV/logs" "$DAV/conf"
-    htpasswd -bc "$DAV/conf/users" jogador "$SENHA" >/dev/null 2>&1
+  # Sobe um Apache com mod_dav só pra este teste. É o Apache que já vem no
+  # macOS; não instala nada. Morre no fim, inclusive se o teste falhar.
+  rm -rf "$DAV"
+  mkdir -p "$DAV/root" "$DAV/logs" "$DAV/conf"
+  htpasswd -bc "$DAV/conf/users" jogador "$SENHA" >/dev/null 2>&1
 
-    cat > "$DAV/conf/httpd.conf" <<EOF
+  cat >"$DAV/conf/httpd.conf" <<EOF
 ServerName localhost
 Listen 127.0.0.1:8088
 ServerRoot "$DAV"
@@ -197,15 +198,15 @@ DocumentRoot "$DAV/root"
 </Directory>
 EOF
 
-    /usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k start
-    trap '/usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k stop 2>/dev/null || true' EXIT INT TERM
-    sleep 1
+  /usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k start
+  trap '/usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k stop 2>/dev/null || true' EXIT INT TERM
+  sleep 1
 
-    roda webdav test_webdav.c $CORE/webdav.c $CORE/http.c $CORE/cloud.c
+  roda webdav test_webdav.c $CORE/webdav.c $CORE/http.c $CORE/cloud.c
 
-    /usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k stop 2>/dev/null || true
-    trap - EXIT INT TERM
-    sleep 1   # o -k stop volta na hora, mas o processo leva um instante pra sair
+  /usr/sbin/httpd -f "$DAV/conf/httpd.conf" -k stop 2>/dev/null || true
+  trap - EXIT INT TERM
+  sleep 1 # o -k stop volta na hora, mas o processo leva um instante pra sair
 fi
 
 # ---- 4. o Google Drive de verdade (só sob pedido) ----
@@ -220,41 +221,41 @@ fi
 # tudo lá dentro, inclusive a limpeza — que é a única operação que apaga da
 # nuvem. Nenhum backup de verdade é tocado. A pasta é apagada no fim.
 if [ "$QUAL" = drive ]; then
-    if [ ! -f "$CORE/config.h" ]; then
-        echo "falta o core/config.h com o client id/secret do Google — esse não vai pro git"
-        exit 1
-    fi
+  if [ ! -f "$CORE/config.h" ]; then
+    echo "falta o core/config.h com o client id/secret do Google — esse não vai pro git"
+    exit 1
+  fi
 
-    # O core monta caminho com "sdmc:/..." e "romfs:/...", que no Mac não
-    # começam com barra e portanto valem como caminho relativo. Criando pastas
-    # com esses nomes literais, o código do console roda aqui sem alteração
-    # nenhuma — inclusive a conferência do certificado, que usa o cacert.pem
-    # de verdade do projeto.
-    GUARDA="${TMPDIR:-/tmp}/switchsavesync-drive-teste"
-    mkdir -p "$GUARDA/sdmc:/switch/SwitchSaveSync"
+  # O core monta caminho com "sdmc:/..." e "romfs:/...", que no Mac não
+  # começam com barra e portanto valem como caminho relativo. Criando pastas
+  # com esses nomes literais, o código do console roda aqui sem alteração
+  # nenhuma — inclusive a conferência do certificado, que usa o cacert.pem
+  # de verdade do projeto.
+  GUARDA="${TMPDIR:-/tmp}/switchsavesync-drive-teste"
+  mkdir -p "$GUARDA/sdmc:/switch/SwitchSaveSync"
 
-    nome=drive
-    printf '\n########## %s ##########\n' "$nome"
-    rm -rf "build/$nome"
-    mkdir -p "build/$nome/romfs:"
-    cp ../gui/resources/cacert.pem "build/$nome/romfs:/cacert.pem"
-    ln -s "$GUARDA/sdmc:" "build/$nome/sdmc:"
+  nome=drive
+  printf '\n########## %s ##########\n' "$nome"
+  rm -rf "build/$nome"
+  mkdir -p "build/$nome/romfs:"
+  cp ../gui/resources/cacert.pem "build/$nome/romfs:/cacert.pem"
+  ln -s "$GUARDA/sdmc:" "build/$nome/sdmc:"
 
-    clang $CFLAGS test_drive.c \
-        $CORE/drive.c $CORE/oauth.c $CORE/http.c $CORE/cloud.c \
-        $CORE/minijson.c $CORE/webdav.c $CORE/credencial.c \
-        -lcurl -lz -o "build/$nome/teste"
-    (cd "build/$nome" && ./teste) || falhou=1
+  clang $CFLAGS test_drive.c \
+    $CORE/drive.c $CORE/oauth.c $CORE/http.c $CORE/cloud.c \
+    $CORE/minijson.c $CORE/webdav.c $CORE/credencial.c \
+    -lcurl -lz -o "build/$nome/teste"
+  (cd "build/$nome" && ./teste) || falhou=1
 
-    echo
-    echo "o login ficou guardado em $GUARDA — apague quando terminar:"
-    echo "  rm -rf \"$GUARDA\""
+  echo
+  echo "o login ficou guardado em $GUARDA — apague quando terminar:"
+  echo "  rm -rf \"$GUARDA\""
 fi
 
 printf '\n'
 if [ "$falhou" -eq 0 ]; then
-    echo "tudo passou"
+  echo "tudo passou"
 else
-    echo "TEVE FALHA — olha acima"
+  echo "TEVE FALHA — olha acima"
 fi
 exit $falhou

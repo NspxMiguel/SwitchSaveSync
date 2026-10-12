@@ -257,8 +257,9 @@ bool drive_upload(const char *access_token, const char *folder_id,
     long fsize = tamanho_do_arquivo(local_path);
     if (fsize < 0) return false;
     if (fsize > DRIVE_MULTIPART_MAX || http_upload_limit())
-        return drive_upload_resumable(access_token, folder_id, remote_name, local_path,
-                                       mime_type, updating, existing_id);
+      return drive_upload_resumable(access_token, folder_id, remote_name,
+                                    local_path, mime_type, updating,
+                                    existing_id);
 
     char name_json[300];
     json_escape(remote_name, name_json, sizeof(name_json));

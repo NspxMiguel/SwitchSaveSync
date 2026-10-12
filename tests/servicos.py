@@ -31,13 +31,13 @@ import sys
 RAIZ = os.path.dirname(os.path.abspath(__file__))
 PROJETO = os.path.dirname(RAIZ)
 
-NPDM = os.path.join(PROJETO, 'sysmodule', 'SwitchSaveSync.json')
+NPDM = os.path.join(PROJETO, "sysmodule", "SwitchSaveSync.json")
 
 # O sysmodule compila source/ + core/ inteiros (ver o SOURCES do Makefile dele),
 # entao servico aberto dentro do core conta como servico aberto pelo sysmodule.
 FONTES = [
-    os.path.join(PROJETO, 'sysmodule', 'source'),
-    os.path.join(PROJETO, 'core'),
+    os.path.join(PROJETO, "sysmodule", "source"),
+    os.path.join(PROJETO, "core"),
 ]
 
 # funcao da libnx -> servico que ela pede ao sm.
@@ -46,36 +46,36 @@ FONTES = [
 # para o serviço. É onde mora a pegadinha do account: os nomes do enum não são
 # os nomes dos serviços.
 TABELA = {
-    'fsInitialize':      'fsp-srv',
-    'nsInitialize':      'ns:am2',
-    'hidInitialize':     'hid',
-    'pmdmntInitialize':  'pm:dmnt',
-    'pminfoInitialize':  'pm:info',
-    'pdmqryInitialize':  'pdm:qry',
-    'setInitialize':     'set',
-    'setsysInitialize':  'set:sys',
-    'capssuInitialize':  'caps:su',
-    'accountInitialize': {
-        'AccountServiceType_Application':   'acc:u0',
-        'AccountServiceType_System':        'acc:u1',
-        'AccountServiceType_Administrator': 'acc:su',
+    "fsInitialize": "fsp-srv",
+    "nsInitialize": "ns:am2",
+    "hidInitialize": "hid",
+    "pmdmntInitialize": "pm:dmnt",
+    "pminfoInitialize": "pm:info",
+    "pdmqryInitialize": "pdm:qry",
+    "setInitialize": "set",
+    "setsysInitialize": "set:sys",
+    "capssuInitialize": "caps:su",
+    "accountInitialize": {
+        "AccountServiceType_Application": "acc:u0",
+        "AccountServiceType_System": "acc:u1",
+        "AccountServiceType_Administrator": "acc:su",
     },
-    'viInitialize': {
-        'ViServiceType_Application': 'vi:u',
-        'ViServiceType_System':      'vi:s',
-        'ViServiceType_Manager':     'vi:m',
+    "viInitialize": {
+        "ViServiceType_Application": "vi:u",
+        "ViServiceType_System": "vi:s",
+        "ViServiceType_Manager": "vi:m",
     },
-    'plInitialize': {
-        'PlServiceType_User':   'pl:u',
-        'PlServiceType_System': 'pl:s',
+    "plInitialize": {
+        "PlServiceType_User": "pl:u",
+        "PlServiceType_System": "pl:s",
     },
 }
 
 # Servicos que nao saem de uma chamada com nome fixo, e por que eles precisam
 # estar la assim mesmo.
 SEMPRE = {
-    'sfdnsres': 'resolver DNS — sem isso nenhum nome de servidor vira endereco',
-    'csrng':    'aleatoriedade do TLS',
+    "sfdnsres": "resolver DNS — sem isso nenhum nome de servidor vira endereco",
+    "csrng": "aleatoriedade do TLS",
 }
 
 # Servico escolhido por variavel, e nao por argumento de chamada.
@@ -89,30 +89,30 @@ SEMPRE = {
 # `time:s`. Agora ele le a escolha do codigo e cobra exatamente ela.
 POR_VARIAVEL = [
     {
-        'atribuicao': r'__nx_time_service_type\s*=\s*(TimeServiceType_\w+)',
-        'mapa': {
-            'TimeServiceType_User':       'time:u',
-            'TimeServiceType_Menu':       'time:a',
-            'TimeServiceType_System':     'time:s',
-            'TimeServiceType_Repair':     'time:r',
-            'TimeServiceType_SystemUser': 'time:su',
+        "atribuicao": r"__nx_time_service_type\s*=\s*(TimeServiceType_\w+)",
+        "mapa": {
+            "TimeServiceType_User": "time:u",
+            "TimeServiceType_Menu": "time:a",
+            "TimeServiceType_System": "time:s",
+            "TimeServiceType_Repair": "time:r",
+            "TimeServiceType_SystemUser": "time:su",
         },
-        'padrao': 'time:u',  # o padrao da libnx quando ninguem define o global
-        'porque': 'relogio — o TLS precisa da data pra validar o certificado',
+        "padrao": "time:u",  # o padrao da libnx quando ninguem define o global
+        "porque": "relogio — o TLS precisa da data pra validar o certificado",
     },
     {
-        'atribuicao': r'bsd_service_type\s*=\s*(BsdServiceType_\w+)',
-        'mapa': {
-            'BsdServiceType_User':   'bsd:u',
-            'BsdServiceType_System': 'bsd:s',
-            'BsdServiceType_Auto':   'bsd:s',  # tenta bsd:s primeiro
+        "atribuicao": r"bsd_service_type\s*=\s*(BsdServiceType_\w+)",
+        "mapa": {
+            "BsdServiceType_User": "bsd:u",
+            "BsdServiceType_System": "bsd:s",
+            "BsdServiceType_Auto": "bsd:s",  # tenta bsd:s primeiro
         },
-        'padrao': 'bsd:u',
-        'porque': 'os sockets',
+        "padrao": "bsd:u",
+        "porque": "os sockets",
     },
 ]
 
-CHAMADA = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*Initialize)\s*\(')
+CHAMADA = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*Initialize)\s*\(")
 
 
 def argumentos(texto, abre):
@@ -126,43 +126,43 @@ def argumentos(texto, abre):
     """
     nivel = 0
     for i in range(abre, len(texto)):
-        if texto[i] == '(':
+        if texto[i] == "(":
             nivel += 1
-        elif texto[i] == ')':
+        elif texto[i] == ")":
             nivel -= 1
             if nivel == 0:
-                return texto[abre + 1:i]
-    return ''
+                return texto[abre + 1 : i]
+    return ""
 
 
 def fontes():
     for pasta in FONTES:
         for nome in sorted(os.listdir(pasta)):
-            if nome.endswith(('.c', '.cpp')) and nome != 'gfx.c':
+            if nome.endswith((".c", ".cpp")) and nome != "gfx.c":
                 yield os.path.join(pasta, nome)
 
 
 def main():
-    permitidos = set(json.load(open(NPDM))['service_access'])
+    permitidos = set(json.load(open(NPDM))["service_access"])
 
-    usados = {}   # servico -> [(arquivo, chamada)]
+    usados = {}  # servico -> [(arquivo, chamada)]
     chamadas_vistas = set()
     desconhecidas = []
 
     for caminho in fontes():
-        texto = open(caminho, encoding='utf-8').read()
+        texto = open(caminho, encoding="utf-8").read()
         # Match the sysmodule's SSS_BACKGROUND build; these blocks have no nested directives.
-        texto = re.sub(r'#ifndef SSS_BACKGROUND\n.*?#endif', '', texto, flags=re.S)
+        texto = re.sub(r"#ifndef SSS_BACKGROUND\n.*?#endif", "", texto, flags=re.S)
         # Comentário não é código. As explicações que este projeto tem sobre
         # serviço faltando citam o nome da chamada dentro do comentário, e sem
         # tirar isso o script "acha" serviço que ninguém abre.
-        texto = re.sub(r'/\*.*?\*/', ' ', texto, flags=re.S)
-        texto = re.sub(r'//[^\n]*', ' ', texto)
+        texto = re.sub(r"/\*.*?\*/", " ", texto, flags=re.S)
+        texto = re.sub(r"//[^\n]*", " ", texto)
 
         for m in CHAMADA.finditer(texto):
             funcao = m.group(1)
             chamadas_vistas.add(funcao)
-            if funcao in ('smInitialize', 'socketInitialize', 'timeInitialize'):
+            if funcao in ("smInitialize", "socketInitialize", "timeInitialize"):
                 continue
             regra = TABELA.get(funcao)
             if regra is None:
@@ -173,85 +173,114 @@ def main():
             rel = os.path.relpath(caminho, PROJETO)
 
             if isinstance(regra, str):
-                usados.setdefault(regra, []).append((rel, f'{funcao}()'))
+                usados.setdefault(regra, []).append((rel, f"{funcao}()"))
                 continue
 
             # Todo valor do enum que aparecer dentro dos parenteses conta.
-            achados = [srv for chave, srv in regra.items() if re.search(r'\b' + chave + r'\b', arg)]
+            achados = [
+                srv
+                for chave, srv in regra.items()
+                if re.search(r"\b" + chave + r"\b", arg)
+            ]
             if not achados:
-                desconhecidas.append((rel, f'{funcao}({arg.strip()})'))
+                desconhecidas.append((rel, f"{funcao}({arg.strip()})"))
                 continue
             for srv in achados:
-                usados.setdefault(srv, []).append((rel, f'{funcao}(...)'))
+                usados.setdefault(srv, []).append((rel, f"{funcao}(...)"))
 
     falhas = []
     # Background backup must never gain applet, graphics, or HID access.
-    forbidden = {'appletAE', 'appletOE', 'hid', 'hid:sys', 'vi:m', 'vi:s', 'vi:u', 'nvdrv', 'nvdrv:s', 'pl:u', 'pl:s'}
+    forbidden = {
+        "appletAE",
+        "appletOE",
+        "hid",
+        "hid:sys",
+        "vi:m",
+        "vi:s",
+        "vi:u",
+        "nvdrv",
+        "nvdrv:s",
+        "pl:u",
+        "pl:s",
+    }
     for service in sorted(permitidos & forbidden):
-        falhas.append(f'Background NPDM grants forbidden service {service}')
-    main_source = open(os.path.join(PROJETO, 'sysmodule/source/main.c'), encoding='utf-8').read()
-    for hook in ('pmdmntHookToCreateProcess(', 'pmdmntHookToCreateApplicationProcess(', 'svcDebugActiveProcess(', 'syncjob_restore_title('):
+        falhas.append(f"Background NPDM grants forbidden service {service}")
+    main_source = open(
+        os.path.join(PROJETO, "sysmodule/source/main.c"), encoding="utf-8"
+    ).read()
+    for hook in (
+        "pmdmntHookToCreateProcess(",
+        "pmdmntHookToCreateApplicationProcess(",
+        "svcDebugActiveProcess(",
+        "syncjob_restore_title(",
+    ):
         if hook in main_source:
-            falhas.append(f'Background main uses forbidden hook/write path {hook}')
-    print('-- servicos abertos pelo codigo do sysmodule --')
+            falhas.append(f"Background main uses forbidden hook/write path {hook}")
+    print("-- servicos abertos pelo codigo do sysmodule --")
     for servico in sorted(usados):
         ok = servico in permitidos
         if not ok:
-            falhas.append(f'{servico} e aberto por {usados[servico][0][1]} em '
-                          f'{usados[servico][0][0]}, mas NAO esta no service_access do NPDM')
-        print(f'  {"ok  " if ok else "FALTA"} {servico:<10} {usados[servico][0][0]}')
+            falhas.append(
+                f"{servico} e aberto por {usados[servico][0][1]} em "
+                f"{usados[servico][0][0]}, mas NAO esta no service_access do NPDM"
+            )
+        print(f"  {'ok  ' if ok else 'FALTA'} {servico:<10} {usados[servico][0][0]}")
 
-    print('\n-- servicos que nao aparecem numa chamada, e precisam estar la --')
+    print("\n-- servicos que nao aparecem numa chamada, e precisam estar la --")
     for servico, porque in sorted(SEMPRE.items()):
         ok = servico in permitidos
         if not ok:
-            falhas.append(f'{servico} nao esta no NPDM ({porque})')
-        print(f'  {"ok  " if ok else "FALTA"} {servico:<10} {porque}')
+            falhas.append(f"{servico} nao esta no NPDM ({porque})")
+        print(f"  {'ok  ' if ok else 'FALTA'} {servico:<10} {porque}")
 
-    print('\n-- servico escolhido por variavel, nao por argumento --')
-    texto_todo = ''.join(open(c, encoding='utf-8').read() for c in fontes())
+    print("\n-- servico escolhido por variavel, nao por argumento --")
+    texto_todo = "".join(open(c, encoding="utf-8").read() for c in fontes())
     for regra in POR_VARIAVEL:
-        achados = re.findall(regra['atribuicao'], texto_todo)
+        achados = re.findall(regra["atribuicao"], texto_todo)
         if achados:
-            escolhidos = {regra['mapa'].get(a, '?') for a in achados}
-            de_onde = ' = '.join(sorted(set(achados)))
+            escolhidos = {regra["mapa"].get(a, "?") for a in achados}
+            de_onde = " = ".join(sorted(set(achados)))
         else:
-            escolhidos = {regra['padrao']}
-            de_onde = '(ninguem define: padrao da libnx)'
+            escolhidos = {regra["padrao"]}
+            de_onde = "(ninguem define: padrao da libnx)"
 
         for servico in sorted(escolhidos):
             ok = servico in permitidos
             if not ok:
-                falhas.append(f'{servico} e o servico escolhido por {de_onde}, '
-                              f'mas NAO esta no service_access do NPDM')
-            print(f'  {"ok  " if ok else "FALTA"} {servico:<10} {de_onde} — {regra["porque"]}')
-        usados.setdefault(next(iter(escolhidos)), []).append(('(variavel)', de_onde))
+                falhas.append(
+                    f"{servico} e o servico escolhido por {de_onde}, "
+                    f"mas NAO esta no service_access do NPDM"
+                )
+            print(
+                f"  {'ok  ' if ok else 'FALTA'} {servico:<10} {de_onde} — {regra['porque']}"
+            )
+        usados.setdefault(next(iter(escolhidos)), []).append(("(variavel)", de_onde))
 
     if desconhecidas:
         # Não é falha: é o script avisando que ficou cego. Chamada nova que a
         # TABELA não conhece some da conferência em silêncio, e silêncio aqui é
         # exatamente o problema que este arquivo existe pra evitar.
-        print('\n-- AVISO: chamadas que este script nao sabe traduzir --')
+        print("\n-- AVISO: chamadas que este script nao sabe traduzir --")
         for arquivo, chamada in sorted(set(desconhecidas)):
-            print(f'  ?    {chamada} em {arquivo} — acrescente na TABELA')
+            print(f"  ?    {chamada} em {arquivo} — acrescente na TABELA")
 
     sobrando = sorted(permitidos - set(usados) - set(SEMPRE))
     if sobrando:
         # Também não é falha. Permissão a mais não quebra nada; só vale saber,
         # porque NPDM enxuto é NPDM que um revisor consegue ler.
-        print('\n-- no NPDM e aparentemente sem uso --')
-        print('  ' + ', '.join(sobrando))
+        print("\n-- no NPDM e aparentemente sem uso --")
+        print("  " + ", ".join(sobrando))
 
     print()
     if falhas:
         for f in falhas:
-            print(f'  FALHOU: {f}')
-        print(f'\n{len(falhas)} falha(s)')
+            print(f"  FALHOU: {f}")
+        print(f"\n{len(falhas)} falha(s)")
         return 1
 
-    print(f'{len(usados)} servico(s) conferido(s), nenhum faltando')
+    print(f"{len(usados)} servico(s) conferido(s), nenhum faltando")
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

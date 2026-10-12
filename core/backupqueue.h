@@ -1,8 +1,8 @@
 #pragma once
 #include "titles.h"
-#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -11,16 +11,17 @@ extern "C" {
 #define BACKUP_DISABLE_PATH "sdmc:/switch/SwitchSaveSync/disabled.flag"
 #define BACKUP_STATUS_PATH "sdmc:/switch/SwitchSaveSync/queue-status.txt"
 typedef struct {
-    uint32_t version;
-    uint32_t backend;
-    uint32_t attempts;
-    uint32_t reserved;
-    uint64_t due;
-    uint64_t fingerprint;
-    uint64_t checksum;
-    TitleEntry title;
+  uint32_t version;
+  uint32_t backend;
+  uint32_t attempts;
+  uint32_t reserved;
+  uint64_t due;
+  uint64_t fingerprint;
+  uint64_t checksum;
+  TitleEntry title;
 } BackupJob;
-// Single producer, single consumer. Published jobs are immutable except retry metadata.
+// Single producer, single consumer. Published jobs are immutable except retry
+// metadata.
 void backupqueue_recover(void);
 bool backupqueue_enqueue(const TitleEntry *title, unsigned backend);
 size_t backupqueue_count(void);

@@ -65,9 +65,10 @@ const CloudBackend *drive_backend(void)
 
 static uint64_t background_sent;
 static bool cancel_background_upload(uint64_t total, uint64_t sent) {
-    (void)total;
-    if (sent > background_sent) background_sent = sent;
-    return sent < 65536;
+  (void)total;
+  if (sent > background_sent)
+    background_sent = sent;
+  return sent < 65536;
 }
 
 // ------------------------------------------------------------------ placar
@@ -344,19 +345,24 @@ int main(void)
     printf("\n== background transfer cancellation ==\n");
     FILE *large = fopen("background.bin", "wb");
     if (large) {
-        char block[4096] = {0};
-        for (int i = 0; i < 256; i++) fwrite(block, 1, sizeof(block), large);
-        fclose(large);
+      char block[4096] = {0};
+      for (int i = 0; i < 256; i++)
+        fwrite(block, 1, sizeof(block), large);
+      fclose(large);
     }
     http_set_transfer_cb(cancel_background_upload);
     http_set_upload_limit(128 * 1024);
-    ok(http_upload_limit() == 128 * 1024, "background upload bandwidth limit configured");
-    ok(!cloud_upload(auth, jogo, "background.bin", "background.bin", "application/octet-stream"),
+    ok(http_upload_limit() == 128 * 1024,
+       "background upload bandwidth limit configured");
+    ok(!cloud_upload(auth, jogo, "background.bin", "background.bin",
+                     "application/octet-stream"),
        "pause callback cancels an in-flight streaming upload");
-    ok(background_sent >= 65536, "byte progress is reported before cancellation");
+    ok(background_sent >= 65536,
+       "byte progress is reported before cancellation");
     http_set_transfer_cb(NULL);
     http_set_upload_limit(0);
-    ok(cloud_upload(auth, jogo, "background.bin", "background.bin", "application/octet-stream"),
+    ok(cloud_upload(auth, jogo, "background.bin", "background.bin",
+                    "application/octet-stream"),
        "cancelled file can be retried from the immutable local copy");
 
     printf("\n== sair ==\n");

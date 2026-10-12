@@ -1,9 +1,9 @@
 // http.h — wrapper fino em cima do libcurl pras chamadas HTTP que o app
 // precisa (form-urlencoded pro OAuth, JSON/multipart pro Drive API).
 #pragma once
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {

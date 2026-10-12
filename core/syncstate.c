@@ -3,12 +3,12 @@
 
 #include <stdbool.h>
 
-#include <stdio.h>
+#include <errno.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <errno.h>
 #include <unistd.h>
 
 #define LOG_MAX_BYTES  (64 * 1024)
@@ -562,8 +562,9 @@ void syncstate_forget_folder(u64 application_id, AccountUid uid)
 
 bool backupqueue_paused(void) { return access(BACKUP_PAUSE_PATH, F_OK) == 0; }
 bool backupqueue_set_paused(bool paused) {
-    if (!paused) return unlink(BACKUP_PAUSE_PATH) == 0 || errno == ENOENT;
-    syncstate_ensure_dirs();
-    FILE *file = fopen(BACKUP_PAUSE_PATH, "w");
-    return file && fclose(file) == 0;
+  if (!paused)
+    return unlink(BACKUP_PAUSE_PATH) == 0 || errno == ENOENT;
+  syncstate_ensure_dirs();
+  FILE *file = fopen(BACKUP_PAUSE_PATH, "w");
+  return file && fclose(file) == 0;
 }
