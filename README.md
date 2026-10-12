@@ -259,9 +259,18 @@ Then reboot, open the Ultrahand overlay and start it from there.
 It uses the **same login as the app** — sign in there first, or the cloud half has nothing
 to talk to and the overlay will say so.
 
-**Where this actually is:** the SD-card half runs on the console today. The cloud half is
-still being tested, so treat this as the part that's being built rather than the part you
-rely on. The `.nro` doesn't depend on any of it.
+When a game closes, the module immediately schedules a local SD snapshot of every
+account and device save for that game. A separate, low-priority worker uploads the
+immutable snapshots with a persistent queue, retry/backoff, and per-file checkpoints.
+You can launch the next game without waiting for the cloud. The overlay shows pending
+jobs, current-file progress and the last result, with a persistent pause/resume control.
+
+This build removes sysmodule download/display/app-launch hooks. Downloads remain in the
+app. It has an 8 MiB heap and an SD kill switch at
+`/switch/SwitchSaveSync/disabled.flag`. Firmware **21.2.0 / Atmosphere 1.11.2** is the
+target, but runtime compatibility on that console is **not yet verified**.
+
+See [background backup behavior, IPC surface, validation and exact installation](docs/BACKGROUND-BACKUP.md).
 
 ## Where the saves end up
 
@@ -359,13 +368,9 @@ that were opened and are parked on purpose:
 | `sysmodule/` | Background autosync | **New, under test** |
 | `overlay/` | The Ultrahand overlay that drives it | **New, under test** |
 
-Autosync backs a save up when you **close** the game, and — with the cloud half on — brings
-saves down while the console sits idle on the menu, behind three locks that keep it from
-overwriting anything newer. [How to install it](INSTALL.md#2-autosync-optional-and-still-being-tested).
-
-The screen with the percentage bar already exists, but it appears **on the menu**, while the
-console is idle. What's still missing is the other end: the same screen at game **startup**,
-for the case where you open the game before the download has finished.
+Autosync captures saves when a game **closes**, then uploads them independently of
+gameplay. The app keeps its existing synchronization UI.
+[Install and recover the background queue](docs/BACKGROUND-BACKUP.md#exact-owner-installation).
 
 ## Further reading
 

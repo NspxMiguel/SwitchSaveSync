@@ -70,6 +70,13 @@ if [ "$QUAL" = tudo ] || [ "$QUAL" = sync ]; then
         $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
 fi
 
+# Durable snapshots, reboot recovery, interrupted uploads, and fingerprint markers.
+if [ "$QUAL" = tudo ] || [ "$QUAL" = backupqueue ]; then
+    roda backupqueue test_backupqueue.c fake_cloud.c \
+        $CORE/backupqueue.c $CORE/minijson.c $CORE/syncstate.c $CORE/syncjob.c \
+        $CORE/nxsaves.c $CORE/cloud.c $CORE/webdav.c $CORE/http.c
+fi
+
 # ---- 3d. o arquivo unico (.nxsaves) e o backup no proprio cartao ----
 # As duas rotas que NAO passam pela decisao do sync — e que escrevem no
 # savedata do mesmo jeito.

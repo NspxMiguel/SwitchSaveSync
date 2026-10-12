@@ -30,12 +30,15 @@
 // Em erro, o padrao e EXCLUIR: se eu nao consegui confirmar que esta instalado,
 // mostrar assim mesmo traria de volta exatamente a lista de save orfao que este
 // filtro existe pra tirar.
+#ifndef SSS_BACKGROUND
 static bool is_installed(uint64_t application_id) {
     bool installed = false;
     Result rc = nsIsAnyApplicationEntityInstalled(application_id, &installed);
     if (R_FAILED(rc)) return false;
     return installed;
 }
+
+#endif
 
 // Apelido da conta dona do save, o mesmo que aparece no perfil do console.
 //
@@ -157,6 +160,7 @@ bool titles_save_sizes(u64 application_id, bool device, u64 *out_size, u64 *out_
 // (save de jogo nunca aberto nessa instalação, log de uso desativado, jogo
 // de outro perfil), então quem não tem registro fica com timestamp 0 e cai
 // pro fim da lista, mantendo a ordem original entre eles.
+#ifndef SSS_BACKGROUND
 static void sort_by_last_played(TitleEntry *entries, size_t count) {
     if (count < 2) return;
 
@@ -205,7 +209,9 @@ static void sort_by_last_played(TitleEntry *entries, size_t count) {
     }
 }
 
-size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
+#endif
+
+static size_t list_savedata(TitleEntry *out, size_t max_entries, u64 filter) {
     if (!out || max_entries == 0) return 0;
 
     bool fs_owned = false, ns_owned = false, acc_owned = false;
@@ -258,10 +264,12 @@ size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
                 if (info->save_data_type != FsSaveDataType_Account && !device) continue;
 
                 uint64_t application_id = info->application_id;
-                if (application_id == 0) continue;
+                if (application_id == 0 || (filter && application_id != filter)) continue;
 
                 // So jogo instalado. Ver is_installed() logo acima.
-                if (!is_installed(application_id)) continue;
+#ifndef SSS_BACKGROUND
+                if (!filter && !is_installed(application_id)) continue;
+#endif
 
                 // Duplicata agora é (jogo, TIPO, CONTA), não jogo.
                 //
@@ -323,6 +331,17 @@ cleanup:
         }
     }
 
-    sort_by_last_played(out, count);
+#ifndef SSS_BACKGROUND
+    if (!filter) sort_by_last_played(out, count);
+#endif
     return count;
+}
+
+size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
+    return list_savedata(out, max_entries, 0);
+}
+
+size_t titles_list_for_application(u64 id, TitleEntry *out, size_t max_entries) {
+    if (!id) return 0;
+    return list_savedata(out, max_entries, id);
 }

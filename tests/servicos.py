@@ -76,7 +76,6 @@ TABELA = {
 SEMPRE = {
     'sfdnsres': 'resolver DNS — sem isso nenhum nome de servidor vira endereco',
     'csrng':    'aleatoriedade do TLS',
-    'nvdrv:s':  'o framebuffer da tela de "puxando save da nuvem"',
 }
 
 # Servico escolhido por variavel, e nao por argumento de chamada.
@@ -139,7 +138,7 @@ def argumentos(texto, abre):
 def fontes():
     for pasta in FONTES:
         for nome in sorted(os.listdir(pasta)):
-            if nome.endswith(('.c', '.cpp')):
+            if nome.endswith(('.c', '.cpp')) and nome != 'gfx.c':
                 yield os.path.join(pasta, nome)
 
 
@@ -152,6 +151,8 @@ def main():
 
     for caminho in fontes():
         texto = open(caminho, encoding='utf-8').read()
+        # Match the sysmodule's SSS_BACKGROUND build; these blocks have no nested directives.
+        texto = re.sub(r'#ifndef SSS_BACKGROUND\n.*?#endif', '', texto, flags=re.S)
         # Comentário não é código. As explicações que este projeto tem sobre
         # serviço faltando citam o nome da chamada dentro do comentário, e sem
         # tirar isso o script "acha" serviço que ninguém abre.
@@ -184,6 +185,14 @@ def main():
                 usados.setdefault(srv, []).append((rel, f'{funcao}(...)'))
 
     falhas = []
+    # Background backup must never gain applet, graphics, or HID access.
+    forbidden = {'appletAE', 'appletOE', 'hid', 'hid:sys', 'vi:m', 'vi:s', 'vi:u', 'nvdrv', 'nvdrv:s', 'pl:u', 'pl:s'}
+    for service in sorted(permitidos & forbidden):
+        falhas.append(f'Background NPDM grants forbidden service {service}')
+    main_source = open(os.path.join(PROJETO, 'sysmodule/source/main.c'), encoding='utf-8').read()
+    for hook in ('pmdmntHookToCreateProcess(', 'pmdmntHookToCreateApplicationProcess(', 'svcDebugActiveProcess(', 'syncjob_restore_title('):
+        if hook in main_source:
+            falhas.append(f'Background main uses forbidden hook/write path {hook}')
     print('-- servicos abertos pelo codigo do sysmodule --')
     for servico in sorted(usados):
         ok = servico in permitidos

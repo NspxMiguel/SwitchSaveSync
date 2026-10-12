@@ -111,6 +111,8 @@ static const CloudBackend *atual(void)
 
 // --- avisos pra UI ----------------------------------------------------------
 
+static cloud_checkpoint_cb g_checkpoint_cb;
+void cloud_set_checkpoint_cb(cloud_checkpoint_cb callback) { g_checkpoint_cb = callback; }
 static cloud_progress_cb g_progress_cb = NULL;
 static cloud_abort_cb    g_abort_cb    = NULL;
 
@@ -218,8 +220,15 @@ bool cloud_upload_tree(const char *auth, const char *folder_id, const char *loca
             report("dir", entry->d_name, true);
             if (!cloud_upload_tree(auth, sub_id, full_path)) all_ok = false;
         } else {
-            bool ok = cloud_upload(auth, folder_id, entry->d_name, full_path,
-                                    "application/octet-stream");
+            bool ok = g_checkpoint_cb && g_checkpoint_cb(full_path, folder_id, false);
+            if (ok) {
+                char remote_id[CLOUD_ID_MAX];
+                ok = atual()->find_child(auth, folder_id, entry->d_name, false, remote_id, sizeof(remote_id));
+            }
+            if (!ok) {
+                ok = cloud_upload(auth, folder_id, entry->d_name, full_path, "application/octet-stream");
+                if (ok && g_checkpoint_cb) ok = g_checkpoint_cb(full_path, folder_id, true);
+            }
             report("up", entry->d_name, ok);
             if (!ok) all_ok = false;
         }

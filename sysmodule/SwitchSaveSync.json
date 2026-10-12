@@ -7,7 +7,7 @@
   "program_id_range_min": "0x00FF0000535953FF",
   "program_id_range_max": "0x00FF0000535953FF",
   "main_thread_stack_size": "0x20000",
-  "main_thread_priority": 49,
+  "main_thread_priority": 50,
   "default_cpu_id": 3,
   "process_category": 0,
   "is_retail": true,
@@ -20,31 +20,15 @@
   "service_access": [
     "fsp-srv",
     "pm:dmnt",
-    "pm:info", "pdm:qry",
-    "set", "set:sys",
+    "pm:info",
+    "set",
+    "set:sys",
     "time:s",
-    "time:u",
-    "acc:su",
     "acc:u0",
     "ns:am2",
-    "ns:su",
     "bsd:s",
     "sfdnsres",
-    "csrng",
-    "nifm:u",
-    "ssl",
-    "vi:m",
-    "vi:s",
-    "vi:u",
-    "nvdrv:s",
-    "nvdrv",
-    "pl:u",
-    "pl:s",
-    "hid",
-    "hid:sys",
-    "caps:su",
-    "appletAE",
-    "appletOE"
+    "csrng"
   ],
   "service_host": [],
   "kernel_capabilities": [
@@ -115,7 +99,7 @@
       }
     },
     {
-      "comment": "Versao minima de kernel. Era a UNICA diferenca estrutural entre o nosso NPDM e o do sys-clk, que sobe nesse console — os dois foram decodificados byte a byte. 0x0060 = kernel 6.0, o mesmo valor que ele usa.",
+      "comment": "Versao minima de kernel. Era a UNICA diferenca estrutural entre o nosso NPDM e o do sys-clk, que sobe nesse console \u2014 os dois foram decodificados byte a byte. 0x0060 = kernel 6.0, o mesmo valor que ele usa.",
       "type": "min_kernel_version",
       "value": "0x0060"
     },

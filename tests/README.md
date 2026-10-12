@@ -163,3 +163,12 @@ A primeira é o bug de verdade que passou batido. O teste que o pega é o de **i
 e volta**: subir e sincronizar de novo. Se o caminho que escreve e o que lê não
 forem o mesmo, a segunda chamada não acha nada, cai em "primeira sync" outra vez
 e sobe pra sempre — foi isso que a pasta com barra no nome causou.
+
+## Persistent background queue
+
+`./tests/run.sh backupqueue` exercises immutable capture without cloud access,
+busy-save and lifecycle guards, FIFO recovery, persisted backoff, pause/resume,
+interrupted-tree checkpoints, snapshot fingerprints, pruning, account/provider
+separation, corrupt manifests and startup cleanup. The default suite includes it.
+WebDAV tests also cancel an in-flight streamed PUT through the byte-progress
+callback and retry successfully. No real saves or console are used.
