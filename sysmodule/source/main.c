@@ -53,6 +53,20 @@ static void startup_error(const char *message) {
 
 static bool disabled(void) { return access(BACKUP_DISABLE_PATH, F_OK) == 0; }
 
+static bool initialize_sockets(void) {
+  SocketInitConfig cfg = *socketGetDefaultInitConfig();
+  cfg.tcp_tx_buf_size = 0x4000;
+  cfg.tcp_rx_buf_size = 0x8000;
+  cfg.tcp_tx_buf_max_size = 0x20000;
+  cfg.tcp_rx_buf_max_size = 0x20000;
+  cfg.udp_tx_buf_size = 0x800;
+  cfg.udp_rx_buf_size = 0x1000;
+  cfg.sb_efficiency = 1;
+  cfg.num_bsd_sessions = 2;
+  cfg.bsd_service_type = BsdServiceType_System;
+  return R_SUCCEEDED(socketInitialize(&cfg));
+}
+
 void __appInit(void) {
   if (R_FAILED(smInitialize()))
     return;
@@ -94,17 +108,7 @@ void __appInit(void) {
   lang_load();
   if (R_SUCCEEDED(timeInitialize()))
     __libnx_init_time();
-  SocketInitConfig cfg = *socketGetDefaultInitConfig();
-  cfg.tcp_tx_buf_size = 0x4000;
-  cfg.tcp_rx_buf_size = 0x8000;
-  cfg.tcp_tx_buf_max_size = 0x20000;
-  cfg.tcp_rx_buf_max_size = 0x20000;
-  cfg.udp_tx_buf_size = 0x800;
-  cfg.udp_rx_buf_size = 0x1000;
-  cfg.sb_efficiency = 1;
-  cfg.num_bsd_sessions = 2;
-  cfg.bsd_service_type = BsdServiceType_System;
-  g_socket_ok = R_SUCCEEDED(socketInitialize(&cfg));
+  g_socket_ok = initialize_sockets();
   g_ready = true;
 }
 
@@ -323,15 +327,21 @@ static void upload_worker(void *unused) {
   (void)unused;
   bool network = g_socket_ok && http_init();
   if (!network)
-    log_line("Network initialization failed; snapshots remain queued until "
-             "module restart");
+    log_line("Network initialization failed; will retry while retaining snapshots");
   else if (!http_ca_bundle()[0])
     log_line("Missing cacert.pem; open the app once to copy the TLS CA bundle");
+  u64 last_network_attempt = armGetSystemTick();
   http_set_transfer_cb(transfer_progress);
   http_set_upload_limit(128 *
                         1024); // Bytes/s: preserve bandwidth for gameplay.
   cloud_set_abort_cb(uploads_paused);
   while (!atomic_load(&g_stopping) && !disabled()) {
+    if (!network && armTicksToNs(armGetSystemTick() - last_network_attempt) >= 30000000000ULL) {
+      last_network_attempt = armGetSystemTick();
+      if (!g_socket_ok) g_socket_ok = initialize_sockets();
+      network = g_socket_ok && http_init();
+      if (network) log_line("Network initialized; resuming persisted queue");
+    }
     BackupJob job;
     char path[192];
     if (!uploads_paused() && network &&
@@ -370,6 +380,9 @@ static void upload_worker(void *unused) {
           snprintf(g_last_result, sizeof(g_last_result), "Upload complete");
           log_line("Snapshot upload and prune complete; synchronized "
                    "fingerprint recorded");
+        } else if (uploads_paused()) {
+          snprintf(g_last_result, sizeof(g_last_result), "Paused; snapshot retained");
+          log_line(g_last_result);
         } else {
           if (!backupqueue_retry(&job, path, now))
             log_line("Could not persist retry deadline; snapshot retained");

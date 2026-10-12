@@ -48,7 +48,8 @@ from arbitrary physical corruption or removal while writing.
 The worker processes a strict FIFO. Retry deadlines and attempt counts persist in
 the manifest: 30, 60, 120 seconds, doubling to a one-hour maximum. Wi-Fi loss,
 sleep-interrupted HTTP, missing credentials, HTTP errors, prune failures, and pause
-keep the job. Completed files are checkpointed with their destination folder and
+keep the job. Network-stack/curl initialization failures are also retried every 30 seconds.
+Completed files are checkpointed with their destination folder and
 are skipped on retry only if they still exist there. The interrupted **file**
 restarts from byte zero; Drive upload session URLs/byte offsets are not persisted.
 Jobs resume across sleep and reboots when the owner manually starts the module.
@@ -140,7 +141,8 @@ No OAuth credentials, tokens, real saves, or deployable binaries are committed.
 4. The overlay shows pending account snapshots, uploading state, current file byte
    percentage, and the last result. Pause/resume is persisted via `uploads.paused`;
    pause interrupts the current HTTP transfer and retains all snapshots. The retry
-   deadline still applies after resume. Stopping/rebooting preserves the queue but
+   deadline from an earlier network failure still applies after resume; pausing itself
+   does not create a new backoff deadline. Stopping/rebooting preserves the queue but
    requires manual module start again.
 5. Check `/switch/SwitchSaveSync/autosync.log`, `status.txt`, and `queue-status.txt`.
    The bounded log records initialization, local capture, upload, retry, and shutdown

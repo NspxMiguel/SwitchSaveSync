@@ -337,7 +337,8 @@ public:
                 : !strncmp(result, "Excluded title", 14)
                     ? TR("Jogo excluido; fila mantida",
                          "Excluded game; queue retained")
-                : !strncmp(result, "Uploading", 9)
+                : !strncmp(result, "Paused", 6) ? TR("Pausado; copia mantida", "Paused; snapshot retained") :
+                          !strncmp(result, "Uploading", 9)
                     ? TR("Enviando", "Uploading")
                     : TR("Aguardando backup", "Waiting for a backup");
             this->resultItem->setValue(label);
