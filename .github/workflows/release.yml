@@ -27,6 +27,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
           AUTH_ENDPOINT: ${{ vars.SSS_AUTH_ENDPOINT }}
+          GOOGLE_CLIENT_ID: ${{ secrets.SSS_GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.SSS_GOOGLE_CLIENT_SECRET }}
         run: |
           python3 - <<'PY'
           import os, re
@@ -43,8 +45,15 @@ jobs:
               path.write_text(re.sub(r'^APP_VERSION\s*:=.*$', f'APP_VERSION := {version}', path.read_text(), flags=re.M))
           config = Path('core/config.h.example').read_text()
           endpoint = os.environ.get('AUTH_ENDPOINT', '')
-          if not endpoint.startswith('https://') or any(c in endpoint for c in '\\"\n\r'):
-              raise SystemExit('Set repository variable SSS_AUTH_ENDPOINT to the public HTTPS credential endpoint (no secrets)')
+          client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
+          client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+          bad = lambda v: any(c in v for c in '\\"\n\r')
+          if endpoint and (not endpoint.startswith('https://') or bad(endpoint)):
+              raise SystemExit('SSS_AUTH_ENDPOINT must be an https:// URL')
+          if not endpoint and not (client_id and client_secret) or bad(client_id) or bad(client_secret):
+              raise SystemExit('Set secrets SSS_GOOGLE_CLIENT_ID/SSS_GOOGLE_CLIENT_SECRET (embedded installed-app client) or variable SSS_AUTH_ENDPOINT')
+          config = re.sub(r'#define GOOGLE_CLIENT_ID\s+"[^"]*"', f'#define GOOGLE_CLIENT_ID     "{client_id}"', config)
+          config = re.sub(r'#define GOOGLE_CLIENT_SECRET\s+"[^"]*"', f'#define GOOGLE_CLIENT_SECRET "{client_secret}"', config)
           config = config.replace('#define SSS_AUTH_ENDPOINT    ""', f'#define SSS_AUTH_ENDPOINT    "{endpoint}"')
           Path('core/config.h').write_text(config)
           PY
