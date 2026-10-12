@@ -42,9 +42,16 @@ class Job
     ~Job();
 
     void start();
+    void waitForCompletion()
+    {
+        if (this->thread.joinable())
+            this->thread.join();
+    }
 
     // ---- chamados de dentro da thread de trabalho ----
     void setStatus(const std::string& status);
+    void setProgress(int percent) { this->progress.store(percent); }
+    int getProgress() const { return this->progress.load(); }
     void log(const std::string& line, bool error = false);
     bool cancelRequested() const { return this->cancel.load(); }
 
@@ -92,6 +99,7 @@ class Job
 
     std::vector<JobChoice> choices;
 
+    std::atomic<int> progress { -1 };
     std::atomic<bool> finished { false };
     std::atomic<bool> ok { false };
     std::atomic<bool> cancel { false };

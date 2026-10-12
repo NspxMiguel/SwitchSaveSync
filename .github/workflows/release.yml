@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Switch dependencies
+        run: |
+          dkp-pacman -Syu --noconfirm
+          dkp-pacman -S --needed --noconfirm switch-curl switch-mbedtls switch-zlib switch-glfw switch-mesa switch-glm
+      - name: Set release version and public credential endpoint
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          AUTH_ENDPOINT: ${{ vars.SSS_AUTH_ENDPOINT }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          if not re.fullmatch(r'v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?', tag):
+              raise SystemExit('Build a SemVer tag, for example v0.5.0')
+          version = tag[1:]
+          prerelease = version.split('+', 1)[0].partition('-')[2]
+          if any(part.isdigit() and len(part) > 1 and part[0] == '0' for part in prerelease.split('.')):
+              raise SystemExit('Numeric prerelease identifiers must not contain leading zeros')
+          for name in ('gui/Makefile', 'overlay/Makefile'):
+              path = Path(name)
+              path.write_text(re.sub(r'^APP_VERSION\s*:=.*$', f'APP_VERSION := {version}', path.read_text(), flags=re.M))
+          config = Path('core/config.h.example').read_text()
+          endpoint = os.environ.get('AUTH_ENDPOINT', '')
+          if not endpoint.startswith('https://') or any(c in endpoint for c in '\\"\n\r'):
+              raise SystemExit('Set repository variable SSS_AUTH_ENDPOINT to the public HTTPS credential endpoint (no secrets)')
+          config = config.replace('#define SSS_AUTH_ENDPOINT    ""', f'#define SSS_AUTH_ENDPOINT    "{endpoint}"')
+          Path('core/config.h').write_text(config)
+          PY
+      - name: Build app, sysmodule and overlay
+        run: |
+          make -C gui -j2
+          make -C sysmodule -j2
+          make -C overlay -j2
+      - name: Package installation layout and checksums
+        run: |
+          mkdir -p release/sd/switch/.overlays release/sd/atmosphere/contents/00FF0000535953FF
+          cp gui/SwitchSaveSync.nro release/
+          cp sysmodule/SwitchSaveSync.nsp release/exefs.nsp
+          cp sysmodule/toolbox.json release/
+          cp overlay/SwitchSaveSync.ovl release/
+          cp release/SwitchSaveSync.nro release/sd/switch/
+          cp release/SwitchSaveSync.ovl release/sd/switch/.overlays/
+          cp release/exefs.nsp release/toolbox.json release/sd/atmosphere/contents/00FF0000535953FF/
+          cd release
+          sha256sum SwitchSaveSync.nro exefs.nsp toolbox.json SwitchSaveSync.ovl > SHA256SUMS
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          with ZipFile('SwitchSaveSync-sd.zip', 'w', ZIP_DEFLATED) as archive:
+              for path in sorted(Path('sd').rglob('*')):
+                  if path.is_file():
+                      archive.write(path, path.relative_to('sd'))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            release/SwitchSaveSync.nro
+            release/exefs.nsp
+            release/toolbox.json
+            release/SwitchSaveSync.ovl
+            release/SHA256SUMS
+            release/SwitchSaveSync-sd.zip
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release
+      - name: Create or reuse release and upload verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber

@@ -41,6 +41,10 @@ roda() {
   (cd "build/$nome" && ./teste) || falhou=1
 }
 
+if [ "$QUAL" = tudo ] || [ "$QUAL" = ota ]; then
+  roda ota test_ota.c $CORE/ota.c $CORE/ota_sha256.c $CORE/minijson.c
+fi
+
 # ---- 1. o formato .nxsaves ----
 if [ "$QUAL" = tudo ] || [ "$QUAL" = nxsaves ]; then
   roda nxsaves test_nxsaves.c $CORE/nxsaves.c
