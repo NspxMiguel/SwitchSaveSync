@@ -56,6 +56,10 @@ typedef struct {
 // (registro de uso do serviço pdm). Jogo sem registro de uso vai pro fim.
 size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries);
 
+// Enumerates only this title, without installation queries or play-history
+// sorting.
+size_t titles_list_for_application(u64 id, TitleEntry *out, size_t max_entries);
+
 // O apelido da conta que está usando o console agora.
 //
 // Existe pro caso do save cujo dono não deu pra ler: tendo um save só, o dono é

@@ -89,6 +89,23 @@ static size_t write_to_membuf(void *contents, size_t size, size_t nmemb, void *u
 
 bool http_is_ready(void) { return g_http_ready; }
 
+static http_transfer_cb g_transfer_cb;
+static unsigned long g_upload_limit;
+void http_set_transfer_cb(http_transfer_cb callback) {
+  g_transfer_cb = callback;
+}
+void http_set_upload_limit(unsigned long limit) { g_upload_limit = limit; }
+unsigned long http_upload_limit(void) { return g_upload_limit; }
+static int transfer_progress(void *unused, curl_off_t download_total,
+                             curl_off_t downloaded, curl_off_t upload_total,
+                             curl_off_t uploaded) {
+  (void)unused;
+  (void)download_total;
+  (void)downloaded;
+  return g_transfer_cb &&
+         !g_transfer_cb((uint64_t)upload_total, (uint64_t)uploaded);
+}
+
 static CURL *make_easy_handle(void) {
     // Guarda que evita crash de verdade: no Switch, mexer em socket sem ter
     // chamado socketInitialize não devolve erro — aborta o processo. Se o
@@ -108,6 +125,17 @@ static CURL *make_easy_handle(void) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "SwitchSaveSync/0.1 (+homebrew)");
+    if (g_transfer_cb) {
+      curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+      curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, transfer_progress);
+    }
+    if (g_upload_limit) {
+      curl_easy_setopt(curl, CURLOPT_MAX_SEND_SPEED_LARGE,
+                       (curl_off_t)g_upload_limit);
+      curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
+      curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1024L);
+      curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
+    }
     return curl;
 }
 

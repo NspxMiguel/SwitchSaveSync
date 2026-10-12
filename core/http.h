@@ -1,8 +1,9 @@
 // http.h — wrapper fino em cima do libcurl pras chamadas HTTP que o app
 // precisa (form-urlencoded pro OAuth, JSON/multipart pro Drive API).
 #pragma once
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -15,6 +16,12 @@ typedef struct {
     bool ok;       // false = erro de transporte (sem rede, TLS, timeout...)
     char error[256]; // mensagem de erro do curl, se ok == false
 } HttpResponse;
+
+// Optional transfer callback: false cancels an in-flight request safely.
+typedef bool (*http_transfer_cb)(uint64_t total, uint64_t sent);
+void http_set_transfer_cb(http_transfer_cb callback);
+void http_set_upload_limit(unsigned long bytes_per_second);
+unsigned long http_upload_limit(void);
 
 // Inicializa/finaliza o curl global. Chamar uma vez no início/fim do app.
 bool http_init(void);

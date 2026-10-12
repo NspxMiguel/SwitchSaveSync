@@ -198,8 +198,8 @@ icon on the console's own menu, no R and no homebrew menu.
 
 ## 2. Autosync (optional, and still being tested)
 
-A background process that backs a save up when you close the game, and — if you let it —
-brings saves down from the cloud while the console sits on the menu.
+A background process that captures local snapshots when a game closes and uploads them
+from a persistent queue. Downloads remain in the app.
 
 **1.** Install [Ultrahand](https://github.com/ppkantorski/Ultrahand-Overlay) first. The
 overlay is how you start and stop the sysmodule; there is no other switch.
@@ -225,22 +225,25 @@ shouldn't be one: something that mounts savedata should not come up before you'v
 
 ### What it actually does
 
-**Uploading:** three seconds after a game closes, that game's save goes up.
+**Capture:** the first worker pass after game exit copies that game's account and device
+saves to an immutable SD snapshot. Busy saves or SD errors are retried without cloud access.
 
-**Downloading — read this one.** With the cloud enabled and the console idle on the menu
-for 30 seconds, it sweeps your library and pulls saves down, one game per pass, each game
-at most once every 30 minutes. A download **replaces the whole savedata** — the contents
-are wiped and rewritten. That is the point of a sync, and it's also the part that can cost
-you progress, so it happens only when all three of these hold:
+**Upload:** a separate worker sends queued snapshots at low priority, with a 128 KiB/s
+bandwidth limit. The queue and completed-file checkpoints survive sleep and reboot.
+An interrupted file restarts from byte zero. Reboot still requires manual module start.
 
-1. **This console uploaded that save before.** No record of a previous sync, no download.
-2. **The local save hasn't changed since that upload.** If it has, the local one wins and
-   the cloud is left alone.
-3. **A copy of the local save was written to the card first.** If that copy fails, the
-   download is aborted.
+**Pause uploads** stops the current network transfer and persists until resumed, while
+local captures continue. The overlay shows pending snapshots, current-file byte progress
+and the last result. Upload failures retry with backoff from 30 seconds to one hour.
 
-While it downloads, a screen with a progress bar sits over the menu with two buttons:
-*"Nao puxar save da nuvem nesse jogo"* and OK. It stays up for at least five seconds.
+**Disable:** create `/switch/SwitchSaveSync/disabled.flag`. At startup the module exits
+before opening PM, title metadata, account or network sessions. The file also stops a
+running module. Remove it to permit manual start again.
+
+This branch targets **21.2.0 / AMS 1.11.2** without applet or launch hooks, but has not
+been tested on that firmware's hardware. For the branch's built artifacts, exact copy
+commands, services, validation, queue recovery and rollback, read
+[the background backup report](docs/BACKGROUND-BACKUP.md).
 
 ### Is it working?
 

@@ -109,6 +109,12 @@ bool cloud_download(const char *auth, const char *folder_id, const char *remote_
 // pra apagar backup — pra isso tem o prune_extras, que sabe o que é sobra.
 bool cloud_delete_file(const char *auth, const char *folder_id, const char *remote_name);
 
+// Optional immutable-snapshot journal. Lookup returns true for an uploaded
+// file; completion must return true only once its checkpoint is durable.
+typedef bool (*cloud_checkpoint_cb)(const char *path, const char *folder_id,
+                                    bool completed);
+void cloud_set_checkpoint_cb(cloud_checkpoint_cb callback);
+
 // Uma pasta local inteira, recriando as subpastas do outro lado.
 //
 // upload_tree só ESCREVE: arquivo que sumiu do save continua na nuvem. Quem

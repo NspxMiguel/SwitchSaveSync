@@ -47,6 +47,16 @@ size_t syncjob_find_all_titles(u64 application_id, TitleEntry *out, size_t max);
 typedef bool (*syncjob_guard_cb)(void);
 void syncjob_set_write_guard(syncjob_guard_cb guard);
 
+typedef bool (*syncjob_snapshot_guard_cb)(u64 application_id);
+void syncjob_set_snapshot_guard(syncjob_snapshot_guard_cb guard);
+
+// Immutable SD snapshots use the same cloud layout and fingerprint as the app.
+bool syncjob_snapshot(const TitleEntry *title, const char *path,
+                      u64 *fingerprint);
+bool syncjob_snapshot_fingerprint(const char *path, u64 *out);
+bool syncjob_upload_snapshot(const TitleEntry *title, const char *path,
+                             syncjob_log_cb log, bool *exact);
+
 // Backup completo de um jogo. O mount é sempre read-only: essa função não
 // tem como corromper save, no pior caso ela falha.
 bool syncjob_backup_title(const TitleEntry *title, syncjob_log_cb log);
@@ -107,6 +117,7 @@ bool syncjob_restore_title(const TitleEntry *title, syncjob_log_cb log);
 bool syncjob_fingerprint(const TitleEntry *title, u64 *out);
 
 // Grava/lê a impressão digital do último upload bem-sucedido desse jogo.
+bool syncjob_mark_synced_checked(const TitleEntry *title, u64 fingerprint);
 void syncjob_mark_synced(const TitleEntry *title, u64 fingerprint);
 bool syncjob_last_synced(const TitleEntry *title, u64 *out);
 

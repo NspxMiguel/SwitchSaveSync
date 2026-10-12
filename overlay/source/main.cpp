@@ -21,9 +21,10 @@
 #include <tesla.hpp>
 
 extern "C" {
+#include "backupqueue.h"
+#include "lang.h"
 #include "syncstate.h"
 #include "titles.h"
-#include "lang.h"
 }
 
 // Sem acento de propósito, dos dois lados. A fonte que a libtesla carrega é a
@@ -112,7 +113,10 @@ public:
         auto* frame = new tsl::elm::OverlayFrame("SwitchSaveSync", TR("jogos", "games"));
         auto* list  = new tsl::elm::List();
 
-        list->addItem(new tsl::elm::CategoryHeader(TR("Off = nao sobe save nem puxa da nuvem", "Off = no upload, no download"), true));
+        list->addItem(
+            new tsl::elm::CategoryHeader(TR("Off = nao faz backup deste jogo",
+                                            "Off = no backup for this game"),
+                                         true));
 
         // Estático: a lista de TitleEntry é grande demais pra pilha do overlay.
         static TitleEntry entries[MAX_TITLES];
@@ -176,6 +180,21 @@ public:
                 r->drawString(this->wrapped, false, x + 20, y + 26, 20,
                               a(tsl::style::color::ColorText));
             }), 96); // a altura vai no addItem, nao no CustomDrawer
+
+        this->queueItem =
+            new tsl::elm::ListItem(TR("Fila de uploads", "Upload queue"));
+        list->addItem(this->queueItem);
+        this->resultItem =
+            new tsl::elm::ListItem(TR("Ultimo resultado", "Last result"));
+        list->addItem(this->resultItem);
+        auto *pauseItem = new tsl::elm::ToggleListItem(
+            TR("Pausar uploads", "Pause uploads"), backupqueue_paused(),
+            TR("Pausado", "Paused"), TR("Enviando", "Running"));
+        pauseItem->setStateChangedListener([pauseItem](bool paused) {
+          if (!backupqueue_set_paused(paused))
+            pauseItem->setState(!paused);
+        });
+        list->addItem(pauseItem);
 
         list->addItem(new tsl::elm::CategoryHeader(TR("Controle", "Controls"), true));
 
@@ -284,6 +303,51 @@ public:
     // Roda a cada frame do overlay: relê o status.txt que o sysmodule escreve.
     virtual void update() override
     {
+      u64 now = armGetSystemTick();
+      if (this->lastUpdate &&
+          armTicksToNs(now - this->lastUpdate) < 1000000000ULL)
+        return;
+      this->lastUpdate = now;
+      if (this->moduleItem)
+        this->moduleItem->setState(sysmoduleRunning());
+      FILE *queueFile = fopen(BACKUP_STATUS_PATH, "r");
+      if (queueFile) {
+        size_t pending = 0;
+        int uploading = 0, percent = 0;
+        char result[128] = {0}, value[80];
+        if (fscanf(queueFile, "%zu %d %d\n", &pending, &uploading, &percent) ==
+            3) {
+          uploading = uploading && sysmoduleRunning();
+          snprintf(value, sizeof(value),
+                   uploading ? TR("%zu pendentes · %d%%", "%zu pending · %d%%")
+                             : TR("%zu pendentes", "%zu pending"),
+                   pending, percent);
+          this->queueItem->setValue(value);
+          if (fgets(result, sizeof(result), queueFile)) {
+            result[strcspn(result, "\r\n")] = 0;
+            const char *label =
+                !strcmp(result, "Upload complete") ? TR("Concluido", "Complete")
+                : !strncmp(result, "Interrupted/failed", 18)
+                    ? TR("Nova tentativa agendada", "Retry scheduled")
+                : !strncmp(result, "Queue needs repair", 18)
+                    ? TR("Fila precisa de reparo", "Queue needs repair")
+                : !strncmp(result, "Provider mismatch", 17)
+                    ? TR("Troque para a nuvem da fila",
+                         "Switch to the queued cloud")
+                : !strncmp(result, "Excluded title", 14)
+                    ? TR("Jogo excluido; fila mantida",
+                         "Excluded game; queue retained")
+                : !strncmp(result, "Paused", 6)
+                    ? TR("Pausado; copia mantida", "Paused; snapshot retained")
+                : !strncmp(result, "Uploading", 9)
+                    ? TR("Enviando", "Uploading")
+                    : TR("Aguardando backup", "Waiting for a backup");
+            this->resultItem->setValue(label);
+          }
+        }
+        fclose(queueFile);
+      }
+
         // O erro tem prioridade sobre o status: se a última coisa que ele fez
         // foi tentar ligar e não deu, é isso que ele precisa ler.
         if (this->failMsg[0])
@@ -369,6 +433,9 @@ private:
     char statusText[640] = {0};
     char wrapped[768]    = {0};
     char wrappedFrom[640] = {0};
+    u64 lastUpdate = 0;
+    tsl::elm::ListItem *queueItem = nullptr;
+    tsl::elm::ListItem *resultItem = nullptr;
     tsl::elm::ListItem* backupItem = nullptr;
     tsl::elm::ToggleListItem* moduleItem = nullptr;
     char failMsg[128] = {0};

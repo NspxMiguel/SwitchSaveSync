@@ -30,12 +30,15 @@
 // Em erro, o padrao e EXCLUIR: se eu nao consegui confirmar que esta instalado,
 // mostrar assim mesmo traria de volta exatamente a lista de save orfao que este
 // filtro existe pra tirar.
+#ifndef SSS_BACKGROUND
 static bool is_installed(uint64_t application_id) {
     bool installed = false;
     Result rc = nsIsAnyApplicationEntityInstalled(application_id, &installed);
     if (R_FAILED(rc)) return false;
     return installed;
 }
+
+#endif
 
 // Apelido da conta dona do save, o mesmo que aparece no perfil do console.
 //
@@ -157,6 +160,7 @@ bool titles_save_sizes(u64 application_id, bool device, u64 *out_size, u64 *out_
 // (save de jogo nunca aberto nessa instalação, log de uso desativado, jogo
 // de outro perfil), então quem não tem registro fica com timestamp 0 e cai
 // pro fim da lista, mantendo a ordem original entre eles.
+#ifndef SSS_BACKGROUND
 static void sort_by_last_played(TitleEntry *entries, size_t count) {
     if (count < 2) return;
 
@@ -205,106 +209,124 @@ static void sort_by_last_played(TitleEntry *entries, size_t count) {
     }
 }
 
-size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
-    if (!out || max_entries == 0) return 0;
+#endif
 
-    bool fs_owned = false, ns_owned = false, acc_owned = false;
-    if (R_SUCCEEDED(fsInitialize())) {
-        fs_owned = true;
-    }
-    // acc:u0 é o suficiente pra ler apelido de perfil; não precisa de acc:su.
-    if (R_SUCCEEDED(accountInitialize(AccountServiceType_Application))) {
-        acc_owned = true;
-    }
-    // se fsInitialize já tinha sido chamado em outro lugar do app, essa
-    // chamada falha com erro "já inicializado" — não é fatal, seguimos
-    // tentando o resto (o serviço já está disponível de qualquer forma).
-    if (R_SUCCEEDED(nsInitialize())) {
-        ns_owned = true;
-    }
+static size_t list_savedata(TitleEntry *out, size_t max_entries, u64 filter) {
+  if (!out || max_entries == 0)
+    return 0;
 
-    size_t count = 0;
+  bool fs_owned = false, ns_owned = false, acc_owned = false;
+  if (R_SUCCEEDED(fsInitialize())) {
+    fs_owned = true;
+  }
+  // acc:u0 é o suficiente pra ler apelido de perfil; não precisa de acc:su.
+  if (R_SUCCEEDED(accountInitialize(AccountServiceType_Application))) {
+    acc_owned = true;
+  }
+  // se fsInitialize já tinha sido chamado em outro lugar do app, essa
+  // chamada falha com erro "já inicializado" — não é fatal, seguimos
+  // tentando o resto (o serviço já está disponível de qualquer forma).
+  if (R_SUCCEEDED(nsInitialize())) {
+    ns_owned = true;
+  }
 
-    FsSaveDataInfoReader reader;
-    Result rc = fsOpenSaveDataInfoReader(&reader, FsSaveDataSpaceId_User);
-    if (R_FAILED(rc)) {
-        goto cleanup;
-    }
+  size_t count = 0;
 
-    {
-        // fsSaveDataInfoReaderRead é um iterador: cada chamada devolve um
-        // lote e avança a posição interna do reader. Uma chamada só (com
-        // buffer fixo) perderia silenciosamente qualquer entrada além do
-        // tamanho do lote se o console tiver muita save data (de sistema +
-        // jogos, não só jogos) — por isso o loop até vir 0 de volta.
-        FsSaveDataInfo entries[SCAN_BATCH_SIZE];
-        for (;;) {
-            s64 total_read = 0;
-            rc = fsSaveDataInfoReaderRead(&reader, entries, SCAN_BATCH_SIZE, &total_read);
-            if (R_FAILED(rc) || total_read == 0) break;
+  FsSaveDataInfoReader reader;
+  Result rc = fsOpenSaveDataInfoReader(&reader, FsSaveDataSpaceId_User);
+  if (R_FAILED(rc)) {
+    goto cleanup;
+  }
 
-            for (s64 i = 0; i < total_read && count < max_entries; i++) {
-                FsSaveDataInfo *info = &entries[i];
+  {
+    // fsSaveDataInfoReaderRead é um iterador: cada chamada devolve um
+    // lote e avança a posição interna do reader. Uma chamada só (com
+    // buffer fixo) perderia silenciosamente qualquer entrada além do
+    // tamanho do lote se o console tiver muita save data (de sistema +
+    // jogos, não só jogos) — por isso o loop até vir 0 de volta.
+    FsSaveDataInfo entries[SCAN_BATCH_SIZE];
+    for (;;) {
+      s64 total_read = 0;
+      rc = fsSaveDataInfoReaderRead(&reader, entries, SCAN_BATCH_SIZE,
+                                    &total_read);
+      if (R_FAILED(rc) || total_read == 0)
+        break;
 
-                // Dois tipos entram: save de conta e save do console.
-                //
-                // Os que ficam de fora são de propósito: System e SystemBcat
-                // não são de jogo; Bcat é conteúdo que o servidor da Nintendo
-                // empurra (evento, não progresso); Temporary morre sozinho; e
-                // Cache é dado derivado que o jogo remonta quando falta.
-                // Nenhum deles é progresso do jogador, que é o que se quer
-                // sincronizar.
-                bool device = (info->save_data_type == FsSaveDataType_Device);
-                if (info->save_data_type != FsSaveDataType_Account && !device) continue;
+      for (s64 i = 0; i < total_read && count < max_entries; i++) {
+        FsSaveDataInfo *info = &entries[i];
 
-                uint64_t application_id = info->application_id;
-                if (application_id == 0) continue;
+        // Dois tipos entram: save de conta e save do console.
+        //
+        // Os que ficam de fora são de propósito: System e SystemBcat
+        // não são de jogo; Bcat é conteúdo que o servidor da Nintendo
+        // empurra (evento, não progresso); Temporary morre sozinho; e
+        // Cache é dado derivado que o jogo remonta quando falta.
+        // Nenhum deles é progresso do jogador, que é o que se quer
+        // sincronizar.
+        bool device = (info->save_data_type == FsSaveDataType_Device);
+        if (info->save_data_type != FsSaveDataType_Account && !device)
+          continue;
 
-                // So jogo instalado. Ver is_installed() logo acima.
-                if (!is_installed(application_id)) continue;
+        uint64_t application_id = info->application_id;
+        if (application_id == 0 || (filter && application_id != filter))
+          continue;
 
-                // Duplicata agora é (jogo, TIPO, CONTA), não jogo.
-                //
-                // Antes bastava o application_id bater pra pular, então o save
-                // da segunda conta era descartado aqui: nunca aparecia na
-                // lista e não tinha como ser sincronizado. Havendo mais de um
-                // save do mesmo jogo, cada conta tem que ter o seu na lista.
-                // O tipo entrou na chave junto porque um jogo pode ter save de
-                // conta E save do console ao mesmo tempo (é o caso do Pokémon
-                // Sword/Shield) — são dois saves de verdade, e não um repetido.
-                bool dup = false;
-                for (size_t j = 0; j < count; j++) {
-                    if (out[j].application_id == application_id &&
-                        out[j].device_save == device &&
-                        out[j].uid.uid[0] == info->uid.uid[0] &&
-                        out[j].uid.uid[1] == info->uid.uid[1]) { dup = true; break; }
-                }
-                if (dup) continue;
+        // So jogo instalado. Ver is_installed() logo acima.
+#ifndef SSS_BACKGROUND
+        if (!filter && !is_installed(application_id))
+          continue;
+#endif
 
-                out[count].application_id = application_id;
-                out[count].save_data_id = info->save_data_id;
-                out[count].uid = info->uid;
-                out[count].device_save = device;
-                out[count].shared_game = false; // decidido no passe de baixo
-
-                if (!resolve_title_name(application_id, out[count].name, sizeof(out[count].name))) {
-                    snprintf(out[count].name, sizeof(out[count].name),
-                             "Titulo desconhecido (%016lX)", application_id);
-                }
-                // Device save não tem dono: o uid vem zerado, e perguntar o
-                // apelido de um uid zerado só devolveria erro.
-                if (device)
-                    out[count].account[0] = '\0';
-                else
-                    resolve_account_name(info->uid, out[count].account, sizeof(out[count].account));
-                count++;
-            }
-
-            if (count >= max_entries) break;
-            if ((size_t)total_read < SCAN_BATCH_SIZE) break; // lote parcial = acabou
+        // Duplicata agora é (jogo, TIPO, CONTA), não jogo.
+        //
+        // Antes bastava o application_id bater pra pular, então o save
+        // da segunda conta era descartado aqui: nunca aparecia na
+        // lista e não tinha como ser sincronizado. Havendo mais de um
+        // save do mesmo jogo, cada conta tem que ter o seu na lista.
+        // O tipo entrou na chave junto porque um jogo pode ter save de
+        // conta E save do console ao mesmo tempo (é o caso do Pokémon
+        // Sword/Shield) — são dois saves de verdade, e não um repetido.
+        bool dup = false;
+        for (size_t j = 0; j < count; j++) {
+          if (out[j].application_id == application_id &&
+              out[j].device_save == device &&
+              out[j].uid.uid[0] == info->uid.uid[0] &&
+              out[j].uid.uid[1] == info->uid.uid[1]) {
+            dup = true;
+            break;
+          }
         }
-        fsSaveDataInfoReaderClose(&reader);
+        if (dup)
+          continue;
+
+        out[count].application_id = application_id;
+        out[count].save_data_id = info->save_data_id;
+        out[count].uid = info->uid;
+        out[count].device_save = device;
+        out[count].shared_game = false; // decidido no passe de baixo
+
+        if (!resolve_title_name(application_id, out[count].name,
+                                sizeof(out[count].name))) {
+          snprintf(out[count].name, sizeof(out[count].name),
+                   "Titulo desconhecido (%016lX)", application_id);
+        }
+        // Device save não tem dono: o uid vem zerado, e perguntar o
+        // apelido de um uid zerado só devolveria erro.
+        if (device)
+          out[count].account[0] = '\0';
+        else
+          resolve_account_name(info->uid, out[count].account,
+                               sizeof(out[count].account));
+        count++;
+      }
+
+      if (count >= max_entries)
+        break;
+      if ((size_t)total_read < SCAN_BATCH_SIZE)
+        break; // lote parcial = acabou
     }
+    fsSaveDataInfoReaderClose(&reader);
+  }
 
 cleanup:
     if (ns_owned) nsExit();
@@ -323,6 +345,20 @@ cleanup:
         }
     }
 
-    sort_by_last_played(out, count);
+#ifndef SSS_BACKGROUND
+    if (!filter)
+      sort_by_last_played(out, count);
+#endif
     return count;
+}
+
+size_t titles_list_with_savedata(TitleEntry *out, size_t max_entries) {
+  return list_savedata(out, max_entries, 0);
+}
+
+size_t titles_list_for_application(u64 id, TitleEntry *out,
+                                   size_t max_entries) {
+  if (!id)
+    return 0;
+  return list_savedata(out, max_entries, id);
 }

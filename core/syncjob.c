@@ -1,6 +1,7 @@
 #include "syncjob.h"
 
 #include <dirent.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -515,57 +516,69 @@ bool syncjob_backup_title_ex(const TitleEntry *title, syncjob_log_cb log,
         return false;
     }
 
-    // 2) staging -> Drive
-    say(log, TR("Pegando token do Google...", "Getting a Google token..."));
-    char token[CLOUD_AUTH_MAX];
-    if (!cloud_begin(token, sizeof(token)))
-    {
-        say(log, TR("Sem token válido — precisa entrar na conta pelo app", "No valid token — sign in from the app first"));
-        return false;
-    }
+    return syncjob_upload_snapshot(title, staging, log, nuvem_bate);
+}
 
-    char root_id[CLOUD_ID_MAX];
-    if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id)))
-    {
-        say(log, TR("Não achei/criei a pasta \"%s\" em %s", "Couldn't find/create the \"%s\" folder on %s"), DRIVE_APP_FOLDER_NAME, nuvem());
-        return false;
-    }
+bool syncjob_upload_snapshot(const TitleEntry *title, const char *staging,
+                             syncjob_log_cb log, bool *nuvem_bate) {
+  if (nuvem_bate)
+    *nuvem_bate = false;
+  // 2) staging -> Drive
+  say(log, TR("Pegando token do Google...", "Getting a Google token..."));
+  char token[CLOUD_AUTH_MAX];
+  if (!cloud_begin(token, sizeof(token))) {
+    say(log, TR("Sem token válido — precisa entrar na conta pelo app",
+                "No valid token — sign in from the app first"));
+    return false;
+  }
 
-    char pasta_nuvem[0x220];
-    char game_id[CLOUD_ID_MAX];
-    if (!cloud_title_folder(token, root_id, title, true,
-            game_id, sizeof(game_id), pasta_nuvem, sizeof(pasta_nuvem)))
-    {
-        say(log, TR("Não criei a pasta do jogo em %s", "Couldn't create the game's folder on %s"), nuvem());
-        return false;
-    }
-    lembra_pasta(title, pasta_nuvem);
+  char root_id[CLOUD_ID_MAX];
+  if (!cloud_ensure_app_folder(token, root_id, sizeof(root_id))) {
+    say(log,
+        TR("Não achei/criei a pasta \"%s\" em %s",
+           "Couldn't find/create the \"%s\" folder on %s"),
+        DRIVE_APP_FOLDER_NAME, nuvem());
+    return false;
+  }
 
-    say(log, TR("Subindo pro %s...", "Uploading to %s..."), nuvem());
-    if (!cloud_upload_tree(token, game_id, staging))
-    {
-        say(log, TR("Upload falhou", "Upload failed"));
-        return false;
-    }
+  char pasta_nuvem[0x220];
+  char game_id[CLOUD_ID_MAX];
+  if (!cloud_title_folder(token, root_id, title, true, game_id, sizeof(game_id),
+                          pasta_nuvem, sizeof(pasta_nuvem))) {
+    say(log,
+        TR("Não criei a pasta do jogo em %s",
+           "Couldn't create the game's folder on %s"),
+        nuvem());
+    return false;
+  }
+  lembra_pasta(title, pasta_nuvem);
 
-    // Subir só escreve. O que o save não tem mais precisa sair da nuvem, senão
-    // volta no próximo restore. No Drive vai pra lixeira e não some; no
-    // WebDAV depende do servidor ter lixeira — ver o aviso no cloud.h.
-    bool limpou = cloud_prune_extras(token, game_id, staging);
+  say(log, TR("Subindo pro %s...", "Uploading to %s..."), nuvem());
+  if (!cloud_upload_tree(token, game_id, staging)) {
+    say(log, TR("Upload falhou", "Upload failed"));
+    return false;
+  }
 
-    if (!limpou)
-        say(log, TR("Subiu, mas não consegui tirar da nuvem o que o save não tem mais",
-                    "Uploaded, but couldn't remove from the cloud what the save no longer has"));
+  // Subir só escreve. O que o save não tem mais precisa sair da nuvem, senão
+  // volta no próximo restore. No Drive vai pra lixeira e não some; no
+  // WebDAV depende do servidor ter lixeira — ver o aviso no cloud.h.
+  bool limpou = cloud_prune_extras(token, game_id, staging);
 
-    // Quem chama é que grava o marcador (o sysmodule, quando o jogo fecha), e
-    // ele precisa saber disto: marcar "sincronizado" com sobra na nuvem faz o
-    // sync seguinte achar a nuvem mais nova e ressuscitar dentro do savedata o
-    // arquivo que o jogo apagou.
-    if (nuvem_bate)
-        *nuvem_bate = limpou;
+  if (!limpou)
+    say(log,
+        TR("Subiu, mas não consegui tirar da nuvem o que o save não tem mais",
+           "Uploaded, but couldn't remove from the cloud what the save no "
+           "longer has"));
 
-    say(log, TR("Backup de %s concluído", "Backup of %s done"), title->name);
-    return true;
+  // Quem chama é que grava o marcador (o sysmodule, quando o jogo fecha), e
+  // ele precisa saber disto: marcar "sincronizado" com sobra na nuvem faz o
+  // sync seguinte achar a nuvem mais nova e ressuscitar dentro do savedata o
+  // arquivo que o jogo apagou.
+  if (nuvem_bate)
+    *nuvem_bate = limpou;
+
+  say(log, TR("Backup de %s concluído", "Backup of %s done"), title->name);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -889,63 +902,73 @@ bool syncjob_restore_title_local(const TitleEntry *title, syncjob_log_cb log)
 //
 // Ler o conteúdo inteiro é barato aqui: save de Switch é pequeno (o do Mario 3D
 // World tem 64 KB), e neste ponto o save da nuvem já foi baixado mesmo.
-static void fingerprint_dir(const char *dir, u64 *acc)
-{
-    DIR *d = opendir(dir);
-    if (!d)
-        return;
+static bool fingerprint_dir(const char *dir, u64 *acc) {
+  DIR *d = opendir(dir);
+  if (!d)
+    return false;
 
-    struct dirent *ent;
-    while ((ent = readdir(d)))
-    {
-        if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
-            continue;
+  bool ok = true;
+  struct dirent *ent;
+  errno = 0;
+  while ((ent = readdir(d))) {
+    if (!strcmp(ent->d_name, ".") || !strcmp(ent->d_name, ".."))
+      continue;
 
-        char path[0x310];
-        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
-
-        struct stat st;
-        if (stat(path, &st) != 0)
-            continue;
-
-        if (S_ISDIR(st.st_mode))
-        {
-            fingerprint_dir(path, acc);
-            continue;
-        }
-
-        u64 h = 1469598103934665603ULL; // FNV-1a
-        for (const char *p = ent->d_name; *p; p++)
-        {
-            h ^= (unsigned char)*p;
-            h *= 1099511628211ULL;
-        }
-        h ^= (u64)st.st_size * 0x9E3779B97F4A7C15ULL;
-
-        FILE *f = fopen(path, "rb");
-        if (f)
-        {
-            unsigned char buf[4096];
-            size_t n;
-            while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
-                for (size_t i = 0; i < n; i++)
-                {
-                    h ^= buf[i];
-                    h *= 1099511628211ULL;
-                }
-            fclose(f);
-        }
-        else
-        {
-            // Não deu pra ler: marca como "desconhecido" em vez de deixar o
-            // hash igual ao de um arquivo vazio, que seria uma igualdade falsa.
-            h ^= 0xDEADBEEFDEADBEEFULL;
-        }
-
-        *acc += h; // soma: não depende da ordem que o readdir devolveu
+    char path[0x310];
+    if (snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name) >=
+        (int)sizeof(path)) {
+      ok = false;
+      break;
     }
 
-    closedir(d);
+    struct stat st;
+    if (stat(path, &st) != 0) {
+      ok = false;
+      break;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+      if (!fingerprint_dir(path, acc)) {
+        ok = false;
+        break;
+      }
+      continue;
+    }
+
+    u64 h = 1469598103934665603ULL; // FNV-1a
+    for (const char *p = ent->d_name; *p; p++) {
+      h ^= (unsigned char)*p;
+      h *= 1099511628211ULL;
+    }
+    h ^= (u64)st.st_size * 0x9E3779B97F4A7C15ULL;
+
+    FILE *f = fopen(path, "rb");
+    if (f) {
+      unsigned char buf[4096];
+      size_t n;
+      while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        for (size_t i = 0; i < n; i++) {
+          h ^= buf[i];
+          h *= 1099511628211ULL;
+        }
+      if (ferror(f))
+        ok = false;
+      if (fclose(f) != 0)
+        ok = false;
+    } else {
+      // Não deu pra ler: marca como "desconhecido" em vez de deixar o
+      // hash igual ao de um arquivo vazio, que seria uma igualdade falsa.
+      ok = false;
+    }
+
+    errno = 0;
+    *acc += h; // soma: não depende da ordem que o readdir devolveu
+  }
+
+  if (errno)
+    ok = false;
+  closedir(d);
+  return ok;
 }
 
 bool syncjob_fingerprint(const TitleEntry *title, u64 *out)
@@ -954,11 +977,11 @@ bool syncjob_fingerprint(const TitleEntry *title, u64 *out)
         return false;
 
     u64 acc = 0;
-    fingerprint_dir("save:", &acc);
+    bool ok = fingerprint_dir("save:", &acc);
     savemount_unmount(false);
 
     *out = acc;
-    return true;
+    return ok;
 }
 
 // Mesma regra do save_folder_name: a conta só entra no nome quando o jogo tem
@@ -978,18 +1001,28 @@ static void marker_path(const TitleEntry *title, char *out, size_t outsz)
             (unsigned long long)title->application_id);
 }
 
-void syncjob_mark_synced(const TitleEntry *title, u64 fingerprint)
-{
-    syncstate_ensure_dirs();
+bool syncjob_mark_synced_checked(const TitleEntry *title, u64 fingerprint) {
+  syncstate_ensure_dirs();
+  char path[0x120], temp[0x130];
+  marker_path(title, path, sizeof(path));
+  snprintf(temp, sizeof(temp), "%s.tmp", path);
+  FILE *file = fopen(temp, "w");
+  if (!file)
+    return false;
+  bool ok = fprintf(file, "%016llX\n", (unsigned long long)fingerprint) > 0;
+  if (fflush(file) || fsync(fileno(file)))
+    ok = false;
+  if (fclose(file))
+    ok = false;
+  if (!ok || rename(temp, path)) {
+    unlink(temp);
+    return false;
+  }
+  return true;
+}
 
-    char path[0x120];
-    marker_path(title, path, sizeof(path));
-
-    FILE *f = fopen(path, "w");
-    if (!f)
-        return;
-    fprintf(f, "%016llX\n", (unsigned long long)fingerprint);
-    fclose(f);
+void syncjob_mark_synced(const TitleEntry *title, u64 fingerprint) {
+  syncjob_mark_synced_checked(title, fingerprint);
 }
 
 bool syncjob_last_synced(const TitleEntry *title, u64 *out)
@@ -1794,4 +1827,80 @@ bool syncjob_archive_restore_folder(const char *path, const char *folder,
 
     say(log, TR("Save de %s restaurado do arquivo", "%s's save restored from the file"), dest->name);
     return true;
+}
+
+static syncjob_snapshot_guard_cb g_snapshot_guard;
+void syncjob_set_snapshot_guard(syncjob_snapshot_guard_cb guard) {
+  g_snapshot_guard = guard;
+}
+
+static bool flush_snapshot(const char *path) {
+  DIR *dir = opendir(path);
+  if (!dir)
+    return false;
+  bool ok = true;
+  struct dirent *entry;
+  for (;;) {
+    errno = 0;
+    entry = readdir(dir);
+    if (!entry) {
+      if (errno)
+        ok = false;
+      break;
+    }
+    if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, ".."))
+      continue;
+    char child[0x310];
+    if (snprintf(child, sizeof(child), "%s/%s", path, entry->d_name) >=
+        (int)sizeof(child)) {
+      ok = false;
+      break;
+    }
+    struct stat st;
+    if (stat(child, &st)) {
+      ok = false;
+      break;
+    }
+    if (S_ISDIR(st.st_mode)) {
+      if (!flush_snapshot(child)) {
+        ok = false;
+        break;
+      }
+    } else {
+      FILE *file = fopen(child, "r+b");
+      if (!file) {
+        ok = false;
+        break;
+      }
+      if (fsync(fileno(file)))
+        ok = false;
+      if (fclose(file))
+        ok = false;
+      if (!ok)
+        break;
+    }
+  }
+  closedir(dir);
+  return ok;
+}
+
+// Capture is local only; the caller publishes the manifest after this returns.
+bool syncjob_snapshot(const TitleEntry *title, const char *path,
+                      u64 *fingerprint) {
+  if (g_snapshot_guard && !g_snapshot_guard(title->application_id))
+    return false;
+  if (!savemount_mount_typed(title->application_id, title->uid,
+                             title->device_save, true))
+    return false;
+  bool ok = savemount_copy_tree("save:/", path);
+  savemount_unmount(false);
+  if (g_snapshot_guard && !g_snapshot_guard(title->application_id))
+    return false;
+  return ok && flush_snapshot(path) &&
+         syncjob_snapshot_fingerprint(path, fingerprint);
+}
+
+bool syncjob_snapshot_fingerprint(const char *path, u64 *out) {
+  *out = 0;
+  return fingerprint_dir(path, out);
 }
